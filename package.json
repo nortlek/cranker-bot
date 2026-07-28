@@ -1,0 +1,29 @@
+{
+  "name": "pull-pool-keeper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Profit-aware keeper for PullStandingOrder subscriptions on Ethereum mainnet.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/main.ts",
+    "inspect": "tsx src/inspect.ts",
+    "start": "tsx src/main.ts",
+    "start:prod": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "17.4.2",
+    "viem": "2.55.10"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.2",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
