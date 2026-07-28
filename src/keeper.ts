@@ -14,10 +14,22 @@ import { factoryAbi, standingOrderAbi } from "./abi.js";
 import type { KeeperConfig } from "./config.js";
 import { assessProfit } from "./economics.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
+import { buildNoncePlan } from "./nonces.js";
 
 interface OrderCandidate {
   readonly address: Address;
   readonly crankFee: bigint;
+}
+
+interface CrankOpportunity {
+  readonly candidate: OrderCandidate;
+  readonly gasLimit: bigint;
+  readonly maxGasCost: bigint;
+}
+
+interface SubmittedCrank extends CrankOpportunity {
+  readonly hash: Hash;
+  readonly nonce: number;
 }
 
 export interface PassResult {
@@ -37,6 +49,7 @@ export interface KeeperContext {
         readonly gas: bigint;
         readonly maxFeePerGas: bigint;
         readonly maxPriorityFeePerGas: bigint;
+        readonly nonce: number;
       }) => Promise<Hash>)
     | undefined;
 }
@@ -134,15 +147,13 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
     return { orders: candidates.length, viable: 0, sent: 0, confirmed: 0 };
   }
 
-  let viable = 0;
-  let sent = 0;
-  let confirmed = 0;
   const skipped = new Map<string, number>();
+  const opportunities: CrankOpportunity[] = [];
 
   for (const candidate of candidates) {
     if (
       config.maxTransactionsPerPass !== 0 &&
-      sent >= config.maxTransactionsPerPass
+      opportunities.length >= config.maxTransactionsPerPass
     ) {
       break;
     }
@@ -178,7 +189,11 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
       continue;
     }
 
-    viable += 1;
+    opportunities.push({
+      candidate,
+      gasLimit: decision.gasLimit,
+      maxGasCost: decision.maxGasCost,
+    });
     log("info", "crank_opportunity", {
       order: candidate.address,
       crankFee: eth(candidate.crankFee),
@@ -189,55 +204,152 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
       requiredProfit: eth(decision.requiredProfit),
       dryRun: config.dryRun,
     });
+  }
 
-    if (config.dryRun) continue;
-    if (sendCrank === undefined) {
-      throw new Error("live mode requires a configured transaction sender");
+  const viable = opportunities.length;
+  if (config.dryRun || viable === 0) {
+    log("info", "pass_complete", {
+      orders: candidates.length,
+      viable,
+      sent: 0,
+      confirmed: 0,
+      skipped: JSON.stringify(Object.fromEntries(skipped)),
+    });
+    return { orders: candidates.length, viable, sent: 0, confirmed: 0 };
+  }
+  if (sendCrank === undefined) {
+    throw new Error("live mode requires a configured transaction sender");
+  }
+
+  const accountAddress =
+    typeof account === "string" ? account : account.address;
+  const [latestNonce, pendingNonce, accountBalance] = await Promise.all([
+    publicClient.getTransactionCount({
+      address: accountAddress,
+      blockTag: "latest",
+    }),
+    publicClient.getTransactionCount({
+      address: accountAddress,
+      blockTag: "pending",
+    }),
+    publicClient.getBalance({ address: accountAddress }),
+  ]);
+  const noncePlan = buildNoncePlan(
+    { latest: latestNonce, pending: pendingNonce },
+    opportunities.length,
+  );
+  if (noncePlan.blocked) {
+    log("warn", "nonce_batch_blocked", {
+      account: accountAddress,
+      latestNonce,
+      pendingNonce,
+      inFlight: pendingNonce - latestNonce,
+      reason: "account_has_pending_transactions",
+    });
+    log("info", "pass_complete", {
+      orders: candidates.length,
+      viable,
+      sent: 0,
+      confirmed: 0,
+      skipped: JSON.stringify(Object.fromEntries(skipped)),
+    });
+    return { orders: candidates.length, viable, sent: 0, confirmed: 0 };
+  }
+
+  const submitted: SubmittedCrank[] = [];
+  let reservedGasCost = 0n;
+  for (let index = 0; index < opportunities.length; index += 1) {
+    const opportunity = opportunities[index];
+    const nonce = noncePlan.nonces[submitted.length];
+    if (opportunity === undefined || nonce === undefined) {
+      throw new Error("nonce plan did not cover every opportunity");
+    }
+    if (reservedGasCost + opportunity.maxGasCost > accountBalance) {
+      skipped.set(
+        "keeper_balance_reserve",
+        1 + (skipped.get("keeper_balance_reserve") ?? 0),
+      );
+      continue;
     }
 
     try {
       const hash = await sendCrank({
-        order: candidate.address,
-        gas: decision.gasLimit,
+        order: opportunity.candidate.address,
+        gas: opportunity.gasLimit,
         maxFeePerGas,
         maxPriorityFeePerGas,
+        nonce,
       });
-      sent += 1;
+      reservedGasCost += opportunity.maxGasCost;
+      submitted.push({ ...opportunity, hash, nonce });
       log("info", "crank_sent", {
-        order: candidate.address,
+        order: opportunity.candidate.address,
         hash,
-      });
-
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash,
-        confirmations: config.confirmations,
-      });
-      const successful = receipt.status === "success";
-      if (successful) confirmed += 1;
-      const paidFee = successful
-        ? actualFeeFromReceipt(candidate.address, receipt.logs, candidate.crankFee)
-        : 0n;
-      const gasCost = receipt.gasUsed * receipt.effectiveGasPrice;
-      const realizedProfit = paidFee - gasCost;
-      log(successful ? "info" : "warn", "crank_receipt", {
-        order: candidate.address,
-        hash,
-        block: receipt.blockNumber.toString(),
-        status: receipt.status,
-        gasUsed: receipt.gasUsed.toString(),
-        effectiveGasPrice: gwei(receipt.effectiveGasPrice),
-        paidFee: eth(paidFee),
-        gasCost: eth(gasCost),
-        realizedProfit: eth(realizedProfit),
+        nonce,
       });
     } catch (error) {
       log("warn", "crank_submission_failed", {
-        order: candidate.address,
+        order: opportunity.candidate.address,
+        nonce,
         reason: revertedErrorName(error) ?? errorMessage(error),
+        action: "stopping_batch_to_avoid_nonce_gap",
       });
+      break;
     }
   }
 
+  log("info", "crank_batch_sent", {
+    planned: opportunities.length,
+    sent: submitted.length,
+    firstNonce: submitted[0]?.nonce ?? pendingNonce,
+    lastNonce: submitted.at(-1)?.nonce ?? pendingNonce,
+    reservedMaxGasCost: eth(reservedGasCost),
+  });
+
+  const receiptResults = await Promise.all(
+    submitted.map(async (submission) => {
+      try {
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: submission.hash,
+          confirmations: config.confirmations,
+          timeout: config.receiptTimeoutMs,
+        });
+        const successful = receipt.status === "success";
+        const paidFee = successful
+          ? actualFeeFromReceipt(
+              submission.candidate.address,
+              receipt.logs,
+              submission.candidate.crankFee,
+            )
+          : 0n;
+        const gasCost = receipt.gasUsed * receipt.effectiveGasPrice;
+        const realizedProfit = paidFee - gasCost;
+        log(successful ? "info" : "warn", "crank_receipt", {
+          order: submission.candidate.address,
+          hash: submission.hash,
+          nonce: submission.nonce,
+          block: receipt.blockNumber.toString(),
+          status: receipt.status,
+          gasUsed: receipt.gasUsed.toString(),
+          effectiveGasPrice: gwei(receipt.effectiveGasPrice),
+          paidFee: eth(paidFee),
+          gasCost: eth(gasCost),
+          realizedProfit: eth(realizedProfit),
+        });
+        return successful;
+      } catch (error) {
+        log("warn", "crank_receipt_unresolved", {
+          order: submission.candidate.address,
+          hash: submission.hash,
+          nonce: submission.nonce,
+          reason: errorMessage(error),
+        });
+        return false;
+      }
+    }),
+  );
+  const confirmed = receiptResults.filter(Boolean).length;
+  const sent = submitted.length;
   log("info", "pass_complete", {
     orders: candidates.length,
     viable,

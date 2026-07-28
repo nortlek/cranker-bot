@@ -70,11 +70,16 @@ Each new block, the keeper:
 4. Applies a gas-limit buffer and prices worst-case cost at the proposed
    EIP-1559 `maxFeePerGas`.
 5. Requires both an absolute profit floor and a fee-relative profit floor.
-6. In live mode, broadcasts one transaction at a time and waits for its receipt
-   before evaluating the next order.
+6. In live mode, reads the account's `latest` and `pending` transaction counts,
+   assigns an explicit contiguous nonce range, and broadcasts every viable
+   crank sequentially without waiting between sends.
+7. After the complete batch is broadcast, monitors all receipts concurrently
+   and reports realized profit for each transaction.
 
 There is no local state database. `lastRoundBought` and the pool's state are the
-authoritative replay protection, so the keeper can restart safely.
+authoritative replay protection. A new batch starts only when the keeper
+account has no existing pending nonce gap; after a restart, this prevents the
+bot from duplicating transactions that are still in flight.
 
 ## Setup
 
@@ -122,6 +127,8 @@ successful `crank` fees are sent to that keeper address.
 - `MAX_FEE_PER_GAS_GWEI`: hard ceiling for the proposed EIP-1559 max fee.
 - `MAX_TRANSACTIONS_PER_PASS`: optional per-block transaction cap; `0` is
   unlimited.
+- `RECEIPT_TIMEOUT_MS`: how long batch receipt monitoring waits before leaving
+  unresolved transactions to pending-nonce reconciliation.
 
 The default check uses:
 
@@ -153,6 +160,13 @@ Use a supervised process, a dedicated RPC, and keeper-wallet balance alerts.
 
 - **Public-mempool race:** another keeper can land first after this bot's
   simulation. The losing transaction can revert and still consume gas.
+- **Ordered batch state changes:** every candidate is simulated against the
+  same pre-batch state. Earlier nonces can cover the round or otherwise make a
+  later nonce revert. Pipelining improves inclusion speed but increases this
+  risk compared with waiting for each receipt.
+- **Nonce safety:** the broadcaster stops the batch on the first submission
+  error so it never intentionally creates a nonce gap. If the account already
+  has pending transactions, new batches pause until those nonces settle.
 - **Mutable fee:** the order owner can change `crankFee` at any time, and
   `crank()` has no keeper-supplied minimum-fee argument. A fee change between
   simulation and inclusion cannot be made atomic by this bot.

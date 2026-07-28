@@ -24,6 +24,7 @@ export interface KeeperConfig {
   readonly maxFeePerGas: bigint;
   readonly blockPollMs: number;
   readonly confirmations: number;
+  readonly receiptTimeoutMs: number;
   readonly maxTransactionsPerPass: number;
 }
 
@@ -99,6 +100,10 @@ export function loadConfig(): KeeperConfig {
       max: 60_000,
     }),
     confirmations: integerEnv("CONFIRMATIONS", 1, { min: 1, max: 64 }),
+    receiptTimeoutMs: integerEnv("RECEIPT_TIMEOUT_MS", 180_000, {
+      min: 10_000,
+      max: 1_800_000,
+    }),
     maxTransactionsPerPass: integerEnv(
       "MAX_TRANSACTIONS_PER_PASS",
       0,

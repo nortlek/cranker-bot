@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { assessProfit, bufferedGas } from "../src/economics.js";
 import { rankByFee } from "../src/keeper.js";
+import { buildNoncePlan } from "../src/nonces.js";
 
 describe("bufferedGas", () => {
   it("rounds a fractional gas unit up", () => {
@@ -60,5 +61,29 @@ describe("rankByFee", () => {
     ]);
 
     expect(ranked.map((candidate) => candidate.crankFee)).toEqual([2n, 1n]);
+  });
+});
+
+describe("buildNoncePlan", () => {
+  it("allocates an explicit contiguous nonce range", () => {
+    expect(
+      buildNoncePlan({ latest: 42, pending: 42 }, 4),
+    ).toEqual({
+      latest: 42,
+      pending: 42,
+      blocked: false,
+      nonces: [42, 43, 44, 45],
+    });
+  });
+
+  it("blocks a new batch while account transactions are pending", () => {
+    expect(
+      buildNoncePlan({ latest: 42, pending: 44 }, 4),
+    ).toEqual({
+      latest: 42,
+      pending: 44,
+      blocked: true,
+      nonces: [],
+    });
   });
 });

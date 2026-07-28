@@ -66,6 +66,7 @@ async function main(): Promise<void> {
       gas,
       maxFeePerGas,
       maxPriorityFeePerGas,
+      nonce,
     }) =>
       walletClient.writeContract({
         address: order,
@@ -74,6 +75,7 @@ async function main(): Promise<void> {
         gas,
         maxFeePerGas,
         maxPriorityFeePerGas,
+        nonce,
       });
   } else if (!config.dryRun) {
     throw new Error("PRIVATE_KEY is required when DRY_RUN=false");
