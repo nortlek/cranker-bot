@@ -49,6 +49,7 @@ interface SubmittedCrank extends CrankOpportunity {
 
 export interface CrankTransactionRequest {
   readonly order: Address;
+  readonly crankFee: bigint;
   readonly gas: bigint;
   readonly maxFeePerGas: bigint;
   readonly maxPriorityFeePerGas: bigint;
@@ -59,6 +60,14 @@ export interface CrankBatchResult {
   readonly hashes: readonly Hash[];
   readonly targetBlock: bigint;
   readonly relayCount: number;
+  readonly bundleCount?: number;
+  readonly bundleHashes?: readonly Hash[];
+  readonly bundles?: readonly {
+    readonly bundleHash: Hash;
+    readonly relayIndex: number;
+    readonly smart: boolean;
+    readonly transactionCount: number;
+  }[];
 }
 
 export interface PassResult {
@@ -345,12 +354,14 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
   const submitted: SubmittedCrank[] = [];
   let privateTargetBlock: bigint | undefined;
   let relayCount = 0;
+  let privateBatchResult: CrankBatchResult | undefined;
   if (sendCrankBatch !== undefined && planned.length > 0) {
     const targetBlock = (await publicClient.getBlockNumber()) + 1n;
     try {
       const result = await sendCrankBatch({
         requests: planned.map(({ opportunity, nonce }) => ({
           order: opportunity.candidate.address,
+          crankFee: opportunity.candidate.crankFee,
           gas: opportunity.gasLimit,
           maxFeePerGas,
           maxPriorityFeePerGas,
@@ -363,6 +374,16 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
       }
       privateTargetBlock = result.targetBlock;
       relayCount = result.relayCount;
+      privateBatchResult = result;
+      for (const bundle of result.bundles ?? []) {
+        log("info", "flashbots_bundle_accepted", {
+          bundleHash: bundle.bundleHash,
+          targetBlock: result.targetBlock.toString(),
+          relayIndex: bundle.relayIndex,
+          smart: bundle.smart,
+          transactionCount: bundle.transactionCount,
+        });
+      }
       for (let index = 0; index < result.hashes.length; index += 1) {
         const hash = result.hashes[index];
         const item = planned[index];
@@ -385,8 +406,8 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
       const trimmed = planned.length - submitted.length;
       if (trimmed !== 0) {
         skipped.set(
-          "ordered_simulation_revert",
-          trimmed + (skipped.get("ordered_simulation_revert") ?? 0),
+          "private_batch_trimmed",
+          trimmed + (skipped.get("private_batch_trimmed") ?? 0),
         );
       }
     } catch (error) {
@@ -433,6 +454,10 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
     mode: privateTargetBlock === undefined ? "public" : "flashbots",
     targetBlock: privateTargetBlock?.toString() ?? "",
     relayCount,
+    bundleCount: privateBatchResult?.bundleCount ?? 0,
+    bundleHashes: JSON.stringify(
+      privateBatchResult?.bundleHashes ?? [],
+    ),
   });
 
   if (privateTargetBlock !== undefined) {

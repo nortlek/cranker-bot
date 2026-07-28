@@ -72,12 +72,16 @@ Each new block, the keeper:
 5. Requires both an absolute profit floor and a fee-relative profit floor.
 6. In live mode, reads the account's `latest` and `pending` transaction counts
    and assigns an explicit contiguous nonce range.
-7. By default, signs every crank locally, simulates the ordered transaction
-   sequence, trims it before the first reverting nonce, and submits the valid
-   prefix as an atomic private Flashbots bundle for the next block.
-8. Watches that target block, then reports inclusion and realized profit. A
-   bundle that misses its target expires instead of entering the public
-   mempool.
+7. By default, signs every crank locally and simulates the ordered transaction
+   sequence. It converts `BUILDER_BID_BPS` of each crank fee into a
+   gas-normalized priority fee, then signs the competitively priced sequence.
+8. Submits every contiguous prefix of that sequence as a private Flashbots
+   bundle for the next block. The alternatives share nonces, so at most one
+   can land; a conflict late in the sequence can no longer invalidate an
+   otherwise usable earlier prefix.
+9. Records each relay-accepted bundle hash, target, and prefix length, then
+   watches the target block and reports inclusion and realized profit. A
+   missed bundle expires instead of entering the public mempool.
 
 Candidate gas estimates run with bounded concurrency and retain fee-ranked
 ordering. The block loop polls every 250 ms by default, so slow per-order RPC
@@ -138,17 +142,20 @@ successful `crank` fees are sent to that keeper address.
 - `FLASHBOTS_AUTH_PRIVATE_KEY`: optional relay reputation key. It signs only
   relay authentication messages; when omitted, `PRIVATE_KEY` is used.
 - `RELAY_TIMEOUT_MS`: timeout for relay simulation and submission calls.
-- `MIN_PRIORITY_FEE_GWEI`: minimum builder tip. The configured tip floor is
-  included in both the profitability check and signed transactions.
+- `BUILDER_BID_BPS`: percentage of each successful crank fee offered to the
+  builder. The bot divides that payment by the transaction's ordered-bundle
+  gas simulation to derive its priority fee. The default is `8100` (81%).
+- `MIN_PRIORITY_FEE_GWEI`: lower bound for the derived builder tip.
 - `SIMULATION_CONCURRENCY`: maximum simultaneous per-order gas estimates.
 - `BLOCK_POLL_MS`: new-head polling interval.
 
-The private bundle contains nonce `N`, then `N+1`, and so on. Builders execute
-it in that order and atomically: either the selected prefix succeeds as a
-whole, or none of it lands. This avoids a nonce gap and prevents an
-`AlreadyBought` loser from leaking into the public mempool. Set
-`SUBMISSION_MODE=public` only if the configured relay is unavailable and you
-accept revert-loss risk.
+The private alternatives contain nonce `N`, then `N+1`, and so on:
+`[N]`, `[N,N+1]`, through the complete sequence. Each individual alternative
+is atomic. Because alternatives reuse the same signed transactions and nonces,
+the builder can include only one; if a later order conflicts, it can choose a
+shorter valid prefix without creating a nonce gap. No losing transaction leaks
+into the public mempool. Set `SUBMISSION_MODE=public` only if the configured
+relay is unavailable and you accept revert-loss risk.
 
 ### Profit controls
 
@@ -161,14 +168,26 @@ accept revert-loss risk.
 - `RECEIPT_TIMEOUT_MS`: how long batch receipt monitoring waits before leaving
   unresolved transactions to pending-nonce reconciliation.
 
-The default check uses:
+Candidate discovery first uses:
 
 ```text
 worstCaseProfit =
   crankFee - bufferedGasLimit * proposedMaxFeePerGas
 ```
 
-and requires that value to clear both profit floors.
+Before private submission, the bot runs an ordered signed simulation and
+re-prices each transaction:
+
+```text
+builderPayment = crankFee * BUILDER_BID_BPS / 10_000
+priorityFee     = ceil(builderPayment / simulatedGasUsed)
+expectedProfit = crankFee
+               - simulatedGasUsed * (baseFeeAllowance + priorityFee)
+```
+
+Both checks must clear the configured profit floors. Raising
+`BUILDER_BID_BPS` improves builder value but directly reduces retained keeper
+profit.
 
 ## Production
 
@@ -193,13 +212,17 @@ Use a supervised process, a dedicated RPC, and keeper-wallet balance alerts.
   but it does not guarantee inclusion. Builder coverage, arrival time, tip,
   bundle value, and competing state changes still determine whether the bundle
   lands.
+- **Bid economics:** the default 81% builder bid reflects a competitive
+  low-margin strategy and is configurable. A competing keeper can still bid
+  more. The final signed-bundle simulation and profit floors prevent a
+  configured bid from knowingly exceeding the keeper's limits.
 - **One-block expiry:** each private bundle targets exactly the next block. A
   missed bundle is resimulated and repriced on the next pass rather than left
   pending.
 - **Ordered batch state changes:** the complete signed sequence is simulated
-  in nonce order. The bot submits only the successful prefix before the first
-  reverting transaction, because a reverting member invalidates an atomic
-  bundle.
+  in nonce order, then submitted as an atomic prefix ladder. An early conflict
+  still invalidates every longer alternative that depends on that nonce; the
+  bot never permits reverts merely to consume the remaining nonces.
 - **Public fallback:** `SUBMISSION_MODE=public` restores ordinary sequential
   broadcast. Another keeper can land first, leaving the losing transaction to
   revert and still consume gas.

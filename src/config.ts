@@ -17,6 +17,7 @@ export interface KeeperConfig {
   readonly flashbotsBuilders: readonly string[];
   readonly flashbotsAuthPrivateKey: Hex | undefined;
   readonly relayTimeoutMs: number;
+  readonly builderBidBps: bigint;
   readonly factoryAddress: Address;
   readonly expectedPoolAddress: Address;
   readonly dryRun: boolean;
@@ -115,7 +116,11 @@ function privateKeyEnv(): Hex | undefined {
 }
 
 export function loadConfig(): KeeperConfig {
-  const minProfitBps = integerEnv("MIN_PROFIT_BPS", 2_500, {
+  const minProfitBps = integerEnv("MIN_PROFIT_BPS", 500, {
+    min: 0,
+    max: 10_000,
+  });
+  const builderBidBps = integerEnv("BUILDER_BID_BPS", 8_100, {
     min: 0,
     max: 10_000,
   });
@@ -137,6 +142,7 @@ export function loadConfig(): KeeperConfig {
       min: 1_000,
       max: 30_000,
     }),
+    builderBidBps: BigInt(builderBidBps),
     factoryAddress: getAddress(
       process.env.FACTORY_ADDRESS || FACTORY_ADDRESS,
     ),
@@ -150,7 +156,7 @@ export function loadConfig(): KeeperConfig {
       process.env.SIMULATION_ACCOUNT ||
         "0x000000000000000000000000000000000000dEaD",
     ),
-    minProfitWei: parseEther(process.env.MIN_PROFIT_ETH || "0.00005"),
+    minProfitWei: parseEther(process.env.MIN_PROFIT_ETH || "0.00001"),
     minProfitBps: BigInt(minProfitBps),
     gasLimitMultiplierBps: BigInt(gasLimitMultiplierBps),
     maxFeePerGas: parseGwei(

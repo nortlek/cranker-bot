@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   FlashbotsRelay,
+  simulatedGasUsed,
+  submitBundlePrefixLadder,
   successfulPrefixLength,
 } from "../src/flashbots.js";
 
@@ -37,6 +39,22 @@ describe("successfulPrefixLength", () => {
     expect(() => successfulPrefixLength({ results: [{}] }, 2)).toThrow(
       "incomplete result set",
     );
+  });
+});
+
+describe("simulatedGasUsed", () => {
+  it("extracts gas from a successful ordered simulation", () => {
+    expect(
+      simulatedGasUsed(
+        {
+          results: [
+            { gasUsed: 348_298 },
+            { gasUsed: "191959" },
+          ],
+        },
+        2,
+      ),
+    ).toEqual([348_298n, 191_959n]);
   });
 });
 
@@ -113,5 +131,38 @@ describe("FlashbotsRelay", () => {
         ),
       );
     }
+  });
+});
+
+describe("submitBundlePrefixLadder", () => {
+  it("submits each contiguous nonce prefix", async () => {
+    const calls: number[] = [];
+    const relay = {
+      url: "https://relay.example",
+      sendBundle: async (transactions: readonly string[]) => {
+        calls.push(transactions.length);
+        return {
+          bundleHash: `0x${transactions.length
+            .toString(16)
+            .padStart(64, "0")}`,
+          smart: "true",
+        };
+      },
+    } as unknown as FlashbotsRelay;
+
+    const submissions = await submitBundlePrefixLadder(
+      [relay],
+      ["0x01", "0x02", "0x03"],
+      42n,
+      ["flashbots"],
+    );
+
+    expect(calls).toEqual([1, 2, 3]);
+    expect(
+      submissions.map((submission) => submission.transactionCount),
+    ).toEqual([1, 2, 3]);
+    expect(submissions.every((submission) => submission.smart)).toBe(
+      true,
+    );
   });
 });

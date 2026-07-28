@@ -12,14 +12,16 @@ import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 
 import { factoryAbi, standingOrderAbi } from "./abi.js";
+import { quoteCompetitiveFees } from "./bidding.js";
 import { CHAIN_ID } from "./constants.js";
 import { loadConfig } from "./config.js";
 import {
   FlashbotsRelay,
   longestValidBundlePrefix,
-  submitBundleToRelays,
+  simulatedGasUsed,
+  submitBundlePrefixLadder,
 } from "./flashbots.js";
-import { errorMessage, eth, log } from "./format.js";
+import { errorMessage, eth, gwei, log } from "./format.js";
 import { runPass, type KeeperContext } from "./keeper.js";
 
 async function sleep(milliseconds: number): Promise<void> {
@@ -99,8 +101,9 @@ async function main(): Promise<void> {
           }),
       );
       sendCrankBatch = async ({ requests, targetBlock }) => {
-        const transactions = await Promise.all(
-          requests.map((request) =>
+        const limitedRequests = requests.slice(0, 100);
+        const preliminaryTransactions = await Promise.all(
+          limitedRequests.map((request) =>
             signer.signTransaction({
               chainId: mainnet.id,
               type: "eip1559",
@@ -119,23 +122,139 @@ async function main(): Promise<void> {
         );
         const prefixLength = await longestValidBundlePrefix(
           relays[0]!,
-          transactions,
+          preliminaryTransactions,
           targetBlock,
         );
         if (prefixLength === 0) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
-        const selected = transactions.slice(0, prefixLength);
-        const submissions = await submitBundleToRelays(
+        const preliminaryPrefix = preliminaryTransactions.slice(
+          0,
+          prefixLength,
+        );
+        const prefixRequests = limitedRequests.slice(0, prefixLength);
+        const simulation = await relays[0]!.callBundle(
+          preliminaryPrefix,
+          targetBlock,
+        );
+        const gasUsed = simulatedGasUsed(simulation, prefixLength);
+        const competitivelyPriced: Array<
+          (typeof prefixRequests)[number]
+        > = [];
+        for (let index = 0; index < prefixRequests.length; index += 1) {
+          const request = prefixRequests[index];
+          const simulatedTransactionGas = gasUsed[index];
+          if (
+            request === undefined ||
+            simulatedTransactionGas === undefined
+          ) {
+            throw new Error("competitive bid simulation was incomplete");
+          }
+          const baseFeeAllowancePerGas =
+            request.maxFeePerGas - request.maxPriorityFeePerGas;
+          const quote = quoteCompetitiveFees({
+            crankFee: request.crankFee,
+            simulatedGasUsed: simulatedTransactionGas,
+            baseFeeAllowancePerGas,
+            minimumPriorityFeePerGas:
+              request.maxPriorityFeePerGas,
+            builderBidBps: config.builderBidBps,
+            maxFeePerGasCap: config.maxFeePerGas,
+            minProfitWei: config.minProfitWei,
+            minProfitBps: config.minProfitBps,
+          });
+          log(quote.profitable ? "info" : "warn", "builder_bid", {
+            order: request.order,
+            nonce: request.nonce,
+            crankFee: eth(request.crankFee),
+            simulatedGasUsed: simulatedTransactionGas.toString(),
+            builderBidBps: config.builderBidBps.toString(),
+            builderPayment: eth(quote.builderPayment),
+            maxFeePerGas: gwei(quote.maxFeePerGas),
+            maxPriorityFeePerGas: gwei(
+              quote.maxPriorityFeePerGas,
+            ),
+            expectedProfit: eth(quote.expectedProfit),
+            requiredProfit: eth(quote.requiredProfit),
+            accepted: quote.profitable,
+            reason: quote.reason ?? "",
+          });
+          if (!quote.profitable) break;
+          competitivelyPriced.push({
+            ...request,
+            maxFeePerGas: quote.maxFeePerGas,
+            maxPriorityFeePerGas: quote.maxPriorityFeePerGas,
+          });
+        }
+        if (competitivelyPriced.length === 0) {
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
+        const competitiveTransactions = await Promise.all(
+          competitivelyPriced.map((request) =>
+            signer.signTransaction({
+              chainId: mainnet.id,
+              type: "eip1559",
+              to: request.order,
+              data: encodeFunctionData({
+                abi: standingOrderAbi,
+                functionName: "crank",
+              }),
+              gas: request.gas,
+              maxFeePerGas: request.maxFeePerGas,
+              maxPriorityFeePerGas: request.maxPriorityFeePerGas,
+              nonce: request.nonce,
+              value: 0n,
+            }),
+          ),
+        );
+        const competitivePrefixLength =
+          await longestValidBundlePrefix(
+            relays[0]!,
+            competitiveTransactions,
+            targetBlock,
+          );
+        if (competitivePrefixLength === 0) {
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
+        const selected = competitiveTransactions.slice(
+          0,
+          competitivePrefixLength,
+        );
+        const submissions = await submitBundlePrefixLadder(
           relays,
           selected,
           targetBlock,
           config.flashbotsBuilders,
         );
+        const acceptedTransactionCount = Math.max(
+          ...submissions.map(
+            (submission) => submission.transactionCount,
+          ),
+        );
+        const accepted = selected.slice(0, acceptedTransactionCount);
+        const relayIndexes = new Set(
+          submissions.map((submission) =>
+            relays.findIndex(
+              (relay) => relay.url === submission.relayUrl,
+            ),
+          ),
+        );
         return {
-          hashes: selected.map((transaction) => keccak256(transaction)),
+          hashes: accepted.map((transaction) => keccak256(transaction)),
           targetBlock,
-          relayCount: submissions.length,
+          relayCount: relayIndexes.size,
+          bundleCount: submissions.length,
+          bundleHashes: submissions.map(
+            (submission) => submission.bundleHash,
+          ),
+          bundles: submissions.map((submission) => ({
+            bundleHash: submission.bundleHash,
+            relayIndex: relays.findIndex(
+              (relay) => relay.url === submission.relayUrl,
+            ),
+            smart: submission.smart,
+            transactionCount: submission.transactionCount,
+          })),
         };
       };
     }

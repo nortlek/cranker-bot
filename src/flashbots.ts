@@ -19,22 +19,28 @@ interface JsonRpcResponse<T> {
 
 export interface CallBundleItem {
   readonly error?: string;
+  readonly gasUsed?: number | string;
   readonly revert?: string;
   readonly txHash?: Hash;
 }
 
 export interface CallBundleResult {
+  readonly bundleHash?: Hash;
+  readonly coinbaseDiff?: string;
   readonly results?: readonly CallBundleItem[];
+  readonly totalGasUsed?: number | string;
 }
 
 interface SendBundleResult {
   readonly bundleHash: Hash;
-  readonly smart?: string;
+  readonly smart?: boolean | string;
 }
 
 export interface FlashbotsSubmission {
   readonly bundleHash: Hash;
   readonly relayUrl: string;
+  readonly smart: boolean;
+  readonly transactionCount: number;
 }
 
 export class FlashbotsRelay {
@@ -76,12 +82,29 @@ export class FlashbotsRelay {
       body,
       signal: AbortSignal.timeout(this.#timeoutMs),
     });
+    const responseBody = await response.text();
     if (!response.ok) {
+      let detail = "";
+      try {
+        const errorPayload = JSON.parse(
+          responseBody,
+        ) as JsonRpcResponse<unknown>;
+        detail =
+          errorPayload.error?.message === undefined
+            ? ""
+            : `: ${errorPayload.error.message}`;
+      } catch {
+        const compact = responseBody
+          .replaceAll(/\s+/g, " ")
+          .trim()
+          .slice(0, 200);
+        detail = compact === "" ? "" : `: ${compact}`;
+      }
       throw new Error(
-        `Flashbots relay ${this.#url} returned HTTP ${response.status}`,
+        `Flashbots relay ${this.#url} returned HTTP ${response.status}${detail}`,
       );
     }
-    const payload = (await response.json()) as JsonRpcResponse<T>;
+    const payload = JSON.parse(responseBody) as JsonRpcResponse<T>;
     if (payload.error !== undefined) {
       throw new Error(
         `Flashbots ${method} failed (${payload.error.code}): ${payload.error.message}`,
@@ -133,6 +156,29 @@ export function successfulPrefixLength(
     (item) => item.error !== undefined || item.revert !== undefined,
   );
   return firstFailure === -1 ? transactionCount : firstFailure;
+}
+
+export function simulatedGasUsed(
+  result: CallBundleResult,
+  transactionCount: number,
+): bigint[] {
+  const items = result.results;
+  if (items === undefined || items.length !== transactionCount) {
+    throw new Error("Flashbots simulation returned an incomplete result set");
+  }
+  return items.map((item) => {
+    if (item.error !== undefined || item.revert !== undefined) {
+      throw new Error("Flashbots simulation contains a reverting transaction");
+    }
+    if (item.gasUsed === undefined) {
+      throw new Error("Flashbots simulation did not report transaction gas");
+    }
+    const gas = BigInt(item.gasUsed);
+    if (gas <= 0n) {
+      throw new Error("Flashbots simulation reported non-positive gas");
+    }
+    return gas;
+  });
 }
 
 export async function longestValidBundlePrefix(
@@ -191,6 +237,10 @@ export async function submitBundleToRelays(
       submissions.push({
         bundleHash: result.value.bundleHash,
         relayUrl: result.value.relayUrl,
+        smart:
+          result.value.smart === true ||
+          result.value.smart === "true",
+        transactionCount: transactions.length,
       });
     } else {
       failures.push(
@@ -203,6 +253,67 @@ export async function submitBundleToRelays(
   if (submissions.length === 0) {
     throw new Error(
       `all private relays rejected the bundle: ${failures.join("; ")}`,
+    );
+  }
+  return submissions;
+}
+
+/**
+ * Sends every contiguous nonce prefix as an alternative bundle. Only one
+ * prefix can land because the alternatives share nonces, but a conflict late
+ * in the full batch no longer destroys an otherwise valid earlier prefix.
+ */
+export async function submitBundlePrefixLadder(
+  relays: readonly FlashbotsRelay[],
+  transactions: readonly Hex[],
+  targetBlock: bigint,
+  builders: readonly string[],
+): Promise<readonly FlashbotsSubmission[]> {
+  if (transactions.length === 0) return [];
+
+  const attempts = relays.flatMap((relay) =>
+    transactions.map((_, index) => {
+      const transactionCount = index + 1;
+      return {
+        relay,
+        transactionCount,
+        promise: relay.sendBundle(
+          transactions.slice(0, transactionCount),
+          targetBlock,
+          builders,
+        ),
+      };
+    }),
+  );
+  const results = await Promise.allSettled(
+    attempts.map(({ promise }) => promise),
+  );
+  const submissions: FlashbotsSubmission[] = [];
+  const failures: string[] = [];
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    const attempt = attempts[index];
+    if (result === undefined || attempt === undefined) continue;
+    if (result.status === "fulfilled") {
+      submissions.push({
+        bundleHash: result.value.bundleHash,
+        relayUrl: attempt.relay.url,
+        smart:
+          result.value.smart === true ||
+          result.value.smart === "true",
+        transactionCount: attempt.transactionCount,
+      });
+    } else {
+      failures.push(
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason),
+      );
+    }
+  }
+  if (submissions.length === 0) {
+    throw new Error(
+      `all private relays rejected every bundle prefix: ${failures.join("; ")}`,
     );
   }
   return submissions;
