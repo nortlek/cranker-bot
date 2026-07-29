@@ -206,6 +206,12 @@ Every event emitted inside a keeper pass includes the same `passId` and
 `observedBlock`. Relay events use a numeric alias and categorized error, never
 the potentially credential-bearing URL.
 
+`keeper_pass_failed` also retains the attempted block, pass ID, head source,
+and a secret-free error-name/code chain after leaving the pass context. Use
+those fields to correlate the preceding stage timings in PostgreSQL before
+changing retry behavior. The fingerprint deliberately excludes URLs, request
+bodies, and provider metadata.
+
 Named acquisition events have the form
 `acquisition_status_<status-name>`. The general `acquisition_status` event also
 contains the numeric status, named label, lifecycle round, and relevant FWA

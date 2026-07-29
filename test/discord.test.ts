@@ -38,6 +38,36 @@ describe("buildDiscordEmbed", () => {
     expect(embed?.color).toBe(0xe74c3c);
   });
 
+  it("renders correlated keeper failure diagnostics", () => {
+    const embed = buildDiscordEmbed(
+      {
+        time: "2026-07-29T20:00:27.051Z",
+        level: "error",
+        event: "keeper_pass_failed",
+        reason: "Missing or invalid parameters.",
+        errorName: "ContractFunctionExecutionError",
+        errorCode: "-32602",
+        errorChain:
+          "ContractFunctionExecutionError>InvalidParamsRpcError[-32602]",
+        block: "25640744",
+        passId: "pass-40744",
+        headSource: "websocket",
+      },
+      0n,
+    );
+
+    expect(
+      embed?.fields?.find((entry) => entry.name === "Error class")
+        ?.value,
+    ).toBe("ContractFunctionExecutionError (-32602)");
+    expect(
+      embed?.fields?.find((entry) => entry.name === "Block")?.value,
+    ).toBe("25640744");
+    expect(
+      embed?.fields?.find((entry) => entry.name === "Pass")?.value,
+    ).toBe("pass-40744");
+  });
+
   it("renders Stake DAO harvest opportunities with token economics", () => {
     const embed = buildDiscordEmbed(
       {

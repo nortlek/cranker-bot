@@ -418,6 +418,25 @@ export function buildDiscordEmbed(
         : { description: transactionDescription(entry) }),
       fields: [
         field("Reason", entry.reason, false),
+        ...(entry.errorName === undefined
+          ? []
+          : [
+              field(
+                "Error class",
+                entry.errorCode === undefined
+                  ? entry.errorName
+                  : `${entry.errorName} (${entry.errorCode})`,
+              ),
+            ]),
+        ...(entry.errorChain === undefined
+          ? []
+          : [field("Error chain", entry.errorChain, false)]),
+        ...(entry.block === undefined
+          ? []
+          : [field("Block", entry.block)]),
+        ...(entry.passId === undefined
+          ? []
+          : [field("Pass", entry.passId, false)]),
         ...(entry.kind === undefined ? [] : [field("Job", entry.kind)]),
         ...(entry.label === undefined
           ? []

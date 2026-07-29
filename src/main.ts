@@ -48,6 +48,7 @@ import {
   validateDirectCoinbasePaymentSimulation,
 } from "./flashbots.js";
 import {
+  errorFingerprint,
   errorMessage,
   eth,
   gwei,
@@ -1746,6 +1747,9 @@ async function main(): Promise<void> {
   let lastProcessedBlock = -1n;
   do {
     let passFailed = false;
+    let attemptedPassId: string | undefined;
+    let attemptedBlock: bigint | undefined;
+    let attemptedHeadSource: string | undefined;
     try {
       let subscribedBlock =
         headSignal.latestAfter(lastProcessedBlock);
@@ -1788,6 +1792,9 @@ async function main(): Promise<void> {
             : "poll";
       if (block !== lastProcessedBlock) {
         const passId = randomUUID();
+        attemptedPassId = passId;
+        attemptedBlock = block;
+        attemptedHeadSource = headSource;
         const passStartedAt = performance.now();
         await withLogContext(
           {
@@ -1834,6 +1841,7 @@ async function main(): Promise<void> {
       if (error instanceof SignerLeaseLostError) {
         log("error", "signer_lease_lost", {
           reason: errorMessage(error),
+          ...errorFingerprint(error),
           action: "stopping_signer",
         });
         throw error;
@@ -1841,12 +1849,28 @@ async function main(): Promise<void> {
       if (error instanceof HeadSubscriptionStaleError) {
         log("error", "head_subscription_stale", {
           reason: error.message,
+          ...errorFingerprint(error),
           action: "restarting_worker",
         });
         throw error;
       }
       passFailed = true;
-      log("error", "keeper_pass_failed", { reason: errorMessage(error) });
+      log("error", "keeper_pass_failed", {
+        reason: errorMessage(error),
+        ...errorFingerprint(error),
+        ...(attemptedPassId === undefined
+          ? {}
+          : { passId: attemptedPassId }),
+        ...(attemptedBlock === undefined
+          ? {}
+          : {
+              block: attemptedBlock.toString(),
+              observedBlock: attemptedBlock.toString(),
+            }),
+        ...(attemptedHeadSource === undefined
+          ? {}
+          : { headSource: attemptedHeadSource }),
+      });
       if (config.runOnce) throw error;
     }
     if (!stopping) {
@@ -1863,7 +1887,10 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (error: unknown) => {
-  log("error", "fatal", { reason: errorMessage(error) });
+  log("error", "fatal", {
+    reason: errorMessage(error),
+    ...errorFingerprint(error),
+  });
   await closeRuntimeResources();
   process.exitCode = 1;
 });

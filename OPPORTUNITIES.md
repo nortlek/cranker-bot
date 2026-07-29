@@ -18,11 +18,14 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 14:28 America/Denver, the
-verified snapshot was **$154.78401631 net**, or **61.91%** of the goal, with
-`latest == pending == 493` and net ETH equivalent of
-`0.081996884451654752`. Since the nonce-488 snapshot, two standing orders and
-round 296 increased the wallet by `0.000913103456128101 ETH`. Round 296's
+2026-07-30 23:59 America/Denver**. At 2026-07-29 14:38 America/Denver, the
+verified snapshot was **$154.21421865 net**, or **61.68%** of the goal, with
+`latest == pending == 501` and net ETH equivalent of
+`0.082153818391998768`. Since the nonce-488 snapshot, ten standing orders and
+round 296 increased the wallet by `0.001070037396472117 ETH`. The latest
+eight-order batch earned `0.0022 ETH`, spent
+`0.002043066059655984 ETH`, and retained `0.000156933940344016 ETH`
+in aggregate. Round 296's
 `processAcquisitions(4) -> syncFwaResult -> settle` chain retained
 `0.000866398031093311 ETH` after `0.000381882886751153 ETH` of total gas;
 the two orders retained `0.000046705425034790 ETH`. The preceding round 295
@@ -515,8 +518,13 @@ block `25640871` waited `300 ms` across four same-block read attempts and then
 completed the pass normally. Before the fix, block `25640744` reached the
 header stage but then failed with the same externally rendered message; the
 persisted error is too coarse to prove which nested provider class escaped.
-If that pattern recurs, add a secret-free nested error-class/code fingerprint
-before broadening any retry classifier.
+Four recent `keeper_pass_failed` rows also lost their pass context because the
+error was logged after leaving the asynchronous per-pass scope. Failure
+telemetry now explicitly retains the pass ID, exact block, and head source,
+indexes the block in PostgreSQL, and records a bounded nested error-name/code
+fingerprint. Messages, URLs, request bodies, and metadata are excluded. Discord
+shows the same safe correlation fields. This makes the next occurrence
+diagnosable before broadening any retry classifier.
 
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five
