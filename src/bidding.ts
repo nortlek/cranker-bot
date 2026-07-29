@@ -35,6 +35,20 @@ function ceilDivide(numerator: bigint, denominator: bigint): bigint {
   return (numerator + denominator - 1n) / denominator;
 }
 
+export function effectiveBuilderBidBps(
+  builderPayment: bigint,
+  grossReward: bigint,
+): bigint {
+  if (builderPayment < 0n || grossReward < 0n) {
+    throw new Error(
+      "builder payment and gross reward cannot be negative",
+    );
+  }
+  return grossReward === 0n
+    ? 0n
+    : ceilDivide(builderPayment * 10_000n, grossReward);
+}
+
 /**
  * Produces one reward-weighted bid target for a bundle while preserving
  * distinct order and lifecycle policies. Zero-reward dependency calls add gas
@@ -137,10 +151,10 @@ export function quoteCompetitiveFees(parameters: {
       expectedGasCost,
       expectedProfit: parameters.crankFee - expectedGasCost,
       requiredProfit: profitFloor,
-      effectiveBuilderBidBps:
-        parameters.crankFee === 0n
-          ? 0n
-          : ceilDivide(builderPayment * 10_000n, parameters.crankFee),
+      effectiveBuilderBidBps: effectiveBuilderBidBps(
+        builderPayment,
+        parameters.crankFee,
+      ),
       cappedByProfit: !cappedByFeeCap,
       cappedByFeeCap,
       profitable: false,
@@ -174,10 +188,10 @@ export function quoteCompetitiveFees(parameters: {
       expectedGasCost,
       expectedProfit,
       requiredProfit: profitFloor,
-      effectiveBuilderBidBps:
-        parameters.crankFee === 0n
-          ? 0n
-          : ceilDivide(builderPayment * 10_000n, parameters.crankFee),
+      effectiveBuilderBidBps: effectiveBuilderBidBps(
+        builderPayment,
+        parameters.crankFee,
+      ),
       cappedByProfit,
       cappedByFeeCap,
       profitable: false,
@@ -192,10 +206,10 @@ export function quoteCompetitiveFees(parameters: {
     expectedGasCost,
     expectedProfit,
     requiredProfit: profitFloor,
-    effectiveBuilderBidBps:
-      parameters.crankFee === 0n
-        ? 0n
-        : ceilDivide(builderPayment * 10_000n, parameters.crankFee),
+    effectiveBuilderBidBps: effectiveBuilderBidBps(
+      builderPayment,
+      parameters.crankFee,
+    ),
     cappedByProfit,
     cappedByFeeCap,
     profitable: true,

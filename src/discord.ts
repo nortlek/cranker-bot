@@ -130,7 +130,14 @@ export function buildDiscordEmbed(
         field("Account", entry.account, false),
         field("Balance", entry.accountBalance),
         field("Submission", entry.submissionMode),
-        field("Order bid floor", `${compact(entry.configuredBuilderBidBps)} bps`),
+        field(
+          "Order starting bid",
+          `${compact(entry.configuredBuilderBidBps)} bps`,
+        ),
+        field(
+          "Order learned minimum",
+          `${compact(entry.adaptiveBidMinimumBps)} bps`,
+        ),
         field(
           "Ready-chain bid",
           `${compact(entry.configuredPoolBuilderBidBps)} bps`,

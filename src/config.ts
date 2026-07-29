@@ -36,10 +36,12 @@ export interface KeeperConfig {
   readonly stakeDaoBuilderBidBps: bigint;
   readonly firmBuilderBidBps: bigint;
   readonly adaptiveBidding: boolean;
+  readonly adaptiveBidMinBps: bigint;
   readonly adaptiveBidStepBps: bigint;
   readonly adaptiveBidMaxBps: bigint;
   readonly adaptiveBidWinStreak: number;
   readonly adaptiveBidDecayBps: bigint;
+  readonly adaptiveBidEvidenceMaxAgeBlocks: bigint;
   readonly adaptiveBidStatePath: string;
   readonly competitorTraceUrl: string;
   readonly competitorTraceTimeoutMs: number;
@@ -340,6 +342,16 @@ export function loadConfig(): KeeperConfig {
     9_900,
     { min: 0, max: 10_000 },
   );
+  const adaptiveBidMinBps = integerEnv(
+    "ADAPTIVE_BID_MIN_BPS",
+    1_000,
+    { min: 0, max: 10_000 },
+  );
+  if (adaptiveBidMinBps > builderBidBps) {
+    throw new Error(
+      "ADAPTIVE_BID_MIN_BPS must be <= BUILDER_BID_BPS",
+    );
+  }
   if (adaptiveBidMaxBps < builderBidBps) {
     throw new Error(
       "ADAPTIVE_BID_MAX_BPS must be >= BUILDER_BID_BPS",
@@ -393,6 +405,7 @@ export function loadConfig(): KeeperConfig {
     stakeDaoBuilderBidBps: BigInt(stakeDaoBuilderBidBps),
     firmBuilderBidBps: BigInt(firmBuilderBidBps),
     adaptiveBidding: booleanEnv("ADAPTIVE_BIDDING", true),
+    adaptiveBidMinBps: BigInt(adaptiveBidMinBps),
     adaptiveBidStepBps: BigInt(
       integerEnv("ADAPTIVE_BID_STEP_BPS", 25, {
         min: 1,
@@ -410,6 +423,13 @@ export function loadConfig(): KeeperConfig {
         min: 1,
         max: 1_000,
       }),
+    ),
+    adaptiveBidEvidenceMaxAgeBlocks: BigInt(
+      integerEnv(
+        "ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS",
+        7_200,
+        { min: 1, max: 1_000_000 },
+      ),
     ),
     adaptiveBidStatePath:
       process.env.ADAPTIVE_BID_STATE_PATH ||

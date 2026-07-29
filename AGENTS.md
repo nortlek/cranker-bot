@@ -400,6 +400,11 @@ These constraints prevent expensive or unsafe regressions:
 - Pool lifecycle, pool pull, standing orders, LiveBid sweep, Liquity, and
   Convex each have independent bidding policies. Do not apply the standing
   order's high bid to a thin-margin lane.
+- Standing-order targets start at `BUILDER_BID_BPS`, but durable per-target
+  price discovery may bid lower after repeated wins. Its bracket must learn
+  from the exact bundle-effective bid after profit and fee caps, not just the
+  requested bid, and must persist explicit probe state plus block-aged price
+  evidence.
 - Profit checks include gas and builder payments. A receipt is the source of
   truth for gas; decoded token transfers and balance reconciliation are the
   source of truth for reward value.
@@ -417,6 +422,7 @@ At the last handoff, the configured policy was approximately:
 | Lane | Builder bid |
 | --- | ---: |
 | Standing-order baseline | 86.44% |
+| Standing-order learned minimum | 10% |
 | Standing-order learned maximum in use | 94.54% |
 | Pool pull | 20% |
 | Pool acquisition ready | 10% |

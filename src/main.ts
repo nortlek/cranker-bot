@@ -178,11 +178,14 @@ async function main(): Promise<void> {
     config.submissionMode === "flashbots"
   ) {
     const policy = {
+      minimumBidBps: config.adaptiveBidMinBps,
       baselineBidBps: config.builderBidBps,
       maximumBidBps: config.adaptiveBidMaxBps,
       lossStepBps: config.adaptiveBidStepBps,
       winDecayBps: config.adaptiveBidDecayBps,
       winsBeforeDecay: config.adaptiveBidWinStreak,
+      evidenceMaxAgeBlocks:
+        config.adaptiveBidEvidenceMaxAgeBlocks,
     };
     adaptiveBidController =
       config.databaseUrl === undefined
@@ -779,6 +782,8 @@ async function main(): Promise<void> {
           hashes: accepted.map((transaction) => keccak256(transaction)),
           targetBlock,
           relayCount: relayIndexes.size,
+          effectiveBuilderBidBps:
+            quote.effectiveBuilderBidBps,
           bundleCount: submissions.length,
           bundleHashes: submissions.map(
             (submission) => submission.bundleHash,
@@ -873,10 +878,22 @@ async function main(): Promise<void> {
                     ? {
                         kind: "full_win" as const,
                         blockNumber: outcome.targetBlock,
+                        ...(attempt.effectiveBidBps === undefined
+                          ? {}
+                          : {
+                              effectiveBidBps:
+                                attempt.effectiveBidBps,
+                            }),
                       }
                     : {
                         kind: "miss" as const,
                         blockNumber: outcome.targetBlock,
+                        ...(attempt.effectiveBidBps === undefined
+                          ? {}
+                          : {
+                              effectiveBidBps:
+                                attempt.effectiveBidBps,
+                            }),
                         ...(observedWinningBidBps === undefined
                           ? {}
                           : { observedWinningBidBps }),
@@ -898,6 +915,8 @@ async function main(): Promise<void> {
                 observedBidsByOrder
                   .get(adjustment.order.toLowerCase())
                   ?.toString() ?? "",
+              effectiveBidBps:
+                attempt?.effectiveBidBps?.toString() ?? "",
               action: adjustment.action,
               previousBidBps:
                 adjustment.previousBidBps.toString(),
@@ -905,6 +924,21 @@ async function main(): Promise<void> {
                 adjustment.currentBidBps.toString(),
               consecutiveFullWins:
                 adjustment.state.consecutiveFullWins,
+              lowestWinningBidBps:
+                adjustment.state.lowestWinningBidBps?.toString() ??
+                "",
+              highestLosingBidBps:
+                adjustment.state.highestLosingBidBps?.toString() ??
+                "",
+              activeProbeBidBps:
+                adjustment.state.activeProbeBidBps?.toString() ??
+                "",
+              lastObservedWinningBlock:
+                adjustment.state.lastObservedWinningBlock?.toString() ??
+                "",
+              highestLosingBidBlock:
+                adjustment.state.highestLosingBidBlock?.toString() ??
+                "",
             });
           }
           log("info", "adaptive_bid_batch_complete", {
@@ -940,6 +974,10 @@ async function main(): Promise<void> {
     relayCount: config.flashbotsRelayUrls.length,
     builderCount: config.flashbotsBuilders.length,
     configuredBuilderBidBps: config.builderBidBps.toString(),
+    adaptiveBidMinimumBps:
+      config.adaptiveBidMinBps.toString(),
+    adaptiveBidEvidenceMaxAgeBlocks:
+      config.adaptiveBidEvidenceMaxAgeBlocks.toString(),
     configuredPoolBuilderBidBps:
       config.poolBuilderBidBps.toString(),
     configuredPoolPullBuilderBidBps:

@@ -7,17 +7,24 @@ import {
 import { dirname, resolve } from "node:path";
 
 export interface AdaptiveBidPolicy {
+  readonly minimumBidBps: bigint;
   readonly baselineBidBps: bigint;
   readonly maximumBidBps: bigint;
   readonly lossStepBps: bigint;
   readonly winDecayBps: bigint;
   readonly winsBeforeDecay: number;
+  readonly evidenceMaxAgeBlocks: bigint;
 }
 
 export interface AdaptiveBidState {
   readonly currentBidBps: bigint;
   readonly consecutiveFullWins: number;
   readonly lastObservedWinningBidBps?: bigint;
+  readonly lastObservedWinningBlock?: bigint;
+  readonly lowestWinningBidBps?: bigint;
+  readonly highestLosingBidBps?: bigint;
+  readonly highestLosingBidBlock?: bigint;
+  readonly activeProbeBidBps?: bigint;
   readonly lastUpdatedBlock?: bigint;
 }
 
@@ -35,10 +42,12 @@ export type AdaptiveBidOutcome =
   | {
       readonly kind: "full_win";
       readonly blockNumber: bigint;
+      readonly effectiveBidBps?: bigint;
     }
   | {
       readonly kind: "miss";
       readonly blockNumber: bigint;
+      readonly effectiveBidBps?: bigint;
       readonly observedWinningBidBps?: bigint;
     };
 
@@ -57,9 +66,115 @@ function minimum(left: bigint, right: bigint): bigint {
   return left < right ? left : right;
 }
 
+function validatePolicy(policy: AdaptiveBidPolicy): void {
+  if (
+    policy.minimumBidBps < 0n ||
+    policy.minimumBidBps > policy.baselineBidBps ||
+    policy.baselineBidBps > policy.maximumBidBps ||
+    policy.maximumBidBps > 10_000n
+  ) {
+    throw new Error(
+      "adaptive bid policy must satisfy 0 <= minimum <= baseline <= maximum <= 10000",
+    );
+  }
+  if (
+    policy.lossStepBps <= 0n ||
+    policy.winDecayBps <= 0n ||
+    policy.winsBeforeDecay < 1 ||
+    policy.evidenceMaxAgeBlocks < 1n
+  ) {
+    throw new Error(
+      "adaptive bid steps, win streak, and evidence age must be positive",
+    );
+  }
+}
+
+function clampToPolicy(
+  value: bigint,
+  policy: AdaptiveBidPolicy,
+): bigint {
+  return minimum(
+    policy.maximumBidBps,
+    maximum(policy.minimumBidBps, value),
+  );
+}
+
+function optionalMinimum(
+  left: bigint | undefined,
+  right: bigint,
+): bigint {
+  return left === undefined ? right : minimum(left, right);
+}
+
+function optionalMaximum(
+  left: bigint | undefined,
+  right: bigint,
+): bigint {
+  return left === undefined ? right : maximum(left, right);
+}
+
+function bidAction(
+  previousBidBps: bigint,
+  currentBidBps: bigint,
+): AdaptiveBidAdjustment["action"] {
+  if (currentBidBps < previousBidBps) return "decreased";
+  if (currentBidBps > previousBidBps) return "increased";
+  return "held";
+}
+
+function searchLowerBound(
+  state: AdaptiveBidState,
+  policy: AdaptiveBidPolicy,
+  blockNumber: bigint,
+): bigint {
+  let lowerBound = policy.minimumBidBps;
+  if (
+    state.highestLosingBidBps !== undefined &&
+    evidenceIsFresh(
+      state.highestLosingBidBlock,
+      blockNumber,
+      policy,
+    )
+  ) {
+    lowerBound = maximum(
+      lowerBound,
+      state.highestLosingBidBps + policy.lossStepBps,
+    );
+  }
+  if (
+    state.lastObservedWinningBidBps !== undefined &&
+    evidenceIsFresh(
+      state.lastObservedWinningBlock,
+      blockNumber,
+      policy,
+    )
+  ) {
+    lowerBound = maximum(
+      lowerBound,
+      state.lastObservedWinningBidBps + policy.lossStepBps,
+    );
+  }
+  return clampToPolicy(lowerBound, policy);
+}
+
+function evidenceIsFresh(
+  evidenceBlock: bigint | undefined,
+  currentBlock: bigint,
+  policy: AdaptiveBidPolicy,
+): boolean {
+  if (evidenceBlock === undefined || currentBlock <= evidenceBlock) {
+    return true;
+  }
+  return (
+    currentBlock - evidenceBlock <=
+    policy.evidenceMaxAgeBlocks
+  );
+}
+
 export function initialAdaptiveBidState(
   policy: AdaptiveBidPolicy,
 ): AdaptiveBidState {
+  validatePolicy(policy);
   return {
     currentBidBps: policy.baselineBidBps,
     consecutiveFullWins: 0,
@@ -71,65 +186,216 @@ export function adjustAdaptiveBid(
   policy: AdaptiveBidPolicy,
   outcome: AdaptiveBidOutcome,
 ): AdaptiveBidAdjustment {
+  validatePolicy(policy);
   const previousBidBps = state.currentBidBps;
   if (outcome.kind === "miss") {
+    const effectiveBidBps = clampToPolicy(
+      outcome.effectiveBidBps ?? previousBidBps,
+      policy,
+    );
     const observedTarget =
       outcome.observedWinningBidBps === undefined
-        ? previousBidBps
-        : outcome.observedWinningBidBps + policy.lossStepBps;
-    const currentBidBps = minimum(
-      policy.maximumBidBps,
-      maximum(previousBidBps, observedTarget),
+        ? undefined
+        : clampToPolicy(
+            outcome.observedWinningBidBps +
+              policy.lossStepBps,
+            policy,
+          );
+    const wasProbe =
+      state.activeProbeBidBps !== undefined &&
+      state.activeProbeBidBps === previousBidBps;
+    const priceMiss =
+      outcome.observedWinningBidBps === undefined
+        ? wasProbe
+        : outcome.observedWinningBidBps >= effectiveBidBps;
+    const freshHighestLosingBidBps =
+      state.highestLosingBidBps !== undefined &&
+      evidenceIsFresh(
+        state.highestLosingBidBlock,
+        outcome.blockNumber,
+        policy,
+      )
+        ? state.highestLosingBidBps
+        : undefined;
+    const highestLosingBidBps = priceMiss
+      ? optionalMaximum(
+          freshHighestLosingBidBps,
+          effectiveBidBps,
+        )
+      : state.highestLosingBidBps;
+    const highestLosingBidBlock = priceMiss
+      ? freshHighestLosingBidBps !== undefined &&
+        freshHighestLosingBidBps >= effectiveBidBps
+        ? state.highestLosingBidBlock
+        : outcome.blockNumber
+      : state.highestLosingBidBlock;
+    const candidateState: AdaptiveBidState = {
+      ...state,
+      ...(highestLosingBidBps === undefined
+        ? {}
+        : { highestLosingBidBps }),
+      ...(highestLosingBidBlock === undefined
+        ? {}
+        : { highestLosingBidBlock }),
+      ...(outcome.observedWinningBidBps === undefined
+        ? {}
+        : {
+            lastObservedWinningBidBps:
+              outcome.observedWinningBidBps,
+            lastObservedWinningBlock: outcome.blockNumber,
+          }),
+    };
+    const lowerBound = searchLowerBound(
+      candidateState,
+      policy,
+      outcome.blockNumber,
+    );
+    const lowestWinningBidBps =
+      state.lowestWinningBidBps !== undefined &&
+      state.lowestWinningBidBps > lowerBound
+        ? state.lowestWinningBidBps
+        : undefined;
+    const recoveryBid =
+      lowestWinningBidBps ?? policy.baselineBidBps;
+    const currentBidBps = clampToPolicy(
+      wasProbe
+        ? maximum(recoveryBid, lowerBound)
+        : observedTarget !== undefined
+        ? maximum(previousBidBps, observedTarget)
+        : previousBidBps,
+      policy,
     );
     const nextState: AdaptiveBidState = {
       currentBidBps,
       consecutiveFullWins: 0,
       lastUpdatedBlock: outcome.blockNumber,
+      ...(lowestWinningBidBps === undefined
+        ? {}
+        : { lowestWinningBidBps }),
+      ...(highestLosingBidBps === undefined
+        ? {}
+        : { highestLosingBidBps }),
+      ...(highestLosingBidBlock === undefined
+        ? {}
+        : { highestLosingBidBlock }),
       ...(outcome.observedWinningBidBps === undefined
         ? state.lastObservedWinningBidBps === undefined
           ? {}
           : {
               lastObservedWinningBidBps:
                 state.lastObservedWinningBidBps,
+              ...(state.lastObservedWinningBlock === undefined
+                ? {}
+                : {
+                    lastObservedWinningBlock:
+                      state.lastObservedWinningBlock,
+                  }),
             }
         : {
             lastObservedWinningBidBps:
               outcome.observedWinningBidBps,
+            lastObservedWinningBlock: outcome.blockNumber,
           }),
     };
     return {
-      action:
-        currentBidBps > previousBidBps ? "increased" : "held",
+      action: bidAction(previousBidBps, currentBidBps),
       previousBidBps,
       currentBidBps,
       state: nextState,
     };
   }
 
-  const consecutiveFullWins = state.consecutiveFullWins + 1;
+  const effectiveBidBps = clampToPolicy(
+    outcome.effectiveBidBps ?? previousBidBps,
+    policy,
+  );
+  const lowestWinningBidBps = optionalMinimum(
+    state.lowestWinningBidBps,
+    effectiveBidBps,
+  );
+  const highestLosingBidBps =
+    state.highestLosingBidBps !== undefined &&
+    effectiveBidBps <= state.highestLosingBidBps
+      ? undefined
+      : state.highestLosingBidBps;
+  const highestLosingBidBlock =
+    highestLosingBidBps === undefined
+      ? undefined
+      : state.highestLosingBidBlock;
+  const lastObservedWinningBidBps =
+    state.lastObservedWinningBidBps;
+  const lastObservedWinningBlock =
+    state.lastObservedWinningBlock;
+  const boundedState: AdaptiveBidState = {
+    currentBidBps: state.currentBidBps,
+    consecutiveFullWins: state.consecutiveFullWins,
+    lowestWinningBidBps,
+    ...(highestLosingBidBps === undefined
+      ? {}
+      : { highestLosingBidBps }),
+    ...(highestLosingBidBlock === undefined
+      ? {}
+      : { highestLosingBidBlock }),
+    ...(lastObservedWinningBidBps === undefined
+      ? {}
+      : { lastObservedWinningBidBps }),
+    ...(lastObservedWinningBlock === undefined
+      ? {}
+      : { lastObservedWinningBlock }),
+    ...(state.lastUpdatedBlock === undefined
+      ? {}
+      : { lastUpdatedBlock: state.lastUpdatedBlock }),
+  };
+  const consecutiveFullWins = Math.min(
+    state.consecutiveFullWins + 1,
+    policy.winsBeforeDecay,
+  );
+  const lowerTarget = searchLowerBound(
+    boundedState,
+    policy,
+    outcome.blockNumber,
+  );
   const shouldDecay =
     consecutiveFullWins >= policy.winsBeforeDecay &&
-    previousBidBps > policy.baselineBidBps;
+    lowestWinningBidBps > lowerTarget;
+  const distanceToTarget =
+    lowestWinningBidBps > lowerTarget
+      ? lowestWinningBidBps - lowerTarget
+      : 0n;
+  const decayStep = maximum(
+    policy.winDecayBps,
+    (distanceToTarget + 1n) / 2n,
+  );
   const currentBidBps = shouldDecay
     ? maximum(
-        policy.baselineBidBps,
-        previousBidBps - policy.winDecayBps,
+        lowerTarget,
+        lowestWinningBidBps - decayStep,
       )
     : previousBidBps;
   const nextState: AdaptiveBidState = {
     currentBidBps,
     consecutiveFullWins: shouldDecay ? 0 : consecutiveFullWins,
     lastUpdatedBlock: outcome.blockNumber,
-    ...(state.lastObservedWinningBidBps === undefined
+    lowestWinningBidBps,
+    ...(lastObservedWinningBidBps === undefined
       ? {}
       : {
           lastObservedWinningBidBps:
-            state.lastObservedWinningBidBps,
+            lastObservedWinningBidBps,
         }),
+    ...(lastObservedWinningBlock === undefined
+      ? {}
+      : { lastObservedWinningBlock }),
+    ...(highestLosingBidBps === undefined
+      ? {}
+      : { highestLosingBidBps }),
+    ...(highestLosingBidBlock === undefined
+      ? {}
+      : { highestLosingBidBlock }),
+    ...(shouldDecay ? { activeProbeBidBps: currentBidBps } : {}),
   };
   return {
-    action:
-      currentBidBps < previousBidBps ? "decreased" : "held",
+    action: bidAction(previousBidBps, currentBidBps),
     previousBidBps,
     currentBidBps,
     state: nextState,
@@ -140,6 +406,11 @@ interface SerializedOrderBidState {
   readonly currentBidBps: string;
   readonly consecutiveFullWins: number;
   readonly lastObservedWinningBidBps?: string;
+  readonly lastObservedWinningBlock?: string;
+  readonly lowestWinningBidBps?: string;
+  readonly highestLosingBidBps?: string;
+  readonly highestLosingBidBlock?: string;
+  readonly activeProbeBidBps?: string;
   readonly lastUpdatedBlock?: string;
 }
 
@@ -152,6 +423,7 @@ function deserializeOrderState(
   value: unknown,
   policy: AdaptiveBidPolicy,
 ): AdaptiveBidState {
+  validatePolicy(policy);
   if (
     typeof value !== "object" ||
     value === null ||
@@ -165,10 +437,7 @@ function deserializeOrderState(
   const serialized = value as unknown as SerializedOrderBidState;
   const persistedBid = BigInt(serialized.currentBidBps);
   return {
-    currentBidBps: minimum(
-      policy.maximumBidBps,
-      maximum(policy.baselineBidBps, persistedBid),
-    ),
+    currentBidBps: clampToPolicy(persistedBid, policy),
     consecutiveFullWins:
       Number.isSafeInteger(serialized.consecutiveFullWins) &&
       serialized.consecutiveFullWins >= 0
@@ -179,6 +448,42 @@ function deserializeOrderState(
       : {
           lastObservedWinningBidBps: BigInt(
             serialized.lastObservedWinningBidBps,
+          ),
+          lastObservedWinningBlock: BigInt(
+            serialized.lastObservedWinningBlock ??
+              serialized.lastUpdatedBlock ??
+              "0",
+          ),
+        }),
+    ...(serialized.lowestWinningBidBps === undefined
+      ? {}
+      : {
+          lowestWinningBidBps: clampToPolicy(
+            BigInt(serialized.lowestWinningBidBps),
+            policy,
+          ),
+        }),
+    ...(serialized.highestLosingBidBps === undefined
+      ? {}
+      : {
+          highestLosingBidBps: clampToPolicy(
+            BigInt(serialized.highestLosingBidBps),
+            policy,
+          ),
+          ...(serialized.highestLosingBidBlock === undefined
+            ? {}
+            : {
+                highestLosingBidBlock: BigInt(
+                  serialized.highestLosingBidBlock,
+                ),
+              }),
+        }),
+    ...(serialized.activeProbeBidBps === undefined
+      ? {}
+      : {
+          activeProbeBidBps: clampToPolicy(
+            BigInt(serialized.activeProbeBidBps),
+            policy,
           ),
         }),
     ...(serialized.lastUpdatedBlock === undefined
@@ -247,6 +552,36 @@ class FileAdaptiveBidPersistence
           : {
               lastObservedWinningBidBps:
                 state.lastObservedWinningBidBps.toString(),
+              ...(state.lastObservedWinningBlock === undefined
+                ? {}
+                : {
+                    lastObservedWinningBlock:
+                      state.lastObservedWinningBlock.toString(),
+                  }),
+            }),
+        ...(state.lowestWinningBidBps === undefined
+          ? {}
+          : {
+              lowestWinningBidBps:
+                state.lowestWinningBidBps.toString(),
+            }),
+        ...(state.highestLosingBidBps === undefined
+          ? {}
+          : {
+              highestLosingBidBps:
+                state.highestLosingBidBps.toString(),
+              ...(state.highestLosingBidBlock === undefined
+                ? {}
+                : {
+                    highestLosingBidBlock:
+                      state.highestLosingBidBlock.toString(),
+                  }),
+            }),
+        ...(state.activeProbeBidBps === undefined
+          ? {}
+          : {
+              activeProbeBidBps:
+                state.activeProbeBidBps.toString(),
             }),
         ...(state.lastUpdatedBlock === undefined
           ? {}

@@ -38,6 +38,39 @@ before reporting progress or deploying.
 
 ## Immediate engineering queue
 
+### P0 — Replace the standing-order bid floor with bounded price discovery
+
+Status: implemented and validated; deploy and measure.
+
+The previous per-order controller started at `8,644 bps` and could learn upward,
+but its downward decay stopped at that same value. In the 24 hours ending
+2026-07-29 09:05 America/Denver, 67 successful standing-order receipts earned
+`0.0139 ETH` gross, spent `0.012741551037910720 ETH`, and retained only
+`0.001158448962089280 ETH`. Several targets accumulated three to seven
+consecutive wins without changing their bid. Durable competitor measurements
+also showed distinct clearing levels: some targets required `8,956–9,429 bps`,
+while others recently cleared at `941`, `1,366`, and `3,850 bps`.
+
+New targets still begin at the configured standing-order bid. After the
+configured consecutive-win streak, each target now bisects its durable bracket
+between the lowest effective bid that has won and the greater of a `1,000 bps`
+hard minimum, the highest effective bid that has lost, and its last measured
+competitor plus the configured margin. Learning compares the exact
+profit-capped bundle-effective bid—not merely the requested bid—with the
+competitor's aggregate transaction bid. An explicit durable probe marker
+distinguishes exploration from a proven below-starting-bid ceiling. A measured
+higher winner raises the target immediately; a price-losing or unmeasured
+failed probe returns to the known winning ceiling (or the starting bid when no
+ceiling exists) and retains the failed lower bound so the same price probe is
+not repeated. Competitor and losing-probe evidence expires after `7,200`
+blocks; a single lower-effective win cannot erase fresh evidence. State below
+the starting bid, probe phase, and bracket bounds remain durable across
+restarts. Every attempt remains private, exact-simulated, profit-capped, and
+gas-free when it misses.
+
+Measure retained profit, target-specific inclusion, and recovery speed before
+changing the hard minimum or the existing maximum.
+
 ### P0 — Make the live signer lease continuously fail-closed
 
 Status: implemented and validated; deploy after the nonce/lifecycle gate.

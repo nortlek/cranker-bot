@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregateBuilderBidBps,
+  effectiveBuilderBidBps,
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
 } from "../src/bidding.js";
@@ -24,6 +25,13 @@ describe("aggregateBuilderBidBps", () => {
         { rewardWei: 900n, builderBidBps: 1_000n },
       ]),
     ).toBe(1_000n);
+  });
+});
+
+describe("effectiveBuilderBidBps", () => {
+  it("attributes a shared priority fee to each order's own reward", () => {
+    expect(effectiveBuilderBidBps(30n, 300n)).toBe(1_000n);
+    expect(effectiveBuilderBidBps(30n, 400n)).toBe(750n);
   });
 });
 

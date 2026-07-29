@@ -161,6 +161,7 @@ export interface KeeperBatchResult {
   readonly hashes: readonly Hash[];
   readonly targetBlock: bigint;
   readonly relayCount: number;
+  readonly effectiveBuilderBidBps?: bigint;
   readonly bundleCount?: number;
   readonly bundleHashes?: readonly Hash[];
   readonly bundles?: readonly {
@@ -3895,12 +3896,17 @@ export async function runKeeperPass(
     if (order === undefined) return [];
     const reward = submission.request.reward;
     if (reward.kind !== "fixed") return [];
+    const effectiveBidBps =
+      batchResult?.effectiveBuilderBidBps;
     return [
       {
         order,
         crankFee: reward.amountWei,
         hash: submission.hash,
         included: receiptResults[index] ?? false,
+        ...(effectiveBidBps === undefined
+          ? {}
+          : { effectiveBidBps }),
       },
     ];
   });

@@ -60,6 +60,7 @@ export interface CrankBatchResult {
   readonly hashes: readonly Hash[];
   readonly targetBlock: bigint;
   readonly relayCount: number;
+  readonly effectiveBuilderBidBps?: bigint;
   readonly bundleCount?: number;
   readonly bundleHashes?: readonly Hash[];
   readonly bundles?: readonly {
@@ -77,6 +78,7 @@ export interface PrivateBatchOutcome {
     readonly crankFee: bigint;
     readonly hash: Hash;
     readonly included: boolean;
+    readonly effectiveBidBps?: bigint;
   }[];
 }
 
@@ -549,12 +551,19 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
     try {
       await observePrivateBatch({
         targetBlock: privateTargetBlock,
-        attempts: submitted.map((submission, index) => ({
-          order: submission.candidate.address,
-          crankFee: submission.candidate.crankFee,
-          hash: submission.hash,
-          included: receiptResults[index] ?? false,
-        })),
+        attempts: submitted.map((submission, index) => {
+          const effectiveBidBps =
+            privateBatchResult?.effectiveBuilderBidBps;
+          return {
+            order: submission.candidate.address,
+            crankFee: submission.candidate.crankFee,
+            hash: submission.hash,
+            included: receiptResults[index] ?? false,
+            ...(effectiveBidBps === undefined
+              ? {}
+              : { effectiveBidBps }),
+          };
+        }),
       });
     } catch (error) {
       log("warn", "adaptive_bid_observation_failed", {

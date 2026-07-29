@@ -271,12 +271,17 @@ successful `crank` fees are sent to that keeper address.
   replenishments. It defaults to `1000` (10%) and remains subject to exact
   positive-profit caps.
 - `ADAPTIVE_BIDDING`: enables post-block per-order bid learning.
+- `ADAPTIVE_BID_MIN_BPS`: hard lower bound for private per-order price
+  discovery. New orders still start at `BUILDER_BID_BPS`.
 - `ADAPTIVE_BID_STEP_BPS`: margin added above a measured winning bid after a
   loss. The default is `25` (0.25 percentage points).
 - `ADAPTIVE_BID_MAX_BPS`: hard ceiling for the learned bid target.
 - `ADAPTIVE_BID_WIN_STREAK`: consecutive wins required before probing a lower
   bid.
-- `ADAPTIVE_BID_DECAY_BPS`: amount removed after the configured win streak.
+- `ADAPTIVE_BID_DECAY_BPS`: minimum amount removed when bisecting toward the
+  target-specific lower bound after the configured win streak.
+- `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`: maximum age of competitor and
+  failed-probe price evidence. The default `7200` is roughly one day.
 - `ADAPTIVE_BID_STATE_PATH`: persisted per-order bid state.
 - `COMPETITOR_TRACE_URL`: internal-operation index used to measure direct ETH
   payments to the target block's beneficiary. The default is Routescan's
@@ -481,8 +486,24 @@ Bid state is maintained per order because orders with `0.0002`, `0.0003`, and
   that miss is more likely delivery, timing, or a state conflict.
 - An unmeasured loss holds the current bid instead of blindly escalating.
 - Each included order records a win. The keeper holds its bid until
-  `ADAPTIVE_BID_WIN_STREAK` consecutive wins, then reduces it by
-  `ADAPTIVE_BID_DECAY_BPS`, never below `BUILDER_BID_BPS`.
+  `ADAPTIVE_BID_WIN_STREAK` consecutive wins, then bisects the durable bracket
+  between the lowest effective bid that has won and the greater of
+  `ADAPTIVE_BID_MIN_BPS`, the highest effective bid that has lost, and its
+  last measured winner plus `ADAPTIVE_BID_STEP_BPS`.
+  `ADAPTIVE_BID_DECAY_BPS` remains the minimum reduction for a probe.
+- The bundle-effective bid after profit and fee caps—not merely the requested
+  bid—is recorded in each participating order's bracket and compared with the
+  competitor's aggregate transaction bid.
+- An explicit persisted probe marker separates exploration from a proven
+  below-starting-bid ceiling. A price-losing or unmeasured failed probe returns
+  immediately to its known winning ceiling, or to `BUILDER_BID_BPS` when no
+  ceiling exists, while retaining the failed lower bound so it does not repeat
+  the same price probe.
+- Measured competitors and losing probes remain lower-bound evidence for
+  `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`; an unobserved win cannot erase fresh
+  evidence.
+- A loss at or above the starting bid still holds rather than blindly
+  escalating unless a measured higher winner supplies direct price evidence.
 - Partial-prefix inclusion updates each order independently: included orders
   record wins while missed orders process their observed competitors.
 

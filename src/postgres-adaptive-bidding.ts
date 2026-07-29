@@ -16,11 +16,26 @@ function minimum(left: bigint, right: bigint): bigint {
   return left < right ? left : right;
 }
 
+function clampBid(
+  value: bigint,
+  policy: AdaptiveBidPolicy,
+): bigint {
+  return minimum(
+    policy.maximumBidBps,
+    maximum(policy.minimumBidBps, value),
+  );
+}
+
 interface BidStateRow {
   readonly target_address: string;
   readonly current_bid_bps: number;
   readonly consecutive_full_wins: number;
   readonly last_observed_winning_bid_bps: number | null;
+  readonly last_observed_winning_block: string | null;
+  readonly lowest_winning_bid_bps: number | null;
+  readonly highest_losing_bid_bps: number | null;
+  readonly highest_losing_bid_block: string | null;
+  readonly active_probe_bid_bps: number | null;
   readonly last_updated_block: string | null;
 }
 
@@ -53,6 +68,11 @@ export class PostgresAdaptiveBidPersistence
           current_bid_bps,
           consecutive_full_wins,
           last_observed_winning_bid_bps,
+          last_observed_winning_block,
+          lowest_winning_bid_bps,
+          highest_losing_bid_bps,
+          highest_losing_bid_block,
+          active_probe_bid_bps,
           last_updated_block
         FROM adaptive_bid_state
         WHERE scope = $1
@@ -63,12 +83,9 @@ export class PostgresAdaptiveBidPersistence
       result.rows.map((row) => [
         row.target_address.toLowerCase(),
         {
-          currentBidBps: minimum(
-            policy.maximumBidBps,
-            maximum(
-              policy.baselineBidBps,
-              BigInt(row.current_bid_bps),
-            ),
+          currentBidBps: clampBid(
+            BigInt(row.current_bid_bps),
+            policy,
           ),
           consecutiveFullWins: row.consecutive_full_wins,
           ...(row.last_observed_winning_bid_bps === null
@@ -76,6 +93,42 @@ export class PostgresAdaptiveBidPersistence
             : {
                 lastObservedWinningBidBps: BigInt(
                   row.last_observed_winning_bid_bps,
+                ),
+                lastObservedWinningBlock: BigInt(
+                  row.last_observed_winning_block ??
+                    row.last_updated_block ??
+                    "0",
+                ),
+              }),
+          ...(row.lowest_winning_bid_bps === null
+            ? {}
+            : {
+                lowestWinningBidBps: clampBid(
+                  BigInt(row.lowest_winning_bid_bps),
+                  policy,
+                ),
+              }),
+          ...(row.highest_losing_bid_bps === null
+            ? {}
+            : {
+                highestLosingBidBps: clampBid(
+                  BigInt(row.highest_losing_bid_bps),
+                  policy,
+                ),
+                ...(row.highest_losing_bid_block === null
+                  ? {}
+                  : {
+                      highestLosingBidBlock: BigInt(
+                        row.highest_losing_bid_block,
+                      ),
+                    }),
+              }),
+          ...(row.active_probe_bid_bps === null
+            ? {}
+            : {
+                activeProbeBidBps: clampBid(
+                  BigInt(row.active_probe_bid_bps),
+                  policy,
                 ),
               }),
           ...(row.last_updated_block === null
@@ -104,10 +157,18 @@ export class PostgresAdaptiveBidPersistence
               current_bid_bps,
               consecutive_full_wins,
               last_observed_winning_bid_bps,
+              last_observed_winning_block,
+              lowest_winning_bid_bps,
+              highest_losing_bid_bps,
+              highest_losing_bid_block,
+              active_probe_bid_bps,
               last_updated_block,
               updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, now())
+            VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+              now()
+            )
             ON CONFLICT (scope, target_address) DO UPDATE
             SET
               current_bid_bps = EXCLUDED.current_bid_bps,
@@ -115,6 +176,16 @@ export class PostgresAdaptiveBidPersistence
                 EXCLUDED.consecutive_full_wins,
               last_observed_winning_bid_bps =
                 EXCLUDED.last_observed_winning_bid_bps,
+              last_observed_winning_block =
+                EXCLUDED.last_observed_winning_block,
+              lowest_winning_bid_bps =
+                EXCLUDED.lowest_winning_bid_bps,
+              highest_losing_bid_bps =
+                EXCLUDED.highest_losing_bid_bps,
+              highest_losing_bid_block =
+                EXCLUDED.highest_losing_bid_block,
+              active_probe_bid_bps =
+                EXCLUDED.active_probe_bid_bps,
               last_updated_block = EXCLUDED.last_updated_block,
               updated_at = now()
           `,
@@ -126,6 +197,17 @@ export class PostgresAdaptiveBidPersistence
             state.lastObservedWinningBidBps === undefined
               ? null
               : Number(state.lastObservedWinningBidBps),
+            state.lastObservedWinningBlock?.toString() ?? null,
+            state.lowestWinningBidBps === undefined
+              ? null
+              : Number(state.lowestWinningBidBps),
+            state.highestLosingBidBps === undefined
+              ? null
+              : Number(state.highestLosingBidBps),
+            state.highestLosingBidBlock?.toString() ?? null,
+            state.activeProbeBidBps === undefined
+              ? null
+              : Number(state.activeProbeBidBps),
             state.lastUpdatedBlock?.toString() ?? null,
           ],
         );
