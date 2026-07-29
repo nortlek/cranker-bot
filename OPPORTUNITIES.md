@@ -312,6 +312,17 @@ effective winning bid is cheaper, it retires the contradicted competitor
 observation and resumes bounded bracket search. Misses remain private and
 gas-free.
 
+The eight-order win at target block `25640932` supplied a broader live sample.
+It earned `0.0022 ETH` gross, cleared at an aggregate effective `8,160 bps`,
+and retained `0.000156933940344016 ETH`. The controller did not treat that one
+aggregate outcome as proof that every target needs the same price: three
+previously unmeasured targets entered bounded probes at `3,795–3,869 bps`,
+targets with existing `5,965 bps` losses retained their brackets, and the
+high-bid `CC74...` target recorded `8,160 bps` as a lower win but required
+another contradiction before discarding older evidence. This supports
+continued target-specific learning; it does not justify a global floor or
+starting-bid change.
+
 ### P0 — Make the live signer lease continuously fail-closed
 
 Status: implemented and validated; deploy after the nonce/lifecycle gate.
