@@ -1550,10 +1550,11 @@ async function main(): Promise<void> {
                     target: prerequisite.target,
                     ...(prerequisite.action ===
                     "pool_ticket_purchase"
-                      ? {
-                          round:
-                            prerequisite.roundId.toString(),
-                        }
+                          ? {
+                              round:
+                                prerequisite.roundId?.toString() ??
+                                "current",
+                            }
                       : {}),
                     status: result.status,
                     reason: result.reason,
@@ -1717,7 +1718,10 @@ async function main(): Promise<void> {
                           "pool_ticket_purchase"
                             ? {
                                 round:
-                                  prerequisite.roundId.toString(),
+                                  prerequisite.roundId?.toString() ??
+                                  "current",
+                                purchaseFunction:
+                                  prerequisite.purchaseFunction,
                                 tickets:
                                   prerequisite.tickets,
                               }

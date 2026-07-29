@@ -106,6 +106,7 @@ async function exactPricedPoolPull(parameters: {
   readonly relay: FlashbotsRelay;
   readonly signer: PrivateKeyAccount;
   readonly prerequisite: PoolTicketPrerequisite;
+  readonly roundId: bigint;
   readonly targetBlock: bigint;
   readonly nonce: number;
   readonly accountBalance: bigint;
@@ -135,7 +136,7 @@ async function exactPricedPoolPull(parameters: {
   const pullData = encodeFunctionData({
     abi: poolAbi,
     functionName: "pull",
-    args: [parameters.prerequisite.roundId],
+    args: [parameters.roundId],
   });
   const preliminaryPull =
     await parameters.signer.signTransaction({
@@ -354,7 +355,8 @@ export async function executePendingPoolPullBackrun(parameters: {
   }
 
   const pool = parameters.prerequisite.target;
-  const roundId = parameters.prerequisite.roundId;
+  const declaredRoundId =
+    parameters.prerequisite.roundId;
   const currentHead = await parameters.publicClient.getBlockNumber();
   const targetBlock = currentHead + 1n;
   const [latestNonce, pendingNonce] = await Promise.all([
@@ -407,7 +409,6 @@ export async function executePendingPoolPullBackrun(parameters: {
       latestBlock,
       roundCount,
       ethPendingRound,
-      round,
       accountBalance,
     ] = await Promise.all([
       parameters.publicClient.estimateFeesPerGas({
@@ -428,23 +429,33 @@ export async function executePendingPoolPullBackrun(parameters: {
         functionName: "ethPendingRound",
         blockNumber: currentHead,
       }),
-      parameters.publicClient.readContract({
-        address: pool,
-        abi: poolAbi,
-        functionName: "getRound",
-        args: [roundId],
-        blockNumber: currentHead,
-      }),
       parameters.publicClient.getBalance({
         address: parameters.signer.address,
         blockNumber: currentHead,
       }),
     ]);
+    const roundId = declaredRoundId ?? roundCount;
     if (
-      roundCount !== roundId ||
+      (declaredRoundId !== undefined &&
+        roundCount !== declaredRoundId) ||
       ethPendingRound !== 0n ||
-      round.state !== 1
+      roundId <= 0n
     ) {
+      return {
+        status: "skipped",
+        reason: "round_not_open",
+        targetBlock,
+      };
+    }
+    const round =
+      await parameters.publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "getRound",
+        args: [roundId],
+        blockNumber: currentHead,
+      });
+    if (round.state !== 1) {
       return {
         status: "skipped",
         reason: "round_not_open",
@@ -458,6 +469,7 @@ export async function executePendingPoolPullBackrun(parameters: {
       relay: parameters.relays[0]!,
       signer: parameters.signer,
       prerequisite: parameters.prerequisite,
+      roundId,
       targetBlock,
       nonce: latestNonce,
       accountBalance,

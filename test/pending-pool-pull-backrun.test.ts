@@ -75,8 +75,8 @@ describe("pending pool pull prerequisite backrun", () => {
     const roundId = 301n;
     const purchaseData = encodeFunctionData({
       abi: poolAbi,
-      functionName: "buyTickets",
-      args: [roundId, 6, buyer.address],
+      functionName: "buyIntoCurrentRound",
+      args: [6, buyer.address],
     });
     const rawPurchase = await buyer.signTransaction({
       chainId: 1,
@@ -231,6 +231,7 @@ describe("pending pool pull prerequisite backrun", () => {
       signer,
       prerequisite: {
         action: "pool_ticket_purchase",
+        purchaseFunction: "buyIntoCurrentRound",
         rawTransaction: rawPurchase,
         hash: purchaseHash,
         sender: buyer.address,
@@ -239,7 +240,6 @@ describe("pending pool pull prerequisite backrun", () => {
         type: "eip1559",
         target: pool,
         value: parseEther("0.03"),
-        roundId,
         tickets: 6,
         recipient: buyer.address,
       },

@@ -199,6 +199,7 @@ describe("validatePendingFundingPrerequisite", () => {
       }),
     ).resolves.toMatchObject({
       action: "pool_ticket_purchase",
+      purchaseFunction: "buyTickets",
       rawTransaction,
       hash,
       target: poolTarget,
@@ -207,6 +208,42 @@ describe("validatePendingFundingPrerequisite", () => {
       tickets: 6,
       recipient: account.address,
     });
+  });
+
+  it("accepts a current-round ticket purchase prerequisite", async () => {
+    const data = encodeFunctionData({
+      abi: poolAbi,
+      functionName: "buyIntoCurrentRound",
+      args: [2, account.address],
+    });
+    const rawTransaction = await signFunding("eip1559", {
+      to: poolTarget,
+      value: 10_000_000_000_000_000n,
+      data,
+    });
+    const hash = keccak256(rawTransaction);
+
+    const result =
+      await validatePendingFundingPrerequisite({
+        rawTransaction,
+        expectedHash: hash,
+        rpcTransaction: rpcTransaction(rawTransaction),
+        canonicalTargets: [canonicalTarget, poolTarget],
+        poolTarget,
+      });
+
+    expect(result).toMatchObject({
+      action: "pool_ticket_purchase",
+      purchaseFunction: "buyIntoCurrentRound",
+      target: poolTarget,
+      tickets: 2,
+      recipient: account.address,
+    });
+    expect(
+      result.action === "pool_ticket_purchase"
+        ? result.roundId
+        : undefined,
+    ).toBeUndefined();
   });
 
   it("rejects another pool function as a prerequisite", async () => {

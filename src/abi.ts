@@ -44,6 +44,7 @@ export const poolAbi = parseAbi([
   "function ticketsNeeded(uint256 roundId) view returns (uint256)",
   "function config() view returns (uint96 ticketPrice, uint64 fundingDuration, uint16 headroomBps, uint16 feeCapBps, uint96 crankBountyCap, uint96 vrfAllowance, uint64 bountyTipWei, uint64 stallTimeout, uint32 maxTickets)",
   "function buyTickets(uint256 roundId, uint32 tickets, address recipient) payable",
+  "function buyIntoCurrentRound(uint32 tickets, address recipient) payable",
   "function pull(uint256 roundId)",
   "function syncFwaResult(uint256 roundId)",
   "function settle(uint256 roundId)",

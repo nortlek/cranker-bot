@@ -155,7 +155,10 @@ export type ValidatedPendingFundingPrerequisite =
     })
   | (ValidatedPendingPrerequisiteBase & {
       readonly action: "pool_ticket_purchase";
-      readonly roundId: bigint;
+      readonly purchaseFunction:
+        | "buyTickets"
+        | "buyIntoCurrentRound";
+      readonly roundId?: bigint;
       readonly tickets: number;
       readonly recipient: Address;
     });
@@ -441,25 +444,45 @@ export async function validatePendingFundingPrerequisite(parameters: {
       "Pending pool transaction calldata is not recognized",
     );
   }
-  if (decoded.functionName !== "buyTickets") {
+  if (
+    decoded.functionName !== "buyTickets" &&
+    decoded.functionName !== "buyIntoCurrentRound"
+  ) {
     validationFailure(
       "input_unsupported",
       "Pending pool transaction is not a ticket purchase",
     );
   }
+  if (!Array.isArray(decoded.args)) {
+    validationFailure(
+      "ticket_purchase_invalid",
+      "Pending pool ticket purchase arguments are incomplete",
+    );
+  }
+  const explicitRound =
+    decoded.functionName === "buyTickets";
   if (
-    !Array.isArray(decoded.args) ||
-    decoded.args.length !== 3
+    (explicitRound && decoded.args.length !== 3) ||
+    (!explicitRound && decoded.args.length !== 2)
   ) {
     validationFailure(
       "ticket_purchase_invalid",
       "Pending pool ticket purchase arguments are incomplete",
     );
   }
-  const [roundId, tickets, recipient] = decoded.args;
+  const roundId = explicitRound
+    ? decoded.args[0]
+    : undefined;
+  const tickets = explicitRound
+    ? decoded.args[1]
+    : decoded.args[0];
+  const recipient = explicitRound
+    ? decoded.args[2]
+    : decoded.args[1];
   if (
-    typeof roundId !== "bigint" ||
-    roundId <= 0n ||
+    (explicitRound &&
+      (typeof roundId !== "bigint" ||
+        roundId <= 0n)) ||
     typeof tickets !== "number" ||
     !Number.isSafeInteger(tickets) ||
     tickets <= 0 ||
@@ -474,6 +497,7 @@ export async function validatePendingFundingPrerequisite(parameters: {
 
   return {
     action: "pool_ticket_purchase",
+    purchaseFunction: decoded.functionName,
     rawTransaction,
     hash: computedHash,
     sender,
@@ -482,7 +506,7 @@ export async function validatePendingFundingPrerequisite(parameters: {
     type: parsed.type,
     target,
     value,
-    roundId,
+    ...(typeof roundId === "bigint" ? { roundId } : {}),
     tickets,
     recipient: getAddress(recipient),
   };
