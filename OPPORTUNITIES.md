@@ -18,11 +18,14 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 13:59 America/Denver, the
-verified snapshot was **$149.49418811 net**, or **59.79%** of the goal, with
-`latest == pending == 470` and net ETH equivalent of
-`0.07919459619486467`. Since the prior snapshot at nonce 464, six successful
-transactions increased the wallet by `0.000902115686145820 ETH`. Round 291's
+2026-07-30 23:59 America/Denver**. At 2026-07-29 14:17 America/Denver, the
+verified snapshot was **$153.06036764 net**, or **61.22%** of the goal, with
+`latest == pending == 488` and net ETH equivalent of
+`0.081083780995526651`. Since the nonce-470 snapshot, successful receipts
+increased the wallet by another `0.001889184800661981 ETH`. The last three
+were round 295's `processAcquisitions(10) -> syncFwaResult -> settle` chain,
+which retained `0.000578034549989178 ETH` after every receipt's gas and
+builder payment. The preceding round-291
 `processAcquisitions(2) -> syncFwaResult -> settle` chain earned
 `0.001326643737918444 ETH` gross, spent `0.000404057653338204 ETH` of base gas
 and `0.000057725256565197 ETH` of priority-fee builder payment, and retained
@@ -104,8 +107,12 @@ Remaining acceptance criteria:
 
 ### P0 — Express fee-capped standing-order bids with direct coinbase payment
 
-Status: bounded implementation validated locally; production remains disabled
-until the committed Railway rollout passes the nonce and lifecycle gates.
+Status: live in Railway deployment
+`0158144d-cf56-4661-a251-026d868bf229` from exact source
+`32ef07341c94d1059d2088cc248050ed43db36cf`. Startup verified the pinned
+helper runtime, enabled the feature, acquired exactly one signer lease, and
+continued healthy passes without warnings. Awaiting the first fee-capped
+standing-order candidate and reconciled helper receipt.
 
 The existing `5 gwei` maximum fee protects the signer from unbounded gas-price
 exposure, but it also prevented the priority-fee-only bundle from expressing

@@ -501,6 +501,10 @@ At the last handoff, the configured policy was approximately:
 | Stake DAO Curve harvest | 10% |
 | FiRM forced replenishment | 10% (feature default-off) |
 
+`ENABLE_DIRECT_COINBASE_PAYMENTS=true` is live only for fee-capped,
+standing-order-only batches. It does not define another bid: it expresses the
+existing adaptive standing-order bid without raising the `5 gwei` maximum fee.
+
 These values are context, not immutable recommendations. Re-read recent
 competition and durable bid state before changing them.
 
