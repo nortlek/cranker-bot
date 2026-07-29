@@ -505,10 +505,12 @@ export function isFreshBlockStateUnavailable(
       (candidate instanceof RpcRequestError &&
         candidate.code === InvalidParamsRpcError.code),
   );
+  if (!(invalidParams instanceof BaseError)) return false;
+  const details = invalidParams.details ?? "";
   return (
-    invalidParams instanceof BaseError &&
-    /^Missing or invalid parameters\.?$/i.test(
-      invalidParams.details ?? "",
+    /^Missing or invalid parameters\.?$/i.test(details) ||
+    /^Invalid parameters were provided to the RPC method\.?$/i.test(
+      details,
     )
   );
 }

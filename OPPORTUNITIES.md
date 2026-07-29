@@ -147,6 +147,16 @@ factory and vault registries, decodes all known crank logs from the full
 receipt, and rejects an empty denominator. A conditional migration repairs
 only the exact poisoned durable row.
 
+Fresh-block competitor reads at blocks `25639785`, `25639870`, and `25639904`
+also exposed a second provider spelling of the same JSON-RPC `-32602`
+state-availability race: `Invalid parameters were provided to the RPC method.`
+The transient-read classifier previously recognized only `Missing or invalid
+parameters.` and therefore abandoned those observations without retrying.
+Historical replay succeeded once the blocks were available and recovered two
+previously missed clearing bids of `7,515` and `7,413 bps`. The observer now
+retries only those two exact provider messages; unrelated invalid-argument
+errors remain terminal.
+
 Deployment `3411c130-67e6-43c5-91a9-c7ae9f11d631` first missed a five-order
 private batch at an effective `6,342 bps`, then won consecutive five-order
 batches at `6,293` and `6,898 bps`. The wins added

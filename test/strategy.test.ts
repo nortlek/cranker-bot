@@ -14,23 +14,28 @@ import {
 
 describe("isFreshBlockStateUnavailable", () => {
   it("recognizes the provider race observed after a fresh header", () => {
-    const requestError = new RpcRequestError({
-      body: {
-        method: "eth_call",
-        params: [],
-      },
-      error: {
-        code: InvalidParamsRpcError.code,
-        message: "Missing or invalid parameters.",
-      },
-      url: "https://example.invalid",
-    });
+    for (const message of [
+      "Missing or invalid parameters.",
+      "Invalid parameters were provided to the RPC method.",
+    ]) {
+      const requestError = new RpcRequestError({
+        body: {
+          method: "eth_call",
+          params: [],
+        },
+        error: {
+          code: InvalidParamsRpcError.code,
+          message,
+        },
+        url: "https://example.invalid",
+      });
 
-    expect(
-      isFreshBlockStateUnavailable(
-        new InvalidParamsRpcError(requestError),
-      ),
-    ).toBe(true);
+      expect(
+        isFreshBlockStateUnavailable(
+          new InvalidParamsRpcError(requestError),
+        ),
+      ).toBe(true);
+    }
   });
 
   it("does not classify unrelated invalid parameters as state lag", () => {
