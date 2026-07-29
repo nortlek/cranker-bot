@@ -197,7 +197,10 @@ minimum expected profit of `0.00069927 ETH` and a median of
 
 ### P0 — Remove the arbitrary FWA processor gas cutoff
 
-Status: implemented locally; validate and deploy.
+Status: deployed to production on 2026-07-29 in Railway deployment
+`907570f9-3c4c-4faf-9b50-7ace142d8fd8` from commit
+`f18cc0eb72b180275e78acb3f013d7f6c740e378`; monitor the next high-count ready
+cycle.
 
 The ready-cycle planner previously rejected a directly estimated
 `processAcquisitions` call when its buffered gas exceeded `3,000,000`, before
