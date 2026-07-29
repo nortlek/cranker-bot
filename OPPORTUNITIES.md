@@ -189,8 +189,9 @@ removed.
 
 ### P0 — Repair lifecycle funding enrichment and pool-pull bidding
 
-Status: enrichment and pull bidding are live; dependency-safe preliminary
-prefix admission is validated locally and pending deployment.
+Status: enrichment, pull bidding, and dependency-safe preliminary prefix
+admission are live in Railway deployment
+`6f30b913-2930-4404-a671-c04c2579b6c6`.
 
 Across 58 live lifecycle plans, 36 successfully appended a next-round
 `pool_pull`, but none submitted that suffix. Every pull used the static
