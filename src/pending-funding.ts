@@ -45,6 +45,59 @@ export interface PendingFundingRpcTransaction {
   readonly input: Hex;
 }
 
+export interface PendingFundingObservedRpcTransaction
+  extends PendingFundingRpcTransaction {
+  readonly blockNumber: bigint | null;
+}
+
+export type PendingFundingHashResolution =
+  | {
+      readonly status: "pending";
+      readonly transaction: PendingFundingObservedRpcTransaction;
+      readonly rawTransaction: Hex;
+    }
+  | {
+      readonly status: "mined";
+      readonly transaction: PendingFundingObservedRpcTransaction;
+      readonly rawAvailable: boolean;
+    };
+
+/**
+ * Resolves both authoritative representations concurrently so the hot path
+ * does not add a sequential RPC round trip. A mined transaction is still
+ * classified when raw-byte retrieval fails, preserving evidence that the
+ * pending notification arrived too late to execute.
+ */
+export async function resolvePendingFundingHash(parameters: {
+  readonly getRawTransaction: () => Promise<Hex>;
+  readonly getTransaction:
+    () => Promise<PendingFundingObservedRpcTransaction>;
+}): Promise<PendingFundingHashResolution> {
+  const [rawResult, transactionResult] =
+    await Promise.allSettled([
+      parameters.getRawTransaction(),
+      parameters.getTransaction(),
+    ]);
+  if (transactionResult.status === "rejected") {
+    throw transactionResult.reason;
+  }
+  if (transactionResult.value.blockNumber !== null) {
+    return {
+      status: "mined",
+      transaction: transactionResult.value,
+      rawAvailable: rawResult.status === "fulfilled",
+    };
+  }
+  if (rawResult.status === "rejected") {
+    throw rawResult.reason;
+  }
+  return {
+    status: "pending",
+    transaction: transactionResult.value,
+    rawTransaction: rawResult.value,
+  };
+}
+
 export type PendingFundingValidationErrorCode =
   | "raw_missing"
   | "raw_malformed"
@@ -534,6 +587,9 @@ export function subscribeToAlchemyPendingFundingHashes(parameters: {
   readonly onError?: (
     error: PendingFundingSubscriptionError,
   ) => void;
+  readonly onSubscribed?: (
+    connectionGeneration: number,
+  ) => void;
   readonly reconnectDelayMs?: number;
   readonly webSocketFactory?: PendingFundingWebSocketFactory;
 }): PendingFundingHashSubscription {
@@ -541,6 +597,7 @@ export function subscribeToAlchemyPendingFundingHashes(parameters: {
     url,
     onHash,
     onError,
+    onSubscribed,
     webSocketFactory = (endpoint) => new WebSocket(endpoint),
   } = parameters;
   const reconnectDelayMs =
@@ -581,6 +638,7 @@ export function subscribeToAlchemyPendingFundingHashes(parameters: {
   let socket: WebSocket | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let subscriptionId: string | undefined;
+  let connectionGeneration = 0;
   let markReady: (() => void) | undefined;
   const ready = new Promise<void>((resolve) => {
     markReady = resolve;
@@ -650,6 +708,14 @@ export function subscribeToAlchemyPendingFundingHashes(parameters: {
         return;
       }
       subscriptionId = payload.result;
+      try {
+        onSubscribed?.(connectionGeneration);
+      } catch {
+        report(
+          "handler_failed",
+          "Pending funding subscription observer failed",
+        );
+      }
       markReady?.();
       markReady = undefined;
       return;
@@ -697,6 +763,7 @@ export function subscribeToAlchemyPendingFundingHashes(parameters: {
     }
 
     socket = nextSocket;
+    connectionGeneration += 1;
     subscriptionId = undefined;
     nextSocket.onopen = () => {
       if (nextSocket !== socket || stopped) {

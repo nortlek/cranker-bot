@@ -20,6 +20,7 @@ import {
 import {
   PendingFundingReplacementTracker,
   PendingFundingValidationError,
+  resolvePendingFundingHash,
   subscribeToAlchemyPendingFundingHashes,
   validatePendingFundingPrerequisite,
   type PendingFundingRpcTransaction,
@@ -505,6 +506,64 @@ describe("validatePendingFundingPrerequisite", () => {
   });
 });
 
+describe("resolvePendingFundingHash", () => {
+  const pendingTransaction = {
+    hash: `0x${"ab".repeat(32)}` as Hash,
+    from: account.address,
+    nonce: 7,
+    chainId: 1,
+    type: "eip1559",
+    to: canonicalTarget,
+    value: 1n,
+    input: "0x" as Hex,
+    blockNumber: null,
+  };
+
+  it("returns a pending transaction with its exact raw bytes", async () => {
+    await expect(
+      resolvePendingFundingHash({
+        getRawTransaction: async () => eip1559Funding,
+        getTransaction: async () => pendingTransaction,
+      }),
+    ).resolves.toEqual({
+      status: "pending",
+      transaction: pendingTransaction,
+      rawTransaction: eip1559Funding,
+    });
+  });
+
+  it("classifies a mined delivery even when raw bytes are unavailable", async () => {
+    const minedTransaction = {
+      ...pendingTransaction,
+      blockNumber: 25_640_951n,
+    };
+
+    await expect(
+      resolvePendingFundingHash({
+        getRawTransaction: async () => {
+          throw new Error("raw unavailable");
+        },
+        getTransaction: async () => minedTransaction,
+      }),
+    ).resolves.toEqual({
+      status: "mined",
+      transaction: minedTransaction,
+      rawAvailable: false,
+    });
+  });
+
+  it("requires raw bytes while the transaction is pending", async () => {
+    await expect(
+      resolvePendingFundingHash({
+        getRawTransaction: async () => {
+          throw new Error("raw unavailable");
+        },
+        getTransaction: async () => pendingTransaction,
+      }),
+    ).rejects.toThrow("raw unavailable");
+  });
+});
+
 describe("PendingFundingReplacementTracker", () => {
   const firstHash = `0x${"01".repeat(32)}` as Hash;
   const replacementHash = `0x${"02".repeat(32)}` as Hash;
@@ -658,14 +717,18 @@ describe("subscribeToAlchemyPendingFundingHashes", () => {
     expect(subscription.closed).toBe(true);
   });
 
-  it("reconnects with the same filtered mechanism after a close", () => {
+  it("reconnects with the same filtered mechanism after a close", async () => {
     vi.useFakeTimers();
     const sockets: FakeWebSocket[] = [];
+    const subscribedGenerations: number[] = [];
     const subscription =
       subscribeToAlchemyPendingFundingHashes({
         url: "wss://example.invalid/private",
         targetAddresses: [canonicalTarget],
         onHash: () => undefined,
+        onSubscribed: (generation) => {
+          subscribedGenerations.push(generation);
+        },
         reconnectDelayMs: 25,
         webSocketFactory: () => {
           const socket = new FakeWebSocket();
@@ -674,6 +737,15 @@ describe("subscribeToAlchemyPendingFundingHashes", () => {
         },
       });
 
+    sockets[0]!.emitOpen();
+    sockets[0]!.emitMessage({
+      jsonrpc: "2.0",
+      id: 1,
+      result: "0xsubscription-1",
+    });
+    await vi.waitFor(() =>
+      expect(subscribedGenerations).toEqual([1]),
+    );
     sockets[0]!.emitClose();
     expect(sockets).toHaveLength(1);
     vi.advanceTimersByTime(25);
@@ -686,6 +758,14 @@ describe("subscribeToAlchemyPendingFundingHashes", () => {
         { hashesOnly: true },
       ],
     });
+    sockets[1]!.emitMessage({
+      jsonrpc: "2.0",
+      id: 1,
+      result: "0xsubscription-2",
+    });
+    await vi.waitFor(() =>
+      expect(subscribedGenerations).toEqual([1, 2]),
+    );
 
     subscription.close();
     vi.advanceTimersByTime(100);

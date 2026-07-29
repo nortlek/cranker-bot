@@ -64,6 +64,7 @@ import { executePendingFundingBackrun } from "./pending-funding-backrun.js";
 import {
   PendingFundingReplacementTracker,
   PendingFundingValidationError,
+  resolvePendingFundingHash,
   subscribeToAlchemyPendingFundingHashes,
   validatePendingFundingPrerequisite,
   type ValidatedPendingFundingPrerequisite,
@@ -1428,6 +1429,7 @@ async function main(): Promise<void> {
         const executionController =
           new PendingFundingExecutionController();
         let candidateResolutionQueue = Promise.resolve();
+        let pendingCandidateResolutions = 0;
         let queuedCandidate:
           | ValidatedPendingFundingPrerequisite
           | undefined;
@@ -1528,29 +1530,95 @@ async function main(): Promise<void> {
           subscribeToAlchemyPendingFundingHashes({
             url: config.headRpcUrl!,
             targetAddresses: canonicalTargets,
+            onSubscribed: (connectionGeneration) => {
+              log(
+                "info",
+                "pending_funding_subscription_ready",
+                {
+                  connectionGeneration,
+                  targetCount: canonicalTargets.length,
+                },
+              );
+            },
             onHash: (hash) => {
-              candidateResolutionQueue =
+              const observedAt = performance.now();
+              pendingCandidateResolutions += 1;
+              log(
+                "debug",
+                "pending_funding_hash_observed",
+                {
+                  hash,
+                  resolutionQueueDepth:
+                    pendingCandidateResolutions,
+                },
+              );
+              const resolution =
                 candidateResolutionQueue.then(
                   async () => {
                     if (executionController.stopping) {
                       return;
                     }
+                    const resolutionStartedAt =
+                      performance.now();
+                    const resolutionQueueWaitMs =
+                      resolutionStartedAt - observedAt;
                     try {
-                      const [rawTransaction, transaction] =
-                        await Promise.all([
-                          discoveryClient.getRawTransaction({
+                      const resolved =
+                        await resolvePendingFundingHash({
+                          getRawTransaction: () =>
+                            discoveryClient.getRawTransaction({
+                              hash,
+                            }),
+                          getTransaction: async () => {
+                            const transaction =
+                              await discoveryClient.getTransaction({
+                                hash,
+                              });
+                            return {
+                              hash: transaction.hash,
+                              from: transaction.from,
+                              nonce: transaction.nonce,
+                              chainId: transaction.chainId,
+                              type: transaction.type,
+                              to: transaction.to,
+                              value: transaction.value,
+                              input: transaction.input,
+                              blockNumber:
+                                transaction.blockNumber,
+                            };
+                          },
+                        });
+                      const resolutionMs =
+                        performance.now() -
+                        resolutionStartedAt;
+                      const observedToResolutionMs =
+                        performance.now() - observedAt;
+                      if (resolved.status === "mined") {
+                        log(
+                          "info",
+                          "pending_funding_candidate_late",
+                          {
                             hash,
-                          }),
-                          discoveryClient.getTransaction({
-                            hash,
-                          }),
-                        ]);
-                      if (transaction.blockNumber !== null) {
+                            order:
+                              resolved.transaction.to ?? "",
+                            block:
+                              resolved.transaction.blockNumber?.toString() ??
+                              "",
+                            rawAvailable:
+                              resolved.rawAvailable,
+                            resolutionQueueWaitMs,
+                            resolutionMs,
+                            observedToResolutionMs,
+                          },
+                        );
                         return;
                       }
+                      const transaction =
+                        resolved.transaction;
                       const prerequisite =
                         await validatePendingFundingPrerequisite({
-                          rawTransaction,
+                          rawTransaction:
+                            resolved.rawTransaction,
                           expectedHash: hash,
                           rpcTransaction: {
                             hash: transaction.hash,
@@ -1564,6 +1632,23 @@ async function main(): Promise<void> {
                           },
                           canonicalTargets,
                         });
+                      log(
+                        "info",
+                        "pending_funding_candidate_validated",
+                        {
+                          hash: prerequisite.hash,
+                          order: prerequisite.target,
+                          sender: prerequisite.sender,
+                          nonce: prerequisite.nonce,
+                          value: eth(prerequisite.value),
+                          resolutionQueueWaitMs,
+                          resolutionMs:
+                            performance.now() -
+                            resolutionStartedAt,
+                          observedToResolutionMs:
+                            performance.now() - observedAt,
+                        },
+                      );
                       if (executionController.stopping) {
                         return;
                       }
@@ -1574,6 +1659,16 @@ async function main(): Promise<void> {
                           nonce: prerequisite.nonce,
                         });
                       if (tracked.status === "duplicate") {
+                        log(
+                          "debug",
+                          "pending_funding_candidate_duplicate",
+                          {
+                            hash: prerequisite.hash,
+                            order: prerequisite.target,
+                            sender: prerequisite.sender,
+                            nonce: prerequisite.nonce,
+                          },
+                        );
                         return;
                       }
                       if (tracked.status === "replacement") {
@@ -1605,21 +1700,36 @@ async function main(): Promise<void> {
                       queuedCandidate = prerequisite;
                       executeQueuedCandidate();
                     } catch (error) {
+                      const validationError =
+                        error instanceof
+                        PendingFundingValidationError;
                       log(
                         "debug",
                         "pending_funding_candidate_rejected",
                         {
                           hash,
-                          reason:
-                            error instanceof
-                            PendingFundingValidationError
-                              ? error.code
-                              : errorMessage(error),
+                          reason: validationError
+                            ? error.code
+                            : "rpc_resolution_failed",
+                          resolutionQueueWaitMs,
+                          resolutionMs:
+                            performance.now() -
+                            resolutionStartedAt,
+                          observedToResolutionMs:
+                            performance.now() - observedAt,
+                          ...(validationError
+                            ? {}
+                            : errorFingerprint(error)),
                         },
                       );
                     }
                   },
                 );
+              candidateResolutionQueue = resolution.finally(
+                () => {
+                  pendingCandidateResolutions -= 1;
+                },
+              );
               return candidateResolutionQueue;
             },
             onError: (error) => {
