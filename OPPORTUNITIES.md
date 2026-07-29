@@ -118,7 +118,13 @@ Acceptance:
 
 ### P0 — Measure PoolPull clearing prices independently
 
-Status: implementation validated locally; production rollout pending.
+Status: live in Railway deployment
+`e81f61ad-6b38-45c5-b4ba-4c430f2718c7` from exact source
+`3645625587c47e8d57864b53b26c8301501c7e93`. The replacement acquired the
+single advisory signer lease, acknowledged all 69 filtered pending targets,
+and completed both its initial HTTP pass and first WebSocket pass without a
+failure. PostgreSQL showed one open run, one granted advisory lock, and no
+recent fatal, pass, telemetry, or pool-measurement failure.
 
 The ordinary PoolPull lane had durable bid quotes and expiration events but no
 corresponding clearing-price observation. Its only recent win was a
@@ -147,6 +153,13 @@ direct payment, and a pool-reward-normalized winning-bid upper bound. The
 measurement is deliberately record-only: a competitor transaction may contain
 rewards outside PullPool, so this upper bound cannot automatically contaminate
 standing-order learning or raise the pool bid.
+
+The production-path function was also replayed read-only against the known
+round-301 winner in block `25641238`. It recovered transaction
+`0xa5d5cc0d543bddd43f6e48dbe8303558fc4c037498ee6080287303a0e55f00de`,
+the exact `0.000801911522533836 ETH` bounty, zero priority payment,
+`0.000019967596911092 ETH` direct beneficiary payment, and a `249 bps`
+upper bound.
 
 Next action: compare repeated live observations with the `1,001 bps` misses.
 Only add a separate durable PoolPull controller after exact observations prove
