@@ -686,7 +686,15 @@ authoritative hot path. The current read-only reconstruction needed 128
 snapshot estimates, excluded 86 `crvChange` pools, retained 32, and found none
 of those 32 above even the conservative 400,000-gas reward floor. The inspector
 also now routes its bulk scan through `DISCOVERY_RPC_URL`, not the
-latency-sensitive production RPC.
+latency-sensitive production RPC. All 233 tests, typecheck, build, and diff
+checks passed. This is live in Railway deployment
+`23d077a7-32b1-4e88-b297-6565c35ad4f1` from exact source
+`8d412b01ffbdfcc1a82b9cae872a6e806d882345`. Its first background refresh
+needed 128 snapshot estimates, excluded 87 exact `crvChange` reverts, retained
+32 candidates, and completed off-path in `1,021.90 ms`. The first three warm
+hot scans fell to `148–296 ms` from the preceding deployment's
+`1,034.15 ms` median across 34 samples. PostgreSQL showed one open run, one
+granted signer lock, and no pass failure or fatal; nonce remained `546/546`.
 
 The first live WebSocket window also exposed cross-provider publication skew:
 three subscribed heads reached Alchemy before the public HTTP endpoint could
