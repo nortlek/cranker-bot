@@ -169,6 +169,8 @@ interface PlannedJobs {
   readonly skipped: Map<string, number>;
 }
 
+let lastKnownOrderCount = 0;
+
 interface SubmittedJob {
   readonly request: KeeperTransactionRequest;
   readonly hash: Hash;
@@ -607,13 +609,23 @@ async function planPrimaryJobs(parameters: {
           );
           return { jobs: [], minimumViablePrefix: 0 };
         }
-        const processSimulation = await client.simulateContract({
-          account,
-          address: fwa,
-          abi: fwaAbi,
-          functionName: "processAcquisitions",
-          args: [processCount],
-        });
+        const [processSimulation, processEstimate] =
+          await Promise.all([
+            client.simulateContract({
+              account,
+              address: fwa,
+              abi: fwaAbi,
+              functionName: "processAcquisitions",
+              args: [processCount],
+            }),
+            client.estimateContractGas({
+              account,
+              address: fwa,
+              abi: fwaAbi,
+              functionName: "processAcquisitions",
+              args: [processCount],
+            }),
+          ]);
         if (processSimulation.result < processCount) {
           incrementReason(
             skipped,
@@ -621,13 +633,6 @@ async function planPrimaryJobs(parameters: {
           );
           return { jobs: [], minimumViablePrefix: 0 };
         }
-        const processEstimate = await client.estimateContractGas({
-          account,
-          address: fwa,
-          abi: fwaAbi,
-          functionName: "processAcquisitions",
-          args: [processCount],
-        });
         const processGas = bufferedGas(
           processEstimate,
           config.gasLimitMultiplierBps,
@@ -1678,34 +1683,6 @@ async function planJobs(parameters: {
   readonly bountyBaseFeePerGas: bigint;
 }): Promise<PlannedJobs> {
   const skipped = new Map<string, number>();
-  const candidatesPromise = getOrderCandidates(
-    parameters.client,
-    parameters.config.factoryAddress,
-    parameters.config.enableVaults
-      ? parameters.config.vaultFactoryAddress
-      : undefined,
-  );
-  const liquityPromise = planLiquityLiquidation({
-    client: parameters.client,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.maxFeePerGas,
-    skipped,
-  });
-  const convexPromise = planConvexEarmark({
-    client: parameters.client,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.convexMaxFeePerGas,
-    skipped,
-  });
-  const convexKickPromise = planConvexKick({
-    client: parameters.client,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.convexMaxFeePerGas,
-    skipped,
-  });
   const [roundCount, ethPendingRound, fwa, token] = await Promise.all([
     parameters.client.readContract({
       address: parameters.config.expectedPoolAddress,
@@ -1735,30 +1712,6 @@ async function planJobs(parameters: {
     );
   }
   const routing = routeRoundIds({ roundCount, ethPendingRound });
-  const fundingRoundPromise =
-    routing.fundingRoundId === undefined
-      ? Promise.resolve(undefined)
-      : getRoundSnapshot(
-          parameters.client,
-          parameters.config.expectedPoolAddress,
-          routing.fundingRoundId,
-        );
-  const lifecycleRoundPromise =
-    routing.lifecycleRoundId === undefined
-      ? Promise.resolve(undefined)
-      : routing.lifecycleRoundId === routing.fundingRoundId
-        ? fundingRoundPromise
-        : getRoundSnapshot(
-            parameters.client,
-            parameters.config.expectedPoolAddress,
-            routing.lifecycleRoundId,
-          );
-  const [candidates, fundingRound, lifecycleRound] =
-    await Promise.all([
-      candidatesPromise,
-      fundingRoundPromise,
-      lifecycleRoundPromise,
-    ]);
   const plannerBase = {
     client: parameters.client,
     account: parameters.account,
@@ -1770,95 +1723,159 @@ async function planJobs(parameters: {
     skipped,
   } as const;
 
-  let primary:
+  const primaryProfit = (
+    plan: Awaited<ReturnType<typeof planPrimaryJobs>>,
+  ): bigint => {
+    const grossReward = plan.jobs.reduce(
+      (total, job) =>
+        total +
+        estimatedJobReward({
+          job,
+          gasUsed: job.gas,
+          baseFeePerGas: parameters.bountyBaseFeePerGas,
+          poolBountyEstimateBps:
+            parameters.config.poolBountyEstimateBps,
+        }),
+      0n,
+    );
+    const gasCost = plan.jobs.reduce(
+      (total, job) =>
+        total + job.gas * parameters.maxFeePerGas,
+      0n,
+    );
+    return grossReward - gasCost;
+  };
+
+  let lifecyclePrimary:
     | Awaited<ReturnType<typeof planPrimaryJobs>>
     | undefined;
-  if (
-    routing.lifecycleRoundId !== undefined &&
-    lifecycleRound !== undefined
-  ) {
-    primary = await planPrimaryJobs({
+  if (routing.lifecycleRoundId !== undefined) {
+    const lifecycleRound = await getRoundSnapshot(
+      parameters.client,
+      parameters.config.expectedPoolAddress,
+      routing.lifecycleRoundId,
+    );
+    lifecyclePrimary = await planPrimaryJobs({
       ...plannerBase,
       candidates: [],
       roundCount: routing.lifecycleRoundId,
       round: lifecycleRound,
     });
+    const profit = primaryProfit(lifecyclePrimary);
+    if (
+      lifecyclePrimary.jobs.length > 0 &&
+      profit >= requiredProfit(parameters.config.minProfitWei)
+    ) {
+      log("debug", "lifecycle_fast_path_selected", {
+        round: routing.lifecycleRoundId.toString(),
+        jobs: lifecyclePrimary.jobs.length,
+        estimatedProfit: eth(profit),
+      });
+      return {
+        jobs: lifecyclePrimary.jobs,
+        minimumViablePrefix:
+          lifecyclePrimary.minimumViablePrefix,
+        orders: lastKnownOrderCount,
+        skipped,
+      };
+    }
   }
+
+  const candidatesPromise = getOrderCandidates(
+    parameters.client,
+    parameters.config.factoryAddress,
+    parameters.config.enableVaults
+      ? parameters.config.vaultFactoryAddress
+      : undefined,
+  );
+  const fundingRoundPromise =
+    routing.fundingRoundId === undefined ||
+    routing.fundingRoundId === routing.lifecycleRoundId
+      ? Promise.resolve(undefined)
+      : getRoundSnapshot(
+          parameters.client,
+          parameters.config.expectedPoolAddress,
+          routing.fundingRoundId,
+        );
+  const liquityPromise = planLiquityLiquidation({
+    client: parameters.client,
+    account: parameters.account,
+    config: parameters.config,
+    maxFeePerGas: parameters.maxFeePerGas,
+    skipped,
+  });
+  const convexPromise = planConvexEarmark({
+    client: parameters.client,
+    account: parameters.account,
+    config: parameters.config,
+    maxFeePerGas: parameters.convexMaxFeePerGas,
+    skipped,
+  });
+  const convexKickPromise = planConvexKick({
+    client: parameters.client,
+    account: parameters.account,
+    config: parameters.config,
+    maxFeePerGas: parameters.convexMaxFeePerGas,
+    skipped,
+  });
+  const [
+    candidates,
+    fundingRound,
+    liquity,
+    convex,
+    convexKick,
+    buyback,
+    liveBidSweep,
+  ] = await Promise.all([
+      candidatesPromise,
+      fundingRoundPromise,
+      liquityPromise,
+      convexPromise,
+      convexKickPromise,
+      planBuyback({
+        client: parameters.client,
+        account: parameters.account,
+        config: parameters.config,
+        token: tokenAddress,
+        maxFeePerGas: parameters.maxFeePerGas,
+        skipped,
+      }),
+      planLiveBidSweep({
+        client: parameters.client,
+        account: parameters.account,
+        config: parameters.config,
+        baseFeeAllowancePerGas:
+          parameters.baseFeeAllowancePerGas,
+        skipped,
+      }),
+    ]);
+  lastKnownOrderCount = candidates.length;
+
+  let fundingPrimary:
+    | Awaited<ReturnType<typeof planPrimaryJobs>>
+    | undefined;
   if (
-    (primary === undefined || primary.jobs.length === 0) &&
     routing.fundingRoundId !== undefined &&
     routing.fundingRoundId !== routing.lifecycleRoundId &&
     fundingRound !== undefined
   ) {
-    primary = await planPrimaryJobs({
+    fundingPrimary = await planPrimaryJobs({
       ...plannerBase,
       candidates,
       roundCount: routing.fundingRoundId,
       round: fundingRound,
     });
-  }
-  if (
-    primary === undefined &&
+  } else if (
+    routing.lifecycleRoundId === undefined &&
     routing.fundingRoundId === undefined
   ) {
-    primary = await planPrimaryJobs({
+    fundingPrimary = await planPrimaryJobs({
       ...plannerBase,
       candidates,
       roundCount: 0n,
       round: undefined,
     });
   }
-  const selectedPrimary = primary ?? {
-    jobs: [],
-    minimumViablePrefix: 0,
-  };
-  const primaryGrossReward = selectedPrimary.jobs.reduce(
-    (total, job) =>
-      total +
-      estimatedJobReward({
-        job,
-        gasUsed: job.gas,
-        baseFeePerGas: parameters.bountyBaseFeePerGas,
-        poolBountyEstimateBps:
-          parameters.config.poolBountyEstimateBps,
-      }),
-    0n,
-  );
-  const primaryGasCost = selectedPrimary.jobs.reduce(
-    (total, job) =>
-      total + job.gas * parameters.maxFeePerGas,
-    0n,
-  );
-  const primaryProfit = primaryGrossReward - primaryGasCost;
-  const primaryProfitable =
-    selectedPrimary.jobs.length > 0 &&
-    primaryProfit >= requiredProfit(parameters.config.minProfitWei);
-  if (selectedPrimary.jobs.length > 0 && !primaryProfitable) {
-    incrementReason(skipped, "primary_bundle_unprofitable");
-  }
-
-  const [liquity, convex, convexKick, buyback, liveBidSweep] =
-    await Promise.all([
-    liquityPromise,
-    convexPromise,
-    convexKickPromise,
-    planBuyback({
-      client: parameters.client,
-      account: parameters.account,
-      config: parameters.config,
-      token: tokenAddress,
-      maxFeePerGas: parameters.maxFeePerGas,
-      skipped,
-    }),
-    planLiveBidSweep({
-      client: parameters.client,
-      account: parameters.account,
-      config: parameters.config,
-      baseFeeAllowancePerGas:
-        parameters.baseFeeAllowancePerGas,
-      skipped,
-    }),
-    ]);
 
   const alternatives: Array<{
     readonly jobs: readonly KeeperJob[];
@@ -1866,13 +1883,19 @@ async function planJobs(parameters: {
     readonly profit: bigint;
     readonly label: string;
   }> = [];
-  if (primaryProfitable) {
-    alternatives.push({
-      jobs: selectedPrimary.jobs,
-      minimumViablePrefix: selectedPrimary.minimumViablePrefix,
-      profit: primaryProfit,
-      label: selectedPrimary.jobs[0]?.label ?? "primary",
-    });
+  for (const primary of [lifecyclePrimary, fundingPrimary]) {
+    if (primary === undefined || primary.jobs.length === 0) continue;
+    const profit = primaryProfit(primary);
+    if (profit >= requiredProfit(parameters.config.minProfitWei)) {
+      alternatives.push({
+        jobs: primary.jobs,
+        minimumViablePrefix: primary.minimumViablePrefix,
+        profit,
+        label: primary.jobs[0]?.label ?? "primary",
+      });
+    } else {
+      incrementReason(skipped, "primary_bundle_unprofitable");
+    }
   }
   for (const job of [
     liquity,
