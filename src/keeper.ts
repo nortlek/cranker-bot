@@ -70,6 +70,16 @@ export interface CrankBatchResult {
   }[];
 }
 
+export interface PrivateBatchOutcome {
+  readonly targetBlock: bigint;
+  readonly attempts: readonly {
+    readonly order: Address;
+    readonly crankFee: bigint;
+    readonly hash: Hash;
+    readonly included: boolean;
+  }[];
+}
+
 export interface PassResult {
   readonly orders: number;
   readonly viable: number;
@@ -95,6 +105,9 @@ export interface KeeperContext {
         readonly requests: readonly CrankTransactionRequest[];
         readonly targetBlock: bigint;
       }) => Promise<CrankBatchResult>)
+    | undefined;
+  readonly observePrivateBatch:
+    | ((outcome: PrivateBatchOutcome) => Promise<void>)
     | undefined;
 }
 
@@ -177,6 +190,7 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
     publicClient,
     sendCrank,
     sendCrankBatch,
+    observePrivateBatch,
     account,
     config,
   } = context;
@@ -231,7 +245,6 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
         maxFeePerGas,
         gasLimitMultiplierBps: config.gasLimitMultiplierBps,
         minProfitWei: config.minProfitWei,
-        minProfitBps: config.minProfitBps,
       });
       if (!decision.profitable) {
         return { candidate, reason: "unprofitable" };
@@ -528,6 +541,28 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
   );
   const confirmed = receiptResults.filter(Boolean).length;
   const sent = submitted.length;
+  if (
+    privateTargetBlock !== undefined &&
+    submitted.length > 0 &&
+    observePrivateBatch !== undefined
+  ) {
+    try {
+      await observePrivateBatch({
+        targetBlock: privateTargetBlock,
+        attempts: submitted.map((submission, index) => ({
+          order: submission.candidate.address,
+          crankFee: submission.candidate.crankFee,
+          hash: submission.hash,
+          included: receiptResults[index] ?? false,
+        })),
+      });
+    } catch (error) {
+      log("warn", "adaptive_bid_observation_failed", {
+        targetBlock: privateTargetBlock.toString(),
+        reason: errorMessage(error),
+      });
+    }
+  }
   log("info", "pass_complete", {
     orders: candidates.length,
     viable,

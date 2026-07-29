@@ -1,7 +1,30 @@
 import { parseEther, parseGwei } from "viem";
 import { describe, expect, it } from "vitest";
 
-import { quoteCompetitiveFees } from "../src/bidding.js";
+import {
+  aggregateBuilderBidBps,
+  quoteCompetitiveFees,
+} from "../src/bidding.js";
+
+describe("aggregateBuilderBidBps", () => {
+  it("weights standing-order and pool bids by their rewards", () => {
+    expect(
+      aggregateBuilderBidBps([
+        { rewardWei: 300n, builderBidBps: 9_000n },
+        { rewardWei: 700n, builderBidBps: 1_000n },
+      ]),
+    ).toBe(3_400n);
+  });
+
+  it("does not charge a bid for an unpaid dependency call", () => {
+    expect(
+      aggregateBuilderBidBps([
+        { rewardWei: 0n, builderBidBps: 1_000n },
+        { rewardWei: 900n, builderBidBps: 1_000n },
+      ]),
+    ).toBe(1_000n);
+  });
+});
 
 describe("quoteCompetitiveFees", () => {
   it("turns the configured fee share into a gas-normalized builder tip", () => {
@@ -13,7 +36,6 @@ describe("quoteCompetitiveFees", () => {
       builderBidBps: 8_100n,
       maxFeePerGasCap: parseGwei("5"),
       minProfitWei: parseEther("0.00001"),
-      minProfitBps: 500n,
     });
 
     expect(quote.profitable).toBe(true);
@@ -24,7 +46,7 @@ describe("quoteCompetitiveFees", () => {
     expect(quote.expectedProfit).toBe(parseEther("0.000033"));
   });
 
-  it("rejects a bid that violates the retained-profit floor", () => {
+  it("caps a target bid at the retained-profit floor", () => {
     const quote = quoteCompetitiveFees({
       crankFee: parseEther("0.0003"),
       simulatedGasUsed: 350_000n,
@@ -33,10 +55,61 @@ describe("quoteCompetitiveFees", () => {
       builderBidBps: 8_100n,
       maxFeePerGasCap: parseGwei("5"),
       minProfitWei: parseEther("0.00005"),
-      minProfitBps: 2_500n,
     });
 
+    expect(quote.profitable).toBe(true);
+    expect(quote.cappedByProfit).toBe(true);
+    expect(quote.expectedProfit).toBeGreaterThanOrEqual(
+      parseEther("0.00005"),
+    );
+  });
+
+  it("accepts a one-wei expected profit when floors are disabled", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: 101n,
+      simulatedGasUsed: 1n,
+      baseFeeAllowancePerGas: 100n,
+      minimumPriorityFeePerGas: 0n,
+      builderBidBps: 0n,
+      maxFeePerGasCap: 100n,
+      minProfitWei: 0n,
+    });
+
+    expect(quote.expectedProfit).toBe(1n);
+    expect(quote.requiredProfit).toBe(1n);
+    expect(quote.profitable).toBe(true);
+  });
+
+  it("rejects break-even execution when floors are disabled", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: 100n,
+      simulatedGasUsed: 1n,
+      baseFeeAllowancePerGas: 100n,
+      minimumPriorityFeePerGas: 0n,
+      builderBidBps: 0n,
+      maxFeePerGasCap: 100n,
+      minProfitWei: 0n,
+    });
+
+    expect(quote.expectedProfit).toBe(0n);
+    expect(quote.requiredProfit).toBe(1n);
     expect(quote.profitable).toBe(false);
     expect(quote.reason).toBe("profit_floor");
+  });
+
+  it("caps a target bid at the configured max fee", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: 1_000n,
+      simulatedGasUsed: 10n,
+      baseFeeAllowancePerGas: 10n,
+      minimumPriorityFeePerGas: 1n,
+      builderBidBps: 9_000n,
+      maxFeePerGasCap: 20n,
+      minProfitWei: 0n,
+    });
+
+    expect(quote.profitable).toBe(true);
+    expect(quote.maxFeePerGas).toBe(20n);
+    expect(quote.cappedByFeeCap).toBe(true);
   });
 });

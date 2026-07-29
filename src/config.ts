@@ -8,7 +8,13 @@ import {
   type Hex,
 } from "viem";
 
-import { FACTORY_ADDRESS, POOL_ADDRESS } from "./constants.js";
+import {
+  FACTORY_ADDRESS,
+  FWA_TOKEN_ADDRESS,
+  LIVE_BID_ADAPTER_ADDRESS,
+  POOL_ADDRESS,
+  VAULT_FACTORY_ADDRESS,
+} from "./constants.js";
 
 export interface KeeperConfig {
   readonly rpcUrl: string;
@@ -18,17 +24,59 @@ export interface KeeperConfig {
   readonly flashbotsAuthPrivateKey: Hex | undefined;
   readonly relayTimeoutMs: number;
   readonly builderBidBps: bigint;
+  readonly poolBuilderBidBps: bigint;
+  readonly liveBidSweepBuilderBidBps: bigint;
+  readonly liquityBuilderBidBps: bigint;
+  readonly convexBuilderBidBps: bigint;
+  readonly adaptiveBidding: boolean;
+  readonly adaptiveBidStepBps: bigint;
+  readonly adaptiveBidMaxBps: bigint;
+  readonly adaptiveBidWinStreak: number;
+  readonly adaptiveBidDecayBps: bigint;
+  readonly adaptiveBidStatePath: string;
+  readonly competitorTraceUrl: string;
+  readonly competitorTraceTimeoutMs: number;
+  readonly competitorTraceRetries: number;
+  readonly competitorTraceRetryDelayMs: number;
+  readonly discordWebhookUrl: string | undefined;
+  readonly discordWebhookTimeoutMs: number;
+  readonly databaseUrl: string | undefined;
+  readonly telemetryBatchSize: number;
+  readonly telemetryFlushMs: number;
+  readonly telemetryMaxQueue: number;
   readonly factoryAddress: Address;
+  readonly vaultFactoryAddress: Address;
   readonly expectedPoolAddress: Address;
+  readonly expectedFwaTokenAddress: Address;
+  readonly liveBidAdapterAddress: Address;
+  readonly enablePoolLifecycle: boolean;
+  readonly enableVaults: boolean;
+  readonly enableBuyback: boolean;
+  readonly enableLiveBidSweep: boolean;
+  readonly enableLiquityLiquidations: boolean;
+  readonly enableConvexEarmarks: boolean;
+  readonly enableConvexKicks: boolean;
+  readonly poolBountyEstimateBps: bigint;
+  readonly poolPullGasLimit: bigint;
+  readonly poolSyncGasLimit: bigint;
+  readonly poolSettleGasLimit: bigint;
+  readonly fwaProcessGasLimit: bigint;
+  readonly buybackGasLimit: bigint;
+  readonly liveBidSweepGasLimit: bigint;
+  readonly liquityGasLimit: bigint;
+  readonly liquityMaxTrovesPerBatch: number;
+  readonly convexEarmarkGasLimit: bigint;
+  readonly convexKickGasLimit: bigint;
   readonly dryRun: boolean;
   readonly runOnce: boolean;
   readonly privateKey: Hex | undefined;
   readonly simulationAccount: Address;
   readonly minProfitWei: bigint;
-  readonly minProfitBps: bigint;
   readonly gasLimitMultiplierBps: bigint;
   readonly maxFeePerGas: bigint;
   readonly minPriorityFeePerGas: bigint;
+  readonly poolMinPriorityFeePerGas: bigint;
+  readonly liveBidSweepMinPriorityFeePerGas: bigint;
   readonly simulationConcurrency: number;
   readonly blockPollMs: number;
   readonly confirmations: number;
@@ -44,7 +92,8 @@ function submissionModeEnv(): "flashbots" | "public" {
 
 function relayUrlsEnv(): readonly string[] {
   const values = (
-    process.env.FLASHBOTS_RELAY_URLS || "https://relay.flashbots.net"
+    process.env.FLASHBOTS_RELAY_URLS ||
+    "https://relay.flashbots.net,https://rpc.quasar.win"
   )
     .split(",")
     .map((value) => value.trim())
@@ -115,19 +164,109 @@ function privateKeyEnv(): Hex | undefined {
   return raw as Hex;
 }
 
+function discordWebhookUrlEnv(): string | undefined {
+  const raw = process.env.DISCORD_WEBHOOK_URL;
+  if (raw === undefined || raw === "") return undefined;
+  const url = new URL(raw);
+  if (
+    url.protocol !== "https:" ||
+    (url.hostname !== "discord.com" &&
+      url.hostname !== "discordapp.com") ||
+    !/^\/api\/webhooks\/[^/]+\/[^/]+$/.test(url.pathname)
+  ) {
+    throw new Error(
+      "DISCORD_WEBHOOK_URL must be a Discord HTTPS webhook URL",
+    );
+  }
+  return raw;
+}
+
+function databaseUrlEnv(): string | undefined {
+  const raw = process.env.DATABASE_URL;
+  if (raw === undefined || raw === "") return undefined;
+  let protocol: string;
+  try {
+    protocol = new URL(raw).protocol;
+  } catch {
+    throw new Error(
+      "DATABASE_URL must be a PostgreSQL connection URL",
+    );
+  }
+  if (protocol !== "postgres:" && protocol !== "postgresql:") {
+    throw new Error(
+      "DATABASE_URL must be a PostgreSQL connection URL",
+    );
+  }
+  return raw;
+}
+
 export function loadConfig(): KeeperConfig {
-  const minProfitBps = integerEnv("MIN_PROFIT_BPS", 500, {
-    min: 0,
-    max: 10_000,
-  });
   const builderBidBps = integerEnv("BUILDER_BID_BPS", 8_100, {
     min: 0,
     max: 10_000,
   });
+  const poolBuilderBidBps = integerEnv(
+    "POOL_BUILDER_BID_BPS",
+    1_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
+  const liveBidSweepBuilderBidBps = integerEnv(
+    "LIVE_BID_SWEEP_BUILDER_BID_BPS",
+    100,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
+  const liquityBuilderBidBps = integerEnv(
+    "LIQUITY_BUILDER_BID_BPS",
+    8_100,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
+  const convexBuilderBidBps = integerEnv(
+    "CONVEX_BUILDER_BID_BPS",
+    1_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
+  const adaptiveBidMaxBps = integerEnv(
+    "ADAPTIVE_BID_MAX_BPS",
+    9_900,
+    { min: 0, max: 10_000 },
+  );
+  if (adaptiveBidMaxBps < builderBidBps) {
+    throw new Error(
+      "ADAPTIVE_BID_MAX_BPS must be >= BUILDER_BID_BPS",
+    );
+  }
+  const competitorTraceUrl =
+    process.env.COMPETITOR_TRACE_URL ||
+    "https://api.routescan.io/v2/network/mainnet/evm/1/internal-operations";
+  if (new URL(competitorTraceUrl).protocol !== "https:") {
+    throw new Error("COMPETITOR_TRACE_URL must use HTTPS");
+  }
   const gasLimitMultiplierBps = integerEnv(
     "GAS_LIMIT_MULTIPLIER_BPS",
     12_000,
     { min: 10_000, max: 30_000 },
+  );
+  const telemetryBatchSize = integerEnv(
+    "TELEMETRY_BATCH_SIZE",
+    50,
+    { min: 1, max: 500 },
+  );
+  const telemetryMaxQueue = integerEnv(
+    "TELEMETRY_MAX_QUEUE",
+    10_000,
+    { min: telemetryBatchSize, max: 1_000_000 },
   );
 
   return {
@@ -143,11 +282,164 @@ export function loadConfig(): KeeperConfig {
       max: 30_000,
     }),
     builderBidBps: BigInt(builderBidBps),
+    poolBuilderBidBps: BigInt(poolBuilderBidBps),
+    liveBidSweepBuilderBidBps:
+      BigInt(liveBidSweepBuilderBidBps),
+    liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
+    convexBuilderBidBps: BigInt(convexBuilderBidBps),
+    adaptiveBidding: booleanEnv("ADAPTIVE_BIDDING", true),
+    adaptiveBidStepBps: BigInt(
+      integerEnv("ADAPTIVE_BID_STEP_BPS", 25, {
+        min: 1,
+        max: 1_000,
+      }),
+    ),
+    adaptiveBidMaxBps: BigInt(adaptiveBidMaxBps),
+    adaptiveBidWinStreak: integerEnv(
+      "ADAPTIVE_BID_WIN_STREAK",
+      3,
+      { min: 1, max: 100 },
+    ),
+    adaptiveBidDecayBps: BigInt(
+      integerEnv("ADAPTIVE_BID_DECAY_BPS", 10, {
+        min: 1,
+        max: 1_000,
+      }),
+    ),
+    adaptiveBidStatePath:
+      process.env.ADAPTIVE_BID_STATE_PATH ||
+      ".keeper-bid-state.json",
+    competitorTraceUrl,
+    competitorTraceTimeoutMs: integerEnv(
+      "COMPETITOR_TRACE_TIMEOUT_MS",
+      5_000,
+      { min: 1_000, max: 30_000 },
+    ),
+    competitorTraceRetries: integerEnv(
+      "COMPETITOR_TRACE_RETRIES",
+      5,
+      { min: 1, max: 20 },
+    ),
+    competitorTraceRetryDelayMs: integerEnv(
+      "COMPETITOR_TRACE_RETRY_DELAY_MS",
+      1_000,
+      { min: 100, max: 10_000 },
+    ),
+    discordWebhookUrl: discordWebhookUrlEnv(),
+    discordWebhookTimeoutMs: integerEnv(
+      "DISCORD_WEBHOOK_TIMEOUT_MS",
+      5_000,
+      { min: 1_000, max: 30_000 },
+    ),
+    databaseUrl: databaseUrlEnv(),
+    telemetryBatchSize,
+    telemetryFlushMs: integerEnv(
+      "TELEMETRY_FLUSH_MS",
+      250,
+      { min: 10, max: 60_000 },
+    ),
+    telemetryMaxQueue,
     factoryAddress: getAddress(
       process.env.FACTORY_ADDRESS || FACTORY_ADDRESS,
     ),
+    vaultFactoryAddress: getAddress(
+      process.env.VAULT_FACTORY_ADDRESS ||
+        VAULT_FACTORY_ADDRESS,
+    ),
     expectedPoolAddress: getAddress(
       process.env.EXPECTED_POOL_ADDRESS || POOL_ADDRESS,
+    ),
+    expectedFwaTokenAddress: getAddress(
+      process.env.EXPECTED_FWA_TOKEN_ADDRESS ||
+        FWA_TOKEN_ADDRESS,
+    ),
+    liveBidAdapterAddress: getAddress(
+      process.env.LIVE_BID_ADAPTER_ADDRESS ||
+        LIVE_BID_ADAPTER_ADDRESS,
+    ),
+    enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
+    enableVaults: booleanEnv("ENABLE_VAULTS", true),
+    enableBuyback: booleanEnv("ENABLE_BUYBACK", true),
+    enableLiveBidSweep: booleanEnv(
+      "ENABLE_LIVE_BID_SWEEP",
+      true,
+    ),
+    enableLiquityLiquidations: booleanEnv(
+      "ENABLE_LIQUITY_LIQUIDATIONS",
+      true,
+    ),
+    enableConvexEarmarks: booleanEnv(
+      "ENABLE_CONVEX_EARMARKS",
+      true,
+    ),
+    enableConvexKicks: booleanEnv("ENABLE_CONVEX_KICKS", true),
+    poolBountyEstimateBps: BigInt(
+      integerEnv("POOL_BOUNTY_ESTIMATE_BPS", 9_000, {
+        min: 0,
+        max: 10_000,
+      }),
+    ),
+    poolPullGasLimit: BigInt(
+      integerEnv("POOL_PULL_GAS_LIMIT", 500_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    poolSyncGasLimit: BigInt(
+      integerEnv("POOL_SYNC_GAS_LIMIT", 700_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    poolSettleGasLimit: BigInt(
+      integerEnv("POOL_SETTLE_GAS_LIMIT", 700_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    fwaProcessGasLimit: BigInt(
+      integerEnv("FWA_PROCESS_GAS_LIMIT", 3_000_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    buybackGasLimit: BigInt(
+      integerEnv("BUYBACK_GAS_LIMIT", 700_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    liveBidSweepGasLimit: BigInt(
+      integerEnv("LIVE_BID_SWEEP_GAS_LIMIT", 250_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    liquityGasLimit: BigInt(
+      integerEnv("LIQUITY_GAS_LIMIT", 15_000_000, {
+        min: 21_000,
+        max: 16_777_216,
+      }),
+    ),
+    liquityMaxTrovesPerBatch: integerEnv(
+      "LIQUITY_MAX_TROVES_PER_BATCH",
+      25,
+      {
+        min: 1,
+        max: 100,
+      },
+    ),
+    convexEarmarkGasLimit: BigInt(
+      integerEnv("CONVEX_EARMARK_GAS_LIMIT", 1_500_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    convexKickGasLimit: BigInt(
+      integerEnv("CONVEX_KICK_GAS_LIMIT", 500_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
     ),
     dryRun: booleanEnv("DRY_RUN", true),
     runOnce: booleanEnv("RUN_ONCE", false),
@@ -156,14 +448,19 @@ export function loadConfig(): KeeperConfig {
       process.env.SIMULATION_ACCOUNT ||
         "0x000000000000000000000000000000000000dEaD",
     ),
-    minProfitWei: parseEther(process.env.MIN_PROFIT_ETH || "0.00001"),
-    minProfitBps: BigInt(minProfitBps),
+    minProfitWei: parseEther(process.env.MIN_PROFIT_ETH || "0"),
     gasLimitMultiplierBps: BigInt(gasLimitMultiplierBps),
     maxFeePerGas: parseGwei(
       process.env.MAX_FEE_PER_GAS_GWEI || "5",
     ),
     minPriorityFeePerGas: parseGwei(
       process.env.MIN_PRIORITY_FEE_GWEI || "0.1",
+    ),
+    poolMinPriorityFeePerGas: parseGwei(
+      process.env.POOL_MIN_PRIORITY_FEE_GWEI || "0",
+    ),
+    liveBidSweepMinPriorityFeePerGas: parseGwei(
+      process.env.LIVE_BID_SWEEP_MIN_PRIORITY_FEE_GWEI || "0",
     ),
     simulationConcurrency: integerEnv("SIMULATION_CONCURRENCY", 8, {
       min: 1,

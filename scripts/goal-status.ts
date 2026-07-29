@@ -1,0 +1,173 @@
+import {
+  createPublicClient,
+  formatEther,
+  formatUnits,
+  getAddress,
+  http,
+  parseAbi,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { mainnet } from "viem/chains";
+
+import { loadConfig } from "../src/config.js";
+import {
+  CVX_ADDRESS,
+  CVX_USD_FEED_ADDRESS,
+} from "../src/constants.js";
+
+const BASELINE_ETH = 11_476_458_190_761_693n;
+const GOAL_USD_8 = 10n * 100_000_000n;
+const WETH = getAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
+const DAI = getAddress("0x6B175474E89094C44Da98b954EedeAC495271d0F");
+const CRV = getAddress("0xD533a949740bb3306d119CC777fa900bA034cd52");
+const ETH_USD_FEED = getAddress(
+  "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
+);
+const DAI_USD_FEED = getAddress(
+  "0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9",
+);
+const CRV_USD_FEED = getAddress(
+  "0xCd627aA160A6fA45Eb793D19Ef54f5062F20f33f",
+);
+
+const erc20Abi = parseAbi([
+  "function balanceOf(address) view returns(uint256)",
+]);
+const chainlinkAbi = parseAbi([
+  "function latestRoundData() view returns(uint80,int256,uint256,uint256,uint80)",
+]);
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  if (config.privateKey === undefined) {
+    throw new Error("PRIVATE_KEY is required");
+  }
+  const account = privateKeyToAccount(config.privateKey);
+  const client = createPublicClient({
+    chain: mainnet,
+    transport: http(config.rpcUrl, {
+      retryCount: 3,
+      retryDelay: 500,
+      timeout: 20_000,
+    }),
+  });
+  const [
+    eth,
+    weth,
+    dai,
+    crv,
+    cvx,
+    ethRound,
+    daiRound,
+    crvRound,
+    cvxRound,
+    latestNonce,
+    pendingNonce,
+  ] = await Promise.all([
+      client.getBalance({ address: account.address }),
+      client.readContract({
+        address: WETH,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [account.address],
+      }),
+      client.readContract({
+        address: DAI,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [account.address],
+      }),
+      client.readContract({
+        address: CRV,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [account.address],
+      }),
+      client.readContract({
+        address: CVX_ADDRESS,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [account.address],
+      }),
+      client.readContract({
+        address: ETH_USD_FEED,
+        abi: chainlinkAbi,
+        functionName: "latestRoundData",
+      }),
+      client.readContract({
+        address: DAI_USD_FEED,
+        abi: chainlinkAbi,
+        functionName: "latestRoundData",
+      }),
+      client.readContract({
+        address: CRV_USD_FEED,
+        abi: chainlinkAbi,
+        functionName: "latestRoundData",
+      }),
+      client.readContract({
+        address: CVX_USD_FEED_ADDRESS,
+        abi: chainlinkAbi,
+        functionName: "latestRoundData",
+      }),
+      client.getTransactionCount({
+        address: account.address,
+        blockTag: "latest",
+      }),
+      client.getTransactionCount({
+        address: account.address,
+        blockTag: "pending",
+      }),
+    ]);
+  if (
+    ethRound[1] <= 0n ||
+    daiRound[1] <= 0n ||
+    crvRound[1] <= 0n ||
+    cvxRound[1] <= 0n
+  ) {
+    throw new Error("Chainlink returned a non-positive price");
+  }
+
+  const ethAssetDelta = eth + weth - BASELINE_ETH;
+  const ethDeltaUsd8 = (ethAssetDelta * ethRound[1]) / 10n ** 18n;
+  const daiUsd8 = (dai * daiRound[1]) / 10n ** 18n;
+  const crvUsd8 = (crv * crvRound[1]) / 10n ** 18n;
+  const cvxUsd8 = (cvx * cvxRound[1]) / 10n ** 18n;
+  const netUsd8 = ethDeltaUsd8 + daiUsd8 + crvUsd8 + cvxUsd8;
+  const netEthEquivalent =
+    ethAssetDelta +
+    ((daiUsd8 + crvUsd8 + cvxUsd8) * 10n ** 18n) /
+      ethRound[1];
+
+  console.log(
+    JSON.stringify({
+      event: "goal_status",
+      account: account.address,
+      eth: formatEther(eth),
+      weth: formatEther(weth),
+      dai: formatEther(dai),
+      crv: formatEther(crv),
+      cvx: formatEther(cvx),
+      baselineEth: formatEther(BASELINE_ETH),
+      netEthEquivalent: formatEther(netEthEquivalent),
+      ethUsd: formatUnits(ethRound[1], 8),
+      daiUsd: formatUnits(daiRound[1], 8),
+      crvUsd: formatUnits(crvRound[1], 8),
+      cvxUsd: formatUnits(cvxRound[1], 8),
+      netUsd: formatUnits(netUsd8, 8),
+      goalUsd: formatUnits(GOAL_USD_8, 8),
+      progressBps: ((netUsd8 * 10_000n) / GOAL_USD_8).toString(),
+      latestNonce,
+      pendingNonce,
+    }),
+  );
+}
+
+main().catch((error: unknown) => {
+  console.error(
+    JSON.stringify({
+      event: "goal_status_failed",
+      reason: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  process.exitCode = 1;
+});

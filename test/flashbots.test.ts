@@ -165,4 +165,30 @@ describe("submitBundlePrefixLadder", () => {
       true,
     );
   });
+
+  it("does not submit prefixes below a dependency floor", async () => {
+    const calls: number[] = [];
+    const relay = {
+      url: "https://relay.example",
+      sendBundle: async (transactions: readonly string[]) => {
+        calls.push(transactions.length);
+        return {
+          bundleHash: `0x${transactions.length
+            .toString(16)
+            .padStart(64, "0")}`,
+          smart: true,
+        };
+      },
+    } as unknown as FlashbotsRelay;
+
+    await submitBundlePrefixLadder(
+      [relay],
+      ["0x01", "0x02", "0x03"],
+      42n,
+      ["flashbots"],
+      3,
+    );
+
+    expect(calls).toEqual([3]);
+  });
 });

@@ -1,5 +1,23 @@
 import { formatEther, formatGwei } from "viem";
 
+export type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogFieldValue = boolean | number | string;
+
+export interface LogEntry {
+  readonly time: string;
+  readonly level: LogLevel;
+  readonly event: string;
+  readonly [field: string]: LogFieldValue;
+}
+
+export type LogSink = (entry: LogEntry) => void;
+
+let logSink: LogSink | undefined;
+
+export function setLogSink(sink: LogSink | undefined): void {
+  logSink = sink;
+}
+
 export function eth(value: bigint): string {
   return `${formatEther(value)} ETH`;
 }
@@ -14,11 +32,11 @@ export function errorMessage(error: unknown): string {
 }
 
 export function log(
-  level: "debug" | "info" | "warn" | "error",
+  level: LogLevel,
   event: string,
-  fields: Record<string, boolean | number | string> = {},
+  fields: Record<string, LogFieldValue> = {},
 ): void {
-  const payload = {
+  const payload: LogEntry = {
     time: new Date().toISOString(),
     level,
     event,
@@ -28,4 +46,16 @@ export function log(
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
   else console.log(line);
+  try {
+    logSink?.(payload);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        time: new Date().toISOString(),
+        level: "warn",
+        event: "log_sink_failed",
+        reason: errorMessage(error),
+      }),
+    );
+  }
 }

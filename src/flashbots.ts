@@ -268,12 +268,23 @@ export async function submitBundlePrefixLadder(
   transactions: readonly Hex[],
   targetBlock: bigint,
   builders: readonly string[],
+  minimumTransactionCount = 1,
 ): Promise<readonly FlashbotsSubmission[]> {
   if (transactions.length === 0) return [];
+  if (
+    !Number.isSafeInteger(minimumTransactionCount) ||
+    minimumTransactionCount < 1 ||
+    minimumTransactionCount > transactions.length
+  ) {
+    throw new Error(
+      "minimumTransactionCount must select a non-empty bundle prefix",
+    );
+  }
 
   const attempts = relays.flatMap((relay) =>
-    transactions.map((_, index) => {
-      const transactionCount = index + 1;
+    transactions.slice(minimumTransactionCount - 1).map((_, index) => {
+      const transactionCount =
+        minimumTransactionCount + index;
       return {
         relay,
         transactionCount,

@@ -3,14 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Profit-aware keeper for PullStandingOrder subscriptions on Ethereum mainnet.",
+  "description": "Profit-aware keeper for FWA PullPool lifecycle work on Ethereum mainnet.",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "codex:update": "node --env-file-if-exists=.env scripts/codex-update.mjs",
+    "db:migrate": "node dist/migrate.js",
+    "db:migrate:dev": "tsx src/migrate.ts",
     "dev": "tsx watch src/main.ts",
     "inspect": "tsx src/inspect.ts",
+    "inspect:aura-earmarks": "tsx scripts/inspect-aura-earmarks.ts",
+    "inspect:maker-barks": "tsx scripts/inspect-maker-barks.ts",
     "start": "tsx src/main.ts",
     "start:prod": "node dist/main.js",
     "test": "vitest run",
@@ -18,10 +23,12 @@
   },
   "dependencies": {
     "dotenv": "17.4.2",
+    "pg": "^8.22.0",
     "viem": "2.55.10"
   },
   "devDependencies": {
     "@types/node": "26.1.2",
+    "@types/pg": "^8.20.0",
     "tsx": "4.23.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"

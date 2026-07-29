@@ -4,7 +4,6 @@ export interface ProfitInputs {
   readonly maxFeePerGas: bigint;
   readonly gasLimitMultiplierBps: bigint;
   readonly minProfitWei: bigint;
-  readonly minProfitBps: bigint;
 }
 
 export interface ProfitDecision {
@@ -16,6 +15,13 @@ export interface ProfitDecision {
 }
 
 const BPS = 10_000n;
+const MINIMUM_POSITIVE_PROFIT = 1n;
+
+export function requiredProfit(minProfitWei: bigint): bigint {
+  return minProfitWei > MINIMUM_POSITIVE_PROFIT
+    ? minProfitWei
+    : MINIMUM_POSITIVE_PROFIT;
+}
 
 export function bufferedGas(
   estimatedGas: bigint,
@@ -35,18 +41,13 @@ export function assessProfit(inputs: ProfitInputs): ProfitDecision {
   );
   const maxGasCost = gasLimit * inputs.maxFeePerGas;
   const maxProfit = inputs.crankFee - maxGasCost;
-  const relativeFloor =
-    (inputs.crankFee * inputs.minProfitBps + BPS - 1n) / BPS;
-  const requiredProfit =
-    relativeFloor > inputs.minProfitWei
-      ? relativeFloor
-      : inputs.minProfitWei;
+  const profitFloor = requiredProfit(inputs.minProfitWei);
 
   return {
-    profitable: maxProfit >= requiredProfit,
+    profitable: maxProfit >= profitFloor,
     gasLimit,
     maxGasCost,
     maxProfit,
-    requiredProfit,
+    requiredProfit: profitFloor,
   };
 }

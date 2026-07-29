@@ -1,5 +1,9 @@
 .git
 .env
-node_modules
-dist
+.env.*
+.keeper-bid-state.json
+.keeper.pid
 *.log
+dist
+node_modules
+starting_balance.txt

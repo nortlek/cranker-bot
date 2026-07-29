@@ -1,7 +1,10 @@
 node_modules/
 dist/
 .env
+.keeper-bid-state.json
+.keeper.pid
 *.log
+starting_balance.txt
 .DS_Store
 .idea/
 .vscode/

@@ -22,7 +22,6 @@ describe("assessProfit", () => {
       maxFeePerGas: 400_000_000n,
       gasLimitMultiplierBps: 12_000n,
       minProfitWei: 50_000_000_000_000n,
-      minProfitBps: 2_500n,
     });
 
     expect(decision.gasLimit).toBe(240_000n);
@@ -31,18 +30,45 @@ describe("assessProfit", () => {
     expect(decision.profitable).toBe(true);
   });
 
-  it("rejects a fee that does not clear the relative floor", () => {
+  it("rejects a fee that does not clear the absolute floor", () => {
     const decision = assessProfit({
       crankFee: 100n,
       estimatedGas: 1n,
       maxFeePerGas: 80n,
       gasLimitMultiplierBps: 10_000n,
-      minProfitWei: 0n,
-      minProfitBps: 2_500n,
+      minProfitWei: 25n,
     });
 
     expect(decision.maxProfit).toBe(20n);
     expect(decision.requiredProfit).toBe(25n);
+    expect(decision.profitable).toBe(false);
+  });
+
+  it("accepts any strictly positive profit when floors are disabled", () => {
+    const decision = assessProfit({
+      crankFee: 101n,
+      estimatedGas: 1n,
+      maxFeePerGas: 100n,
+      gasLimitMultiplierBps: 10_000n,
+      minProfitWei: 0n,
+    });
+
+    expect(decision.maxProfit).toBe(1n);
+    expect(decision.requiredProfit).toBe(1n);
+    expect(decision.profitable).toBe(true);
+  });
+
+  it("rejects break-even execution when floors are disabled", () => {
+    const decision = assessProfit({
+      crankFee: 100n,
+      estimatedGas: 1n,
+      maxFeePerGas: 100n,
+      gasLimitMultiplierBps: 10_000n,
+      minProfitWei: 0n,
+    });
+
+    expect(decision.maxProfit).toBe(0n);
+    expect(decision.requiredProfit).toBe(1n);
     expect(decision.profitable).toBe(false);
   });
 });

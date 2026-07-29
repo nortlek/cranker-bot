@@ -39,28 +39,43 @@ async function main(): Promise<void> {
       functionName: "POOL",
     }),
   );
-  const [orders, roundCount, paused, poolConfig] = await Promise.all([
-    client.readContract({
-      address: config.factoryAddress,
-      abi: factoryAbi,
-      functionName: "allOrders",
-    }),
-    client.readContract({
-      address: pool,
-      abi: poolAbi,
-      functionName: "roundCount",
-    }),
-    client.readContract({
-      address: pool,
-      abi: poolAbi,
-      functionName: "paused",
-    }),
-    client.readContract({
-      address: pool,
-      abi: poolAbi,
-      functionName: "config",
-    }),
-  ]);
+  const [orders, roundCount, ethPendingRound, paused, poolConfig] =
+    await Promise.all([
+      client.readContract({
+        address: config.factoryAddress,
+        abi: factoryAbi,
+        functionName: "allOrders",
+      }),
+      client.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "roundCount",
+      }),
+      client.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "ethPendingRound",
+      }),
+      client.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "paused",
+      }),
+      client.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "config",
+      }),
+    ]);
+  const ticketsNeeded =
+    roundCount === 0n
+      ? 0n
+      : await client.readContract({
+          address: pool,
+          abi: poolAbi,
+          functionName: "ticketsNeeded",
+          args: [roundCount],
+        });
 
   const rows = await Promise.all(
     orders.map(async (order: Address) => {
@@ -116,6 +131,8 @@ async function main(): Promise<void> {
         pool,
         poolPaused: paused,
         currentRound: roundCount.toString(),
+        ticketsNeeded: ticketsNeeded.toString(),
+        pendingLifecycleRound: ethPendingRound.toString(),
         poolConfig: {
           ticketPriceEth: formatEther(poolConfig[0]),
           fundingDurationSeconds: poolConfig[1].toString(),
