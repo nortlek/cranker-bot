@@ -22,6 +22,15 @@ export const CREATED_ORDER_ADDRESS = getAddress(
 export const MULTICALL3_ADDRESS = getAddress(
   "0xca11bde05977b3631167028862be2a173976ca11",
 );
+export const DIRECT_COINBASE_PAYMENT_HELPER_ADDRESS = getAddress(
+  "0x8512a66D249E3B51000b772047C8545Ad010f27c",
+);
+export const DIRECT_COINBASE_PAYMENT_HELPER_CODE_HASH =
+  "0x6b7535dca3ee3e0f8b0e86209d088dee292bdba2888bfd32a0ffbdc39fcd8a02";
+// The verified helper has fixed receive-only execution and forwards with the
+// 2,300-gas stipend. Unused transaction gas is not charged; exact bundle
+// simulation supplies the realized gas before submission.
+export const DIRECT_COINBASE_PAYMENT_GAS_LIMIT = 50_000n;
 export const LIQUITY_BRANCHES = [
   {
     symbol: "WETH",

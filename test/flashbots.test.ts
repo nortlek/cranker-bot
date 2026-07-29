@@ -9,6 +9,7 @@ import {
   simulatedGasUsed,
   submitBundlePrefixLadder,
   successfulPrefixLength,
+  validateDirectCoinbasePaymentSimulation,
 } from "../src/flashbots.js";
 
 describe("successfulPrefixLength", () => {
@@ -56,6 +57,41 @@ describe("simulatedGasUsed", () => {
         2,
       ),
     ).toEqual([348_298n, 191_959n]);
+  });
+});
+
+describe("validateDirectCoinbasePaymentSimulation", () => {
+  it("requires exact aggregate and helper coinbase accounting", () => {
+    expect(
+      validateDirectCoinbasePaymentSimulation({
+        result: {
+          coinbaseDiff: "243",
+          results: [
+            { gasUsed: 100, ethSentToCoinbase: "0" },
+            { gasUsed: 30, ethSentToCoinbase: "143" },
+          ],
+        },
+        transactionCount: 2,
+        helperIndex: 1,
+        expectedTotalCoinbasePayment: 243n,
+        expectedDirectCoinbasePayment: 143n,
+      }),
+    ).toEqual({
+      totalCoinbasePayment: 243n,
+      directCoinbasePayment: 143n,
+    });
+  });
+
+  it("rejects a helper simulation without exact payment fields", () => {
+    expect(() =>
+      validateDirectCoinbasePaymentSimulation({
+        result: { coinbaseDiff: "243", results: [{ gasUsed: 30 }] },
+        transactionCount: 1,
+        helperIndex: 0,
+        expectedTotalCoinbasePayment: 243n,
+        expectedDirectCoinbasePayment: 143n,
+      }),
+    ).toThrow("omitted coinbase accounting");
   });
 });
 

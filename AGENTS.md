@@ -460,6 +460,13 @@ These constraints prevent expensive or unsafe regressions:
   from the exact bundle-effective bid after profit and fee caps, not just the
   requested bid, and must persist explicit probe state plus block-aged price
   evidence.
+- A direct coinbase payment may only fill an existing fee-capped adaptive bid
+  for a zero-value, standing-order-only private batch. The pinned receive-only
+  helper must pass its startup code-hash check, occupy the final contiguous
+  nonce, reserve gas plus value, and remain inseparable from every selected
+  reward-producing crank. Require exact full-bundle simulation, exact
+  `ethSentToCoinbase`/`coinbaseDiff`, and aggregate positive economics; never
+  submit a helper-only or helper-free prefix of that paid variant.
 - Profit checks include gas and builder payments. A receipt is the source of
   truth for gas; decoded token transfers and balance reconciliation are the
   source of truth for reward value.

@@ -349,6 +349,14 @@ successful `crank` fees are sent to that keeper address.
   delay after a failed planning pass.
 - `ENABLE_POOL_LIFECYCLE`: enables paid PullPool lifecycle calls.
 - `ENABLE_BUYBACK`: enables the conditional FWAToken buyback caller reward.
+- `ENABLE_DIRECT_COINBASE_PAYMENTS`: permits a pinned, exact-verified
+  receive-only helper as the mandatory final transaction of a
+  standing-order-only private bundle when the requested builder bid cannot be
+  expressed under `MAX_FEE_PER_GAS_GWEI`. The value fills only the existing
+  bid target, remains bounded by the aggregate profit floor, reserves signer
+  balance, and is included in receipt P&L. Startup verifies the helper runtime
+  hash; exact bundle simulation must report the intended direct and aggregate
+  coinbase payments. It defaults to `false` and requires private submission.
 - `ENABLE_LIVE_BID_SWEEP`: enables the independently paid LiveBidAdapter
   fallback. `LIVE_BID_ADAPTER_ADDRESS` selects the verified adapter.
 - `ENABLE_LIQUITY_LIQUIDATIONS`: scans the three official Liquity V2 Ethereum

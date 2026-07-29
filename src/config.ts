@@ -62,6 +62,7 @@ export interface KeeperConfig {
   readonly expectedPoolAddress: Address;
   readonly expectedFwaTokenAddress: Address;
   readonly liveBidAdapterAddress: Address;
+  readonly enableDirectCoinbasePayments: boolean;
   readonly enablePendingFundingBackruns: boolean;
   readonly enablePoolLifecycle: boolean;
   readonly enableVaults: boolean;
@@ -263,6 +264,10 @@ export function loadConfig(): KeeperConfig {
     rpcUrl;
   const submissionMode = submissionModeEnv();
   const headRpcUrl = headRpcUrlEnv();
+  const enableDirectCoinbasePayments = booleanEnv(
+    "ENABLE_DIRECT_COINBASE_PAYMENTS",
+    false,
+  );
   const enablePendingFundingBackruns = booleanEnv(
     "ENABLE_PENDING_FUNDING_BACKRUNS",
     false,
@@ -278,6 +283,7 @@ export function loadConfig(): KeeperConfig {
   if (
     (enableStakeDaoCurveHarvests ||
       enableFirmReplenishments ||
+      enableDirectCoinbasePayments ||
       enablePendingFundingBackruns) &&
     submissionMode !== "flashbots"
   ) {
@@ -285,6 +291,8 @@ export function loadConfig(): KeeperConfig {
       `${
         enablePendingFundingBackruns
           ? "ENABLE_PENDING_FUNDING_BACKRUNS"
+          : enableDirectCoinbasePayments
+          ? "ENABLE_DIRECT_COINBASE_PAYMENTS"
           : enableFirmReplenishments
           ? "ENABLE_FIRM_REPLENISHMENTS"
           : "ENABLE_STAKEDAO_CURVE_HARVESTS"
@@ -522,6 +530,7 @@ export function loadConfig(): KeeperConfig {
       process.env.LIVE_BID_ADAPTER_ADDRESS ||
         LIVE_BID_ADAPTER_ADDRESS,
     ),
+    enableDirectCoinbasePayments,
     enablePendingFundingBackruns,
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
     enableVaults: booleanEnv("ENABLE_VAULTS", true),

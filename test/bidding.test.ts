@@ -121,6 +121,47 @@ describe("quoteCompetitiveFees", () => {
     expect(quote.maxFeePerGas).toBe(20n);
     expect(quote.cappedByFeeCap).toBe(true);
   });
+
+  it("fills a fee-capped bid with a profit-bounded direct payment", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: parseEther("0.0025"),
+      simulatedGasUsed: 183_753n,
+      baseFeeAllowancePerGas: parseGwei("0.4"),
+      minimumPriorityFeePerGas: parseGwei("0.1"),
+      builderBidBps: 8_939n,
+      maxFeePerGasCap: parseGwei("5"),
+      minProfitWei: 1n,
+      directPaymentGasUsed: 50_000n,
+    });
+
+    expect(quote.profitable).toBe(true);
+    expect(quote.maxFeePerGas).toBe(parseGwei("5"));
+    expect(quote.priorityBuilderPayment).toBe(
+      183_753n * parseGwei("4.6"),
+    );
+    expect(quote.directBuilderPayment).toBeGreaterThan(0n);
+    expect(quote.builderPayment).toBe(
+      parseEther("0.0025") * 8_939n / 10_000n,
+    );
+    expect(quote.cappedByFeeCap).toBe(false);
+    expect(quote.expectedProfit).toBeGreaterThan(0n);
+  });
+
+  it("does not add a direct payment when its gas would consume the profit budget", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: 1_000n,
+      simulatedGasUsed: 10n,
+      baseFeeAllowancePerGas: 10n,
+      minimumPriorityFeePerGas: 1n,
+      builderBidBps: 9_000n,
+      maxFeePerGasCap: 20n,
+      minProfitWei: 1n,
+      directPaymentGasUsed: 100n,
+    });
+
+    expect(quote.directBuilderPayment).toBe(0n);
+    expect(quote.cappedByFeeCap).toBe(true);
+  });
 });
 
 describe("selectMostProfitablePrefix", () => {
@@ -227,5 +268,26 @@ describe("selectMostProfitablePrefix", () => {
         minProfitWei: 0n,
       }),
     ).toBeUndefined();
+  });
+
+  it("accounts for direct-payment gas when selecting a standing-order prefix", () => {
+    const selected = selectMostProfitablePrefix({
+      components: [
+        {
+          rewardWei: parseEther("0.0025"),
+          gasUsed: 183_753n,
+          builderBidBps: 8_939n,
+          minimumPriorityFeePerGas: parseGwei("0.1"),
+        },
+      ],
+      minimumViablePrefix: 1,
+      baseFeeAllowancePerGas: parseGwei("0.4"),
+      maxFeePerGasCap: parseGwei("5"),
+      minProfitWei: 1n,
+      directPaymentGasUsed: 50_000n,
+    });
+
+    expect(selected?.quote.directBuilderPayment).toBeGreaterThan(0n);
+    expect(selected?.quote.directPaymentGasUsed).toBe(50_000n);
   });
 });

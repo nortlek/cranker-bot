@@ -18,7 +18,9 @@ interface JsonRpcResponse<T> {
 }
 
 export interface CallBundleItem {
+  readonly coinbaseDiff?: string;
   readonly error?: string;
+  readonly ethSentToCoinbase?: string;
   readonly gasUsed?: number | string;
   readonly revert?: string;
   readonly txHash?: Hash;
@@ -27,8 +29,14 @@ export interface CallBundleItem {
 export interface CallBundleResult {
   readonly bundleHash?: Hash;
   readonly coinbaseDiff?: string;
+  readonly ethSentToCoinbase?: string;
   readonly results?: readonly CallBundleItem[];
   readonly totalGasUsed?: number | string;
+}
+
+export interface DirectCoinbasePaymentValidation {
+  readonly totalCoinbasePayment: bigint;
+  readonly directCoinbasePayment: bigint;
 }
 
 interface SendBundleResult {
@@ -194,6 +202,70 @@ export function simulatedGasUsed(
     }
     return gas;
   });
+}
+
+export function validateDirectCoinbasePaymentSimulation(parameters: {
+  readonly result: CallBundleResult;
+  readonly transactionCount: number;
+  readonly helperIndex: number;
+  readonly expectedTotalCoinbasePayment: bigint;
+  readonly expectedDirectCoinbasePayment: bigint;
+}): DirectCoinbasePaymentValidation {
+  if (
+    parameters.helperIndex < 0 ||
+    parameters.helperIndex >= parameters.transactionCount
+  ) {
+    throw new Error("direct payment helper index is outside the bundle");
+  }
+  const items = parameters.result.results;
+  if (
+    items === undefined ||
+    items.length !== parameters.transactionCount
+  ) {
+    throw new Error(
+      "direct payment simulation returned an incomplete result set",
+    );
+  }
+  const helper = items[parameters.helperIndex];
+  if (helper === undefined) {
+    throw new Error(
+      "direct payment simulation omitted the helper transaction",
+    );
+  }
+  if (
+    parameters.result.coinbaseDiff === undefined ||
+    helper.ethSentToCoinbase === undefined
+  ) {
+    throw new Error(
+      "direct payment simulation omitted coinbase accounting",
+    );
+  }
+  const totalCoinbasePayment = BigInt(
+    parameters.result.coinbaseDiff,
+  );
+  const directCoinbasePayment = BigInt(
+    helper.ethSentToCoinbase,
+  );
+  if (
+    totalCoinbasePayment !==
+    parameters.expectedTotalCoinbasePayment
+  ) {
+    throw new Error(
+      `direct payment simulation reported total coinbase payment ${totalCoinbasePayment}, expected ${parameters.expectedTotalCoinbasePayment}`,
+    );
+  }
+  if (
+    directCoinbasePayment !==
+    parameters.expectedDirectCoinbasePayment
+  ) {
+    throw new Error(
+      `direct payment simulation reported helper payment ${directCoinbasePayment}, expected ${parameters.expectedDirectCoinbasePayment}`,
+    );
+  }
+  return {
+    totalCoinbasePayment,
+    directCoinbasePayment,
+  };
 }
 
 export async function simulateLongestValidBundlePrefix(

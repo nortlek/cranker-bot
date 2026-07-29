@@ -271,6 +271,15 @@ export function buildDiscordEmbed(
           ? []
           : [field("Token reward", entry.paidTokenReward)]),
         field("Gas cost", entry.gasCost),
+        ...(displayedEthWei(entry.transactionValue) === 0n ||
+        entry.transactionValue === undefined
+          ? []
+          : [
+              field(
+                "Direct builder payment",
+                entry.transactionValue,
+              ),
+            ]),
         field("P&L change", entry.realizedProfit),
         field(
           "Session realized P&L",
@@ -326,6 +335,15 @@ export function buildDiscordEmbed(
           : []),
         field("Total reward", entry.totalReward),
         field("Total gas cost", entry.totalGasCost),
+        ...(displayedEthWei(entry.totalTransactionValue) === 0n ||
+        entry.totalTransactionValue === undefined
+          ? []
+          : [
+              field(
+                "Direct builder payment",
+                entry.totalTransactionValue,
+              ),
+            ]),
         field("Batch P&L", entry.realizedProfit),
         field(
           "Session realized P&L",

@@ -13,6 +13,8 @@ const originalFwaProcessMaxCount =
   process.env.FWA_PROCESS_MAX_COUNT;
 const originalPendingFundingBackruns =
   process.env.ENABLE_PENDING_FUNDING_BACKRUNS;
+const originalDirectCoinbasePayments =
+  process.env.ENABLE_DIRECT_COINBASE_PAYMENTS;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
 const originalPoolBuilderBidBps =
@@ -42,6 +44,12 @@ afterEach(() => {
   } else {
     process.env.ENABLE_PENDING_FUNDING_BACKRUNS =
       originalPendingFundingBackruns;
+  }
+  if (originalDirectCoinbasePayments === undefined) {
+    delete process.env.ENABLE_DIRECT_COINBASE_PAYMENTS;
+  } else {
+    process.env.ENABLE_DIRECT_COINBASE_PAYMENTS =
+      originalDirectCoinbasePayments;
   }
   if (originalPendingFundingBuilderBidBps === undefined) {
     delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
@@ -153,6 +161,19 @@ describe("pending funding backruns", () => {
         dryRun: false,
       }),
     ).toBe(true);
+  });
+});
+
+describe("direct coinbase payments", () => {
+  it("defaults disabled and requires private bundle submission", () => {
+    delete process.env.ENABLE_DIRECT_COINBASE_PAYMENTS;
+    expect(loadConfig().enableDirectCoinbasePayments).toBe(false);
+
+    process.env.ENABLE_DIRECT_COINBASE_PAYMENTS = "true";
+    process.env.SUBMISSION_MODE = "public";
+    expect(() => loadConfig()).toThrow(
+      "ENABLE_DIRECT_COINBASE_PAYMENTS requires SUBMISSION_MODE=flashbots",
+    );
   });
 });
 

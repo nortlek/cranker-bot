@@ -24,19 +24,28 @@ import {
   selectMostProfitablePrefix,
 } from "./bidding.js";
 import { observeWinningCrankBids } from "./competition.js";
-import { CHAIN_ID } from "./constants.js";
+import {
+  CHAIN_ID,
+  DIRECT_COINBASE_PAYMENT_GAS_LIMIT,
+  DIRECT_COINBASE_PAYMENT_HELPER_ADDRESS,
+  DIRECT_COINBASE_PAYMENT_HELPER_CODE_HASH,
+} from "./constants.js";
 import {
   loadConfig,
   pendingFundingExecutionEnabled,
 } from "./config.js";
 import { DiscordWebhookNotifier } from "./discord.js";
+import {
+  appendDirectCoinbasePayment,
+  requiredSignerBalance,
+} from "./direct-coinbase-payment.js";
 import { requiredProfit } from "./economics.js";
 import {
   FlashbotsRelay,
-  longestValidBundlePrefix,
   simulateLongestValidBundlePrefix,
   simulatedGasUsed,
   submitBundlePrefixLadder,
+  validateDirectCoinbasePaymentSimulation,
 } from "./flashbots.js";
 import {
   errorMessage,
@@ -64,6 +73,7 @@ import {
   isFreshBlockStateUnavailable,
   runKeeperPass,
   scheduleColdPlannerRefresh,
+  type KeeperTransactionRequest,
   type StrategyContext,
 } from "./strategy.js";
 import {
@@ -320,6 +330,27 @@ async function main(): Promise<void> {
   if (chainId !== CHAIN_ID) {
     throw new Error(`expected Ethereum mainnet chain id 1, received ${chainId}`);
   }
+  if (config.enableDirectCoinbasePayments) {
+    const helperCode = await publicClient.getBytecode({
+      address: DIRECT_COINBASE_PAYMENT_HELPER_ADDRESS,
+    });
+    if (
+      helperCode === undefined ||
+      helperCode === "0x" ||
+      keccak256(helperCode) !==
+        DIRECT_COINBASE_PAYMENT_HELPER_CODE_HASH
+    ) {
+      throw new Error(
+        "direct coinbase payment helper bytecode does not match the pinned runtime",
+      );
+    }
+    log("info", "direct_coinbase_payment_helper_verified", {
+      helper: DIRECT_COINBASE_PAYMENT_HELPER_ADDRESS,
+      codeHash: DIRECT_COINBASE_PAYMENT_HELPER_CODE_HASH,
+      gasLimit:
+        DIRECT_COINBASE_PAYMENT_GAS_LIMIT.toString(),
+    });
+  }
 
   const poolAddress = getAddress(
     await publicClient.readContract({
@@ -392,7 +423,7 @@ async function main(): Promise<void> {
           maxFeePerGas: request.maxFeePerGas,
           maxPriorityFeePerGas: request.maxPriorityFeePerGas,
           nonce: request.nonce,
-          value: 0n,
+          value: request.value ?? 0n,
         });
       };
     } else {
@@ -482,7 +513,7 @@ async function main(): Promise<void> {
                 maxFeePerGas: request.maxFeePerGas,
                 maxPriorityFeePerGas: request.maxPriorityFeePerGas,
                 nonce: request.nonce,
-                value: 0n,
+                value: request.value ?? 0n,
               }),
             ),
           );
@@ -644,6 +675,13 @@ async function main(): Promise<void> {
         const fullBuilderBidBps = aggregateBuilderBidBps(
           pricingComponents,
         );
+        const directPaymentEligible =
+          config.enableDirectCoinbasePayments &&
+          prefixRequests.every(
+            (request) =>
+              request.kind === "standing_order" &&
+              request.order !== undefined,
+          );
         const fullQuote = quoteCompetitiveFees({
           crankFee: fullGrossReward,
           simulatedGasUsed: fullGasUsed,
@@ -653,6 +691,12 @@ async function main(): Promise<void> {
           builderBidBps: fullBuilderBidBps,
           maxFeePerGasCap: config.maxFeePerGas,
           minProfitWei: config.minProfitWei,
+          ...(directPaymentEligible
+            ? {
+                directPaymentGasUsed:
+                  DIRECT_COINBASE_PAYMENT_GAS_LIMIT,
+              }
+            : {}),
         });
         const prefixSelection = selectMostProfitablePrefix({
           components: pricingComponents,
@@ -660,6 +704,12 @@ async function main(): Promise<void> {
           baseFeeAllowancePerGas,
           maxFeePerGasCap: config.maxFeePerGas,
           minProfitWei: config.minProfitWei,
+          ...(directPaymentEligible
+            ? {
+                directPaymentGasUsed:
+                  DIRECT_COINBASE_PAYMENT_GAS_LIMIT,
+              }
+            : {}),
         });
         const selectedLength =
           prefixSelection?.length ?? pricingComponents.length;
@@ -730,6 +780,16 @@ async function main(): Promise<void> {
           effectiveBuilderBidBps:
             quote.effectiveBuilderBidBps.toString(),
           builderPayment: eth(quote.builderPayment),
+          priorityBuilderPayment: eth(
+            quote.priorityBuilderPayment,
+          ),
+          directBuilderPayment: eth(
+            quote.directBuilderPayment,
+          ),
+          directPaymentGasUsed:
+            quote.directPaymentGasUsed.toString(),
+          directPaymentEnabled:
+            quote.directBuilderPayment > 0n,
           maxFeePerGas: gwei(quote.maxFeePerGas),
           maxPriorityFeePerGas: gwei(
             quote.maxPriorityFeePerGas,
@@ -750,9 +810,21 @@ async function main(): Promise<void> {
             maxFeePerGas: quote.maxFeePerGas,
             maxPriorityFeePerGas: quote.maxPriorityFeePerGas,
           }));
+        let competitivelyPricedWithPayment:
+          readonly KeeperTransactionRequest[] =
+          competitivelyPriced;
+        if (quote.directBuilderPayment > 0n) {
+          competitivelyPricedWithPayment =
+            appendDirectCoinbasePayment({
+              requests: competitivelyPriced,
+              directBuilderPayment:
+                quote.directBuilderPayment,
+              baseFeeAllowancePerGas,
+            });
+        }
         const competitiveSignStartedAt = performance.now();
         const competitiveTransactions = await Promise.all(
-          competitivelyPriced.map((request) =>
+          competitivelyPricedWithPayment.map((request) =>
             signer.signTransaction({
               chainId: mainnet.id,
               type: "eip1559",
@@ -762,7 +834,7 @@ async function main(): Promise<void> {
               maxFeePerGas: request.maxFeePerGas,
               maxPriorityFeePerGas: request.maxPriorityFeePerGas,
               nonce: request.nonce,
-              value: 0n,
+              value: request.value ?? 0n,
             }),
           ),
         );
@@ -774,12 +846,14 @@ async function main(): Promise<void> {
           targetBlock: targetBlock.toString(),
         });
         const competitiveSimulationStartedAt = performance.now();
-        const competitivePrefixLength =
-          await longestValidBundlePrefix(
+        const competitivePrefixSimulation =
+          await simulateLongestValidBundlePrefix(
             relays[0]!,
             competitiveTransactions,
             targetBlock,
           );
+        const competitivePrefixLength =
+          competitivePrefixSimulation.prefixLength;
         log("info", "bundle_stage_timing", {
           stage: "competitive_simulation",
           durationMs:
@@ -788,6 +862,20 @@ async function main(): Promise<void> {
           validJobs: competitivePrefixLength,
           targetBlock: targetBlock.toString(),
         });
+        if (
+          quote.directBuilderPayment > 0n &&
+          competitivePrefixLength !==
+            competitiveTransactions.length
+        ) {
+          log("warn", "direct_coinbase_payment_simulation_failed", {
+            targetBlock: targetBlock.toString(),
+            plannedTransactions:
+              competitiveTransactions.length,
+            validTransactions: competitivePrefixLength,
+            action: "skip_complete_bundle",
+          });
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
         if (competitivePrefixLength < minimumViablePrefix) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
@@ -795,38 +883,154 @@ async function main(): Promise<void> {
           0,
           competitivePrefixLength,
         );
-        const selectedRequests = competitivelyPriced.slice(
+        const selectedRequests =
+          competitivelyPricedWithPayment.slice(
           0,
           competitivePrefixLength,
         );
-        const selectedGas = gasUsed.slice(0, competitivePrefixLength);
+        let selectedGas = gasUsed.slice(
+          0,
+          competitivePrefixLength,
+        );
         const profitFloor = requiredProfit(config.minProfitWei);
         let minimumEconomicPrefix = minimumViablePrefix;
-        let prefixReward = 0n;
-        let prefixGas = 0n;
-        for (let index = 0; index < selectedRequests.length; index += 1) {
-          const request = selectedRequests[index];
-          const transactionGas = selectedGas[index];
-          if (request === undefined || transactionGas === undefined) {
-            throw new Error("competitive prefix accounting was incomplete");
+        if (quote.directBuilderPayment > 0n) {
+          const finalSimulation =
+            competitivePrefixSimulation.simulation;
+          if (finalSimulation === undefined) {
+            throw new Error(
+              "direct payment bundle lacked its exact simulation",
+            );
           }
-          prefixReward += estimatedJobReward({
-            job: request,
-            gasUsed: transactionGas,
-            baseFeePerGas: bountyBaseFeePerGas,
-            poolBountyEstimateBps:
-              config.poolBountyEstimateBps,
-            poolPullBountyEstimateBps:
-              config.poolPullBountyEstimateBps,
+          selectedGas = simulatedGasUsed(
+            finalSimulation,
+            selectedRequests.length,
+          );
+          const helperIndex = selectedRequests.length - 1;
+          const helperGas = selectedGas[helperIndex];
+          if (helperGas === undefined) {
+            throw new Error(
+              "direct payment simulation omitted helper gas",
+            );
+          }
+          const jobGas = selectedGas.slice(0, helperIndex);
+          const priorityBuilderPayment = jobGas.reduce(
+            (total, transactionGas) =>
+              total +
+              transactionGas * quote.maxPriorityFeePerGas,
+            0n,
+          );
+          const totalCoinbasePayment =
+            priorityBuilderPayment +
+            quote.directBuilderPayment;
+          validateDirectCoinbasePaymentSimulation({
+            result: finalSimulation,
+            transactionCount: selectedRequests.length,
+            helperIndex,
+            expectedTotalCoinbasePayment:
+              totalCoinbasePayment,
+            expectedDirectCoinbasePayment:
+              quote.directBuilderPayment,
           });
-          prefixGas += transactionGas;
-          const count = index + 1;
-          if (
-            count >= minimumViablePrefix &&
-            prefixReward - prefixGas * quote.maxFeePerGas <
-              profitFloor
+          let exactGrossReward = 0n;
+          for (let index = 0; index < helperIndex; index += 1) {
+            const request = selectedRequests[index];
+            const transactionGas = selectedGas[index];
+            if (
+              request === undefined ||
+              transactionGas === undefined
+            ) {
+              throw new Error(
+                "direct payment reward accounting was incomplete",
+              );
+            }
+            exactGrossReward += estimatedJobReward({
+              job: request,
+              gasUsed: transactionGas,
+              baseFeePerGas: bountyBaseFeePerGas,
+              poolBountyEstimateBps:
+                config.poolBountyEstimateBps,
+              poolPullBountyEstimateBps:
+                config.poolPullBountyEstimateBps,
+            });
+          }
+          const totalExactGas = selectedGas.reduce(
+            (total, transactionGas) =>
+              total + transactionGas,
+            0n,
+          );
+          const exactExpectedProfit =
+            exactGrossReward -
+            totalExactGas * baseFeeAllowancePerGas -
+            totalCoinbasePayment;
+          log(
+            exactExpectedProfit >= profitFloor
+              ? "info"
+              : "warn",
+            "direct_coinbase_payment_simulated",
+            {
+              targetBlock: targetBlock.toString(),
+              jobs: helperIndex,
+              helperGasUsed: helperGas.toString(),
+              grossReward: eth(exactGrossReward),
+              priorityBuilderPayment: eth(
+                priorityBuilderPayment,
+              ),
+              directBuilderPayment: eth(
+                quote.directBuilderPayment,
+              ),
+              totalBuilderPayment: eth(
+                totalCoinbasePayment,
+              ),
+              expectedProfit: eth(exactExpectedProfit),
+              requiredProfit: eth(profitFloor),
+              accepted:
+                exactExpectedProfit >= profitFloor,
+            },
+          );
+          if (exactExpectedProfit < profitFloor) {
+            return { hashes: [], targetBlock, relayCount: 0 };
+          }
+          // A payment suffix is never submitted as a prefix or without every
+          // selected reward-producing transaction.
+          minimumEconomicPrefix = selected.length;
+        } else {
+          let prefixReward = 0n;
+          let prefixGas = 0n;
+          for (
+            let index = 0;
+            index < selectedRequests.length;
+            index += 1
           ) {
-            minimumEconomicPrefix = count + 1;
+            const request = selectedRequests[index];
+            const transactionGas = selectedGas[index];
+            if (
+              request === undefined ||
+              transactionGas === undefined
+            ) {
+              throw new Error(
+                "competitive prefix accounting was incomplete",
+              );
+            }
+            prefixReward += estimatedJobReward({
+              job: request,
+              gasUsed: transactionGas,
+              baseFeePerGas: bountyBaseFeePerGas,
+              poolBountyEstimateBps:
+                config.poolBountyEstimateBps,
+              poolPullBountyEstimateBps:
+                config.poolPullBountyEstimateBps,
+            });
+            prefixGas += transactionGas;
+            const count = index + 1;
+            if (
+              count >= minimumViablePrefix &&
+              prefixReward -
+                prefixGas * quote.maxFeePerGas <
+                profitFloor
+            ) {
+              minimumEconomicPrefix = count + 1;
+            }
           }
         }
         if (minimumEconomicPrefix > selected.length) {
@@ -836,6 +1040,7 @@ async function main(): Promise<void> {
           finalSubmissionHead,
           finalLatestNonce,
           finalPendingNonce,
+          finalAccountBalance,
         ] = await Promise.all([
           publicClient.getBlockNumber(),
           publicClient.getTransactionCount({
@@ -845,6 +1050,10 @@ async function main(): Promise<void> {
           publicClient.getTransactionCount({
             address: signer.address,
             blockTag: "pending",
+          }),
+          publicClient.getBalance({
+            address: signer.address,
+            blockTag: "latest",
           }),
         ]);
         if (
@@ -863,6 +1072,19 @@ async function main(): Promise<void> {
             latestNonce: finalLatestNonce,
             pendingNonce: finalPendingNonce,
             action: "skip_submission",
+          });
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
+        const requiredBalance =
+          requiredSignerBalance(selectedRequests);
+        if (requiredBalance > finalAccountBalance) {
+          log("warn", "bundle_balance_gate_rejected", {
+            targetBlock: targetBlock.toString(),
+            requiredBalance: eth(requiredBalance),
+            accountBalance: eth(finalAccountBalance),
+            directBuilderPayment: eth(
+              quote.directBuilderPayment,
+            ),
           });
           return { hashes: [], targetBlock, relayCount: 0 };
         }
@@ -918,6 +1140,10 @@ async function main(): Promise<void> {
           ),
         );
         const accepted = selected.slice(0, acceptedTransactionCount);
+        const acceptedRequests = selectedRequests.slice(
+          0,
+          acceptedTransactionCount,
+        );
         const relayIndexes = new Set(
           submissions.map((submission) =>
             relays.findIndex(
@@ -928,6 +1154,7 @@ async function main(): Promise<void> {
         retainReservation = true;
         return {
           hashes: accepted.map((transaction) => keccak256(transaction)),
+          acceptedRequests,
           targetBlock,
           relayCount: relayIndexes.size,
           effectiveBuilderBidBps:
@@ -1497,6 +1724,12 @@ async function main(): Promise<void> {
       config.enableFirmReplenishments,
     pendingFundingBackruns:
       pendingFundingExecutionEnabled(config),
+    directCoinbasePayments:
+      config.enableDirectCoinbasePayments,
+    directCoinbasePaymentHelper:
+      config.enableDirectCoinbasePayments
+        ? DIRECT_COINBASE_PAYMENT_HELPER_ADDRESS
+        : "",
     liveBidAdapter: config.liveBidAdapterAddress,
     poolBountyEstimateBps:
       config.poolBountyEstimateBps.toString(),

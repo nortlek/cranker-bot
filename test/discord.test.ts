@@ -175,6 +175,38 @@ describe("buildDiscordEmbed", () => {
     expect(batchEmbed?.title).toBe("Keeper batch expired");
     expect(batchEmbed?.color).toBe(0xf39c12);
   });
+
+  it("shows direct builder value in aggregate batch P&L", () => {
+    const embed = buildDiscordEmbed(
+      {
+        time: "2026-07-29T16:00:00.000Z",
+        level: "info",
+        event: "keeper_batch_result",
+        kinds: JSON.stringify([
+          "standing_order",
+          "builder_payment",
+        ]),
+        transactionCount: 2,
+        confirmedTransactions: 2,
+        revertedTransactions: 0,
+        expiredTransactions: 0,
+        targetBlock: "25640510",
+        block: "25640510",
+        totalReward: "0.0025 ETH",
+        totalGasCost: "0.00015 ETH",
+        totalTransactionValue: "0.0022 ETH",
+        realizedProfit: "0.00015 ETH",
+        effectiveBuilderBidBps: "8939",
+      },
+      150_000_000_000_000n,
+    );
+
+    expect(
+      embed?.fields?.find(
+        (entry) => entry.name === "Direct builder payment",
+      )?.value,
+    ).toBe("0.0022 ETH");
+  });
 });
 
 describe("DiscordWebhookNotifier", () => {

@@ -102,6 +102,61 @@ Remaining acceptance criteria:
 - compare captured share and retained profit against the 53-event historical
   cohort before changing any bid ceiling
 
+### P0 — Express fee-capped standing-order bids with direct coinbase payment
+
+Status: bounded implementation validated locally; production remains disabled
+until the committed Railway rollout passes the nonce and lifecycle gates.
+
+The existing `5 gwei` maximum fee protects the signer from unbounded gas-price
+exposure, but it also prevented the priority-fee-only bundle from expressing
+the adaptive bid on large `0.0025 ETH` standing-order rewards. At blocks
+`25640294`, `25640391`, and `25640510`, the keeper's effective bids were only
+`3,275`, `3,114`, and `3,204 bps`, while winners paid `8,914`, `8,656`, and
+`8,857 bps` through zero-priority direct beneficiary transfers. The latter two
+misses could have expressed the already-selected `8,939 bps` bid and retained
+approximately `0.000099630 ETH` and `0.000126046 ETH` under conservative
+next-block base-fee and helper-gas allowances. Raising the fee ceiling is
+neither necessary nor desirable.
+
+The implementation uses the already-deployed, exact-verified receive-only
+`TransferValueToMinerCoinbase` helper at
+`0x8512a66D249E3B51000b772047C8545Ad010f27c`. Its 113-byte runtime hash is
+`0x6b7535dca3ee3e0f8b0e86209d088dee292bdba2888bfd32a0ffbdc39fcd8a02`;
+the only successful path forwards all `msg.value` to `block.coinbase` with
+Solidity `transfer`. It has no owner, storage, proxy, delegatecall, retained
+balance, or mutable configuration. Startup pins the runtime hash.
+
+The route is opt-in and applies only to zero-value, contiguous,
+standing-order-only private batches whose existing adaptive bid is constrained
+by the fee cap. It never raises that bid: helper value is only the shortfall
+between the desired aggregate builder payment and priority fees, capped again
+by aggregate base gas and the retained-profit floor. The helper is the final
+nonce, its gas and value are pre-funded, and the only submitted variant
+contains every selected reward-producing crank plus the helper. It is never
+submitted alone or as a prefix. Exact target-block simulation must succeed for
+the complete bundle and report both the intended helper
+`ethSentToCoinbase` and exact aggregate `coinbaseDiff`; final economics are
+recomputed from simulated gas before private submission. Receipts and Discord
+batch P&L count the helper value and gas as costs.
+
+A simulation-only Flashbots call on 2026-07-29 confirmed the live response
+shape and helper compatibility: `ethSentToCoinbase == coinbaseDiff == 1 wei`
+and actual helper gas was `27,920`, below the conservative `50,000` planning
+envelope. The current builder beneficiary may change, and the helper's
+2,300-gas transfer stipend can reject a future contract beneficiary; exact
+simulation then skips that block without an on-chain loss. The residual trust
+assumption is private-relay atomicity, the same assumption already used for
+multi-transaction lifecycle bundles.
+
+Acceptance:
+
+- enable only after startup verifies the pinned runtime on Ethereum mainnet
+- observe the first `direct_coinbase_payment_simulated` event, relay
+  acceptance, helper receipt, and aggregate positive batch P&L
+- confirm the helper nonce is last and no helper-only bundle variant was sent
+- compare the first high-fee order result with the contemporaneous winning bid
+  before changing adaptive bid bounds or the maximum fee
+
 ### P0 — StonkPit fee-collection crank on Robinhood Chain
 
 Status: target, ABI, payout, history, and competition verified; read-only

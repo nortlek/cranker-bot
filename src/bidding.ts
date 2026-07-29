@@ -4,6 +4,9 @@ export interface CompetitiveFeeQuote {
   readonly maxFeePerGas: bigint;
   readonly maxPriorityFeePerGas: bigint;
   readonly desiredBuilderPayment: bigint;
+  readonly priorityBuilderPayment: bigint;
+  readonly directBuilderPayment: bigint;
+  readonly directPaymentGasUsed: bigint;
   readonly builderPayment: bigint;
   readonly expectedGasCost: bigint;
   readonly expectedProfit: bigint;
@@ -88,7 +91,7 @@ export function aggregateBuilderBidBps(
  * Flashbots builders compare the value they receive, not the keeper's gross
  * profit, so a static sub-gwei floor is rarely a competitive bid.
  */
-export function quoteCompetitiveFees(parameters: {
+function quotePriorityFees(parameters: {
   readonly crankFee: bigint;
   readonly simulatedGasUsed: bigint;
   readonly baseFeeAllowancePerGas: bigint;
@@ -96,7 +99,12 @@ export function quoteCompetitiveFees(parameters: {
   readonly builderBidBps: bigint;
   readonly maxFeePerGasCap: bigint;
   readonly minProfitWei: bigint;
-}): CompetitiveFeeQuote {
+}): Omit<
+  CompetitiveFeeQuote,
+  | "priorityBuilderPayment"
+  | "directBuilderPayment"
+  | "directPaymentGasUsed"
+> {
   if (parameters.simulatedGasUsed <= 0n) {
     throw new Error("simulatedGasUsed must be positive");
   }
@@ -217,6 +225,98 @@ export function quoteCompetitiveFees(parameters: {
 }
 
 /**
+ * Prices a reward-producing bundle with an optional direct coinbase-payment
+ * transaction. Direct payment is used only to fill a fee-cap-constrained bid;
+ * it never raises the configured bid or consumes the retained-profit floor.
+ */
+export function quoteCompetitiveFees(parameters: {
+  readonly crankFee: bigint;
+  readonly simulatedGasUsed: bigint;
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly minimumPriorityFeePerGas: bigint;
+  readonly builderBidBps: bigint;
+  readonly maxFeePerGasCap: bigint;
+  readonly minProfitWei: bigint;
+  readonly directPaymentGasUsed?: bigint;
+}): CompetitiveFeeQuote {
+  const priorityQuote = quotePriorityFees(parameters);
+  const withoutDirectPayment: CompetitiveFeeQuote = {
+    ...priorityQuote,
+    priorityBuilderPayment: priorityQuote.builderPayment,
+    directBuilderPayment: 0n,
+    directPaymentGasUsed: 0n,
+  };
+  const directPaymentGasUsed =
+    parameters.directPaymentGasUsed;
+  if (
+    directPaymentGasUsed === undefined ||
+    !priorityQuote.profitable ||
+    !priorityQuote.cappedByFeeCap ||
+    priorityQuote.builderPayment >=
+      priorityQuote.desiredBuilderPayment
+  ) {
+    return withoutDirectPayment;
+  }
+  if (directPaymentGasUsed <= 0n) {
+    throw new Error("directPaymentGasUsed must be positive");
+  }
+
+  const profitFloor = priorityQuote.requiredProfit;
+  const totalBaseGasCost =
+    parameters.baseFeeAllowancePerGas *
+    (parameters.simulatedGasUsed + directPaymentGasUsed);
+  const maximumBuilderPayment =
+    parameters.crankFee - totalBaseGasCost - profitFloor;
+  if (maximumBuilderPayment <= priorityQuote.builderPayment) {
+    return withoutDirectPayment;
+  }
+  const requestedBuilderPayment =
+    priorityQuote.desiredBuilderPayment >
+    priorityQuote.builderPayment
+      ? priorityQuote.desiredBuilderPayment
+      : priorityQuote.builderPayment;
+  const builderPayment =
+    requestedBuilderPayment < maximumBuilderPayment
+      ? requestedBuilderPayment
+      : maximumBuilderPayment;
+  const directBuilderPayment =
+    builderPayment - priorityQuote.builderPayment;
+  if (directBuilderPayment <= 0n) {
+    return withoutDirectPayment;
+  }
+  const expectedGasCost =
+    totalBaseGasCost + builderPayment;
+  const expectedProfit =
+    parameters.crankFee - expectedGasCost;
+  const {
+    reason: _priorityReason,
+    ...priorityQuoteWithoutReason
+  } = priorityQuote;
+  const profitable = expectedProfit >= profitFloor;
+
+  return {
+    ...priorityQuoteWithoutReason,
+    priorityBuilderPayment: priorityQuote.builderPayment,
+    directBuilderPayment,
+    directPaymentGasUsed,
+    builderPayment,
+    expectedGasCost,
+    expectedProfit,
+    effectiveBuilderBidBps: effectiveBuilderBidBps(
+      builderPayment,
+      parameters.crankFee,
+    ),
+    cappedByProfit:
+      builderPayment < requestedBuilderPayment,
+    cappedByFeeCap: false,
+    profitable,
+    ...(profitable
+      ? {}
+      : { reason: "profit_floor" as const }),
+  };
+}
+
+/**
  * Selects the contiguous, dependency-safe prefix with the greatest retained
  * profit after exact simulated gas and the prefix's reward-weighted builder
  * policy. Shorter prefixes win ties to avoid unnecessary execution risk.
@@ -227,6 +327,7 @@ export function selectMostProfitablePrefix(parameters: {
   readonly baseFeeAllowancePerGas: bigint;
   readonly maxFeePerGasCap: bigint;
   readonly minProfitWei: bigint;
+  readonly directPaymentGasUsed?: bigint;
 }): CompetitivePrefixSelection | undefined {
   if (
     parameters.minimumViablePrefix < 1 ||
@@ -284,6 +385,12 @@ export function selectMostProfitablePrefix(parameters: {
       builderBidBps,
       maxFeePerGasCap: parameters.maxFeePerGasCap,
       minProfitWei: parameters.minProfitWei,
+      ...(parameters.directPaymentGasUsed === undefined
+        ? {}
+        : {
+            directPaymentGasUsed:
+              parameters.directPaymentGasUsed,
+          }),
     });
     if (!quote.profitable) continue;
     if (

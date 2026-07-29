@@ -113,7 +113,8 @@ export type KeeperJobKind =
   | "convex_earmark"
   | "convex_kick"
   | "stakedao_curve_harvest"
-  | "firm_replenish";
+  | "firm_replenish"
+  | "builder_payment";
 
 export type PoolBuilderBidPolicy =
   | "pool_pull"
@@ -162,10 +163,12 @@ export interface KeeperTransactionRequest extends KeeperJob {
   readonly nonce: number;
   readonly maxFeePerGas: bigint;
   readonly maxPriorityFeePerGas: bigint;
+  readonly value?: bigint;
 }
 
 export interface KeeperBatchResult {
   readonly hashes: readonly Hash[];
+  readonly acceptedRequests?: readonly KeeperTransactionRequest[];
   readonly targetBlock: bigint;
   readonly relayCount: number;
   readonly effectiveBuilderBidBps?: bigint;
@@ -3354,6 +3357,7 @@ function actualJobReward(
   logs: readonly ReceiptLog[],
   firmAccounting?: FirmReceiptAccounting,
 ): bigint {
+  if (request.kind === "builder_payment") return 0n;
   if (
     (request.kind === "liquity_liquidation" ||
       request.kind === "convex_earmark" ||
@@ -3805,9 +3809,19 @@ export async function runKeeperPass(
         bountyBaseFeePerGas,
       });
       privateTargetBlock = batchResult.targetBlock;
+      const acceptedRequests =
+        batchResult.acceptedRequests ?? requests;
+      if (
+        batchResult.hashes.length >
+        acceptedRequests.length
+      ) {
+        throw new Error(
+          "private sender returned more hashes than accepted requests",
+        );
+      }
       for (let index = 0; index < batchResult.hashes.length; index += 1) {
         const hash = batchResult.hashes[index];
-        const request = requests[index];
+        const request = acceptedRequests[index];
         if (hash !== undefined && request !== undefined) {
           submitted.push({ request, hash });
         }
@@ -4052,6 +4066,9 @@ export async function runKeeperPass(
           : 0n;
         const gasCost =
           receipt.gasUsed * receipt.effectiveGasPrice;
+        const valueCost = successful
+          ? (submission.request.value ?? 0n)
+          : 0n;
         log(successful ? "info" : "warn", "keeper_receipt", {
           kind: submission.request.kind,
           label: submission.request.label,
@@ -4098,7 +4115,10 @@ export async function runKeeperPass(
               }
             : {}),
           gasCost: eth(gasCost),
-          realizedProfit: eth(paidReward - gasCost),
+          transactionValue: eth(valueCost),
+          realizedProfit: eth(
+            paidReward - gasCost - valueCost,
+          ),
           ...batchFields,
         });
         return {
@@ -4106,6 +4126,7 @@ export async function runKeeperPass(
           successful,
           paidReward,
           gasCost,
+          valueCost,
           blockNumber: receipt.blockNumber,
         };
       } catch (error) {
@@ -4128,6 +4149,7 @@ export async function runKeeperPass(
           successful: false,
           paidReward: 0n,
           gasCost: 0n,
+          valueCost: 0n,
         };
       }
     }),
@@ -4155,6 +4177,10 @@ export async function runKeeperPass(
       (total, result) => total + result.gasCost,
       0n,
     );
+    const totalTransactionValue = receiptResults.reduce(
+      (total, result) => total + result.valueCost,
+      0n,
+    );
     const receiptBlock = confirmedResults.find(
       (result) => result.blockNumber !== undefined,
     )?.blockNumber;
@@ -4173,7 +4199,12 @@ export async function runKeeperPass(
         block: receiptBlock?.toString() ?? "",
         totalReward: eth(totalReward),
         totalGasCost: eth(totalGasCost),
-        realizedProfit: eth(totalReward - totalGasCost),
+        totalTransactionValue: eth(totalTransactionValue),
+        realizedProfit: eth(
+          totalReward -
+            totalGasCost -
+            totalTransactionValue,
+        ),
         effectiveBuilderBidBps:
           batchResult?.effectiveBuilderBidBps?.toString() ?? "",
       },
