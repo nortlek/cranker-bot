@@ -370,6 +370,8 @@ interface ConvexPool {
 interface ConvexCandidateSnapshot {
   readonly requestedAtBlock: bigint;
   readonly poolsScanned: number;
+  readonly candidateEstimateAttempts: number;
+  readonly crvChangeExcluded: number;
   readonly staker: Address;
   readonly pools: readonly ConvexPool[];
 }
@@ -457,6 +459,8 @@ export function highestPositiveClaimableIndexes(
 
 async function loadConvexCandidateSnapshot(parameters: {
   readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly simulationConcurrency: number;
   readonly requestedAtBlock: bigint;
 }): Promise<ConvexCandidateSnapshot> {
   const pools = await getConvexPools(
@@ -484,16 +488,63 @@ async function loadConvexCandidateSnapshot(parameters: {
     claimableResults.map((result) =>
       result.status === "success" ? result.result : undefined,
     ),
-    CONVEX_CANDIDATE_CACHE_SIZE,
+    pools.length,
   );
+  let crvChangeExcluded = 0;
+  let candidateEstimateAttempts = 0;
+  const executableAtSnapshot: ConvexPool[] = [];
+  for (
+    let offset = 0;
+    offset < indexes.length &&
+    executableAtSnapshot.length < CONVEX_CANDIDATE_CACHE_SIZE;
+    offset += CONVEX_CANDIDATE_CACHE_SIZE
+  ) {
+    const candidateBatch = indexes
+      .slice(offset, offset + CONVEX_CANDIDATE_CACHE_SIZE)
+      .flatMap((index) => {
+        const pool = pools[index];
+        return pool === undefined ? [] : [pool];
+      });
+    candidateEstimateAttempts += candidateBatch.length;
+    const batchResults = await mapConcurrent(
+      candidateBatch,
+      parameters.simulationConcurrency,
+      async (pool): Promise<ConvexPool | undefined> => {
+        try {
+          await parameters.client.estimateContractGas({
+            account: parameters.account,
+            address: CONVEX_BOOSTER_ADDRESS,
+            abi: convexBoosterAbi,
+            functionName: "earmarkRewards",
+            args: [pool.pid],
+            blockNumber: parameters.requestedAtBlock,
+          });
+          return pool;
+        } catch (error) {
+          if (isConvexCrvChangeRevert(error)) {
+            crvChangeExcluded += 1;
+            return undefined;
+          }
+          return pool;
+        }
+      },
+    );
+    executableAtSnapshot.push(
+      ...batchResults.filter(
+        (pool): pool is ConvexPool => pool !== undefined,
+      ),
+    );
+  }
   return {
     requestedAtBlock: parameters.requestedAtBlock,
     poolsScanned: pools.length,
+    candidateEstimateAttempts,
+    crvChangeExcluded,
     staker,
-    pools: indexes.flatMap((index) => {
-      const pool = pools[index];
-      return pool === undefined ? [] : [pool];
-    }),
+    pools: executableAtSnapshot.slice(
+      0,
+      CONVEX_CANDIDATE_CACHE_SIZE,
+    ),
   };
 }
 
@@ -534,6 +585,9 @@ export function scheduleColdPlannerRefresh(parameters: {
   const startedAt = performance.now();
   const refresh = loadConvexCandidateSnapshot({
     client: parameters.discoveryClient,
+    account: parameters.config.simulationAccount,
+    simulationConcurrency:
+      parameters.config.simulationConcurrency,
     requestedAtBlock,
   })
     .then((nextSnapshot) => {
@@ -548,6 +602,9 @@ export function scheduleColdPlannerRefresh(parameters: {
         requestedAtBlock: nextSnapshot.requestedAtBlock.toString(),
         poolsScanned: nextSnapshot.poolsScanned,
         candidates: nextSnapshot.pools.length,
+        candidateEstimateAttempts:
+          nextSnapshot.candidateEstimateAttempts,
+        crvChangeExcluded: nextSnapshot.crvChangeExcluded,
         durationMs: performance.now() - startedAt,
       });
     })
@@ -599,6 +656,19 @@ function revertedErrorName(error: unknown): string | undefined {
   );
   if (!(reverted instanceof ContractFunctionRevertedError)) return undefined;
   return reverted.data?.errorName;
+}
+
+function contractRevertReason(error: unknown): string | undefined {
+  if (!(error instanceof BaseError)) return undefined;
+  const reverted = error.walk(
+    (candidate) => candidate instanceof ContractFunctionRevertedError,
+  );
+  if (!(reverted instanceof ContractFunctionRevertedError)) return undefined;
+  return reverted.reason;
+}
+
+export function isConvexCrvChangeRevert(error: unknown): boolean {
+  return contractRevertReason(error) === "crvChange";
 }
 
 function isBlockNotFound(error: unknown): boolean {

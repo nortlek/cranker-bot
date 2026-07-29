@@ -1,4 +1,5 @@
 import {
+  BaseError,
   createPublicClient,
   formatEther,
   getAddress,
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
       : privateKeyToAccount(config.privateKey);
   const client = createPublicClient({
     chain: mainnet,
-    transport: http(config.rpcUrl, {
+    transport: http(config.discoveryRpcUrl, {
       retryCount: 3,
       retryDelay: 500,
       timeout: 30_000,
@@ -144,13 +145,27 @@ async function main(): Promise<void> {
           netEthEquivalent:
             candidate.rewardEthEquivalent - gas * fees.maxFeePerGas,
         };
-      } catch {
-        return undefined;
+      } catch (error) {
+        return {
+          failed: true as const,
+          ...candidate,
+          reason:
+            error instanceof BaseError
+              ? error.shortMessage
+              : error instanceof Error
+                ? error.message
+                : String(error),
+        };
       }
     },
   );
   const viable = estimates
-    .filter((value): value is NonNullable<typeof value> => value !== undefined)
+    .filter(
+      (
+        value,
+      ): value is Extract<typeof value, { readonly gas: bigint }> =>
+        "gas" in value,
+    )
     .sort((left, right) =>
       left.netEthEquivalent === right.netEthEquivalent
         ? left.pid - right.pid
@@ -158,6 +173,67 @@ async function main(): Promise<void> {
           ? -1
           : 1,
     );
+  const estimated = estimates.filter(
+    (
+      value,
+    ): value is Extract<typeof value, { readonly gas: bigint }> =>
+      "gas" in value,
+  );
+  const minimumEstimatedGas = estimated.reduce<bigint | undefined>(
+    (minimum, candidate) =>
+      minimum === undefined || candidate.gas < minimum
+        ? candidate.gas
+        : minimum,
+    undefined,
+  );
+  const maximumRewardEthEquivalent = candidates.reduce<bigint>(
+    (maximum, candidate) =>
+      candidate.rewardEthEquivalent > maximum
+        ? candidate.rewardEthEquivalent
+        : maximum,
+    0n,
+  );
+  const failuresByPid = new Map(
+    estimates.flatMap((value) =>
+      "failed" in value
+        ? [[value.pid, value.reason] as const]
+        : [],
+    ),
+  );
+  const rankedClaimableCandidates = [...candidates]
+    .sort((left, right) =>
+      left.pendingCrv === right.pendingCrv
+        ? left.pid - right.pid
+        : left.pendingCrv > right.pendingCrv
+          ? -1
+          : 1,
+    );
+  const topClaimableCandidates =
+    rankedClaimableCandidates.slice(0, 32);
+  let snapshotEstimateAttempts = 0;
+  let snapshotCrvChangeExcluded = 0;
+  const snapshotRetained: typeof candidates = [];
+  for (
+    let offset = 0;
+    offset < rankedClaimableCandidates.length &&
+    snapshotRetained.length < 32;
+    offset += 32
+  ) {
+    const batch = rankedClaimableCandidates.slice(
+      offset,
+      offset + 32,
+    );
+    snapshotEstimateAttempts += batch.length;
+    for (const candidate of batch) {
+      if (
+        failuresByPid.get(candidate.pid)?.includes("crvChange")
+      ) {
+        snapshotCrvChangeExcluded += 1;
+      } else {
+        snapshotRetained.push(candidate);
+      }
+    }
+  }
 
   console.log(
     JSON.stringify({
@@ -173,6 +249,71 @@ async function main(): Promise<void> {
       estimatedMaxFeeGwei: formatEther(
         fees.maxFeePerGas * 10n ** 9n,
       ),
+      minimumEstimatedGas:
+        minimumEstimatedGas?.toString() ?? "",
+      maximumRewardEthEquivalent: formatEther(
+        maximumRewardEthEquivalent,
+      ),
+      topClaimableCandidates: topClaimableCandidates.length,
+      topClaimableCrvChangeExcluded:
+        topClaimableCandidates.filter((candidate) =>
+          failuresByPid.get(candidate.pid)?.includes("crvChange"),
+        ).length,
+      topClaimableRetained:
+        topClaimableCandidates.filter(
+          (candidate) =>
+            !failuresByPid
+              .get(candidate.pid)
+              ?.includes("crvChange"),
+        ).length,
+      executableSnapshotEstimateAttempts:
+        snapshotEstimateAttempts,
+      executableSnapshotCrvChangeExcluded:
+        snapshotCrvChangeExcluded,
+      executableSnapshotRetained:
+        snapshotRetained.slice(0, 32).length,
+      executableSnapshotAboveMinimumGasFloor:
+        snapshotRetained.slice(0, 32).filter(
+          (candidate) =>
+            candidate.rewardEthEquivalent >
+            400_000n * fees.maxFeePerGas,
+        ).length,
+      cachedRewardThresholdCounts: [400_000n, 500_000n, 600_000n].map(
+        (gasFloor) => ({
+          gasFloor: gasFloor.toString(),
+          candidates: candidates.filter(
+            (candidate) =>
+              candidate.rewardEthEquivalent >
+              gasFloor * fees.maxFeePerGas,
+          ).length,
+        }),
+      ),
+      highestRewardFailures: estimates
+        .filter(
+          (
+            value,
+          ): value is Extract<
+            typeof value,
+            { readonly failed: true }
+          > => "failed" in value,
+        )
+        .sort((left, right) =>
+          left.rewardEthEquivalent === right.rewardEthEquivalent
+            ? left.pid - right.pid
+            : left.rewardEthEquivalent >
+                right.rewardEthEquivalent
+              ? -1
+              : 1,
+        )
+        .slice(0, 10)
+        .map((candidate) => ({
+          pid: candidate.pid,
+          callerCrv: formatEther(candidate.callerCrv),
+          rewardEthEquivalent: formatEther(
+            candidate.rewardEthEquivalent,
+          ),
+          reason: candidate.reason,
+        })),
       profitable: viable
         .filter((candidate) => candidate.netEthEquivalent > 0n)
         .slice(0, 20)

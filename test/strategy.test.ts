@@ -1,7 +1,10 @@
 import {
   BlockNotFoundError,
+  ContractFunctionRevertedError,
+  encodeErrorResult,
   InvalidInputRpcError,
   InvalidParamsRpcError,
+  parseAbi,
   RpcRequestError,
 } from "viem";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +13,7 @@ import {
   exactSimulationPlanIsAdmissible,
   fwaProcessJob,
   highestPositiveClaimableIndexes,
+  isConvexCrvChangeRevert,
   isFreshBlockReadUnavailable,
   isFreshBlockStateUnavailable,
   estimatedJobReward,
@@ -406,6 +410,37 @@ describe("highestPositiveClaimableIndexes", () => {
   it("rejects invalid cache sizes", () => {
     expect(() => highestPositiveClaimableIndexes([1n], 0)).toThrow(
       "must be positive",
+    );
+  });
+});
+
+describe("isConvexCrvChangeRevert", () => {
+  const abi = parseAbi([
+    "function earmarkRewards(uint256) returns(bool)",
+    "error Error(string)",
+  ]);
+
+  function revertWith(reason: string): ContractFunctionRevertedError {
+    return new ContractFunctionRevertedError({
+      abi,
+      data: encodeErrorResult({
+        abi,
+        errorName: "Error",
+        args: [reason],
+      }),
+      functionName: "earmarkRewards",
+    });
+  }
+
+  it("classifies only the exact structural stash invariant", () => {
+    expect(isConvexCrvChangeRevert(revertWith("crvChange"))).toBe(
+      true,
+    );
+    expect(isConvexCrvChangeRevert(revertWith("pool is closed"))).toBe(
+      false,
+    );
+    expect(isConvexCrvChangeRevert(new Error("crvChange"))).toBe(
+      false,
     );
   });
 });

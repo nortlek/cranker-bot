@@ -18,10 +18,16 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 16:09 America/Denver, the
-verified snapshot was **$164.53681989 net**, or **65.81%** of the goal, with
-`latest == pending == 532` and net ETH equivalent of
-`0.086295005374831518`. Round 302's complete ready chain at nonces 529–531
+2026-07-30 23:59 America/Denver**. At 2026-07-29 16:45 America/Denver, the
+verified snapshot was **$166.77496102 net**, or **66.70%** of the goal, with
+`latest == pending == 546` and net ETH equivalent of
+`0.087468848411609806`. Since the nonce-532 snapshot, an eight-order batch,
+a three-order batch, and round 303's complete ready chain increased the wallet
+by exactly `0.001173843036778288 ETH`. The batches retained
+`0.000442084780285520 ETH` and `0.000001557720137532 ETH`; round 303's
+`processAcquisitions(7) -> syncFwaResult -> settle` chain retained
+`0.000730200536355236 ETH` after `0.000429297019862508 ETH` of total gas.
+Round 302's complete ready chain at nonces 529–531
 retained `0.000469645281310683 ETH` after `0.000724749017084498 ETH` of
 total gas. The immediately preceding standing order at nonce 528 retained
 `0.000004191409059895 ETH`. The four receipts at nonces 524–527 increased the
@@ -661,6 +667,26 @@ change invalidates only the snapshot that was actually used and skips the lane
 fail-closed; cached rewards, prices, gas, and calldata remain prohibited. This
 removes one sequential RPC phase without reducing the 32-pool candidate set or
 changing Convex economics.
+
+That first live concurrency change alone did not materially move the
+distribution: the first two warm samples remained `0.97–1.05 seconds`.
+Expanded read-only inspection found the actual cause. All 32
+highest-claimable gauges reverted exact `earmarkRewards(pid)` estimation with
+the literal `crvChange` reason from Convex's canonical ExtraRewardStashV3
+invariant. Those structurally reverting gauges both consumed repeated hot-path
+estimates and starved executable lower-ranked gauges from the fixed 32-slot
+cache. The discovery refresh now ranks every positive claimable, checks
+candidates in bounded 32-pool batches on the separate discovery RPC, excludes
+only a typed contract revert whose exact reason is `crvChange`, and continues
+until it has 32 non-excluded candidates or exhausts the list. Every retained
+candidate still receives exact-head claimable, incentive, price, gas,
+profitability, and final bundle simulation checks. Any other revert or RPC
+failure remains in the shortlist and therefore fails closed on the
+authoritative hot path. The current read-only reconstruction needed 128
+snapshot estimates, excluded 86 `crvChange` pools, retained 32, and found none
+of those 32 above even the conservative 400,000-gas reward floor. The inspector
+also now routes its bulk scan through `DISCOVERY_RPC_URL`, not the
+latency-sensitive production RPC.
 
 The first live WebSocket window also exposed cross-provider publication skew:
 three subscribed heads reached Alchemy before the public HTTP endpoint could
