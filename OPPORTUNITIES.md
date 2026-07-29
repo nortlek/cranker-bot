@@ -189,6 +189,40 @@ exact input/reward fields, DOLA balance delta, and gas cost. Keep this default
 off until the higher-value FWA streak ends; it is a useful background lane,
 not a material path to the active goal.
 
+### P2 — Aladdin permissionless harvest monitoring
+
+Status: one recurring lane identified, but raw execution is unsafe; the other
+reviewed lanes are access-gated or pay no caller bounty.
+
+The Concentrator Harvester diamond at
+`0xfa86aa141e45da5183B42792d99Dede3D26Ec515` requires `2,500 veCTR` locked
+for at least one year. The keeper is not authorized, and obtaining the lock
+would have cost about `0.1244 WETH` at validation time, so this path is outside
+the capital-free and approval boundary. CLever USD harvests are permissionless,
+but all four deployed contracts had `bountyPercentage == 0`, making them
+economically useless to an external caller.
+
+A permissionless Aladdin Concentrator sdCRV Stake DAO Gauge Wrapper harvest
+remains worth monitoring:
+
+- contract `0x09B0E3A114135F528F762DB8363b4f5eae3F3bF1`
+- canonical deployment and source are
+  [Aladdin's pinned mainnet manifest](https://github.com/AladdinDAO/aladdin-v3-contracts/blob/b8d232ba31abd2c815f5662e0bd99d26e09dd79a/deployments/mainnet/Concentrator.StakeDAO.json)
+  and
+  [`ConcentratorSdCrvGaugeWrapper.sol`](https://github.com/AladdinDAO/aladdin-v3-contracts/blob/b8d232ba31abd2c815f5662e0bd99d26e09dd79a/contracts/concentrator/stakedao/sdcrv/ConcentratorSdCrvGaugeWrapper.sol)
+- function `harvest(address receiver)`
+- caller reward is 0.5% of active rewards, observed as CRV and crvUSD
+- the validation snapshot offered only about `$0.00729` against roughly
+  `$0.03986` of gas, so it was not executable
+- 139 harvests in the preceding 50,000 blocks paid about `$13.85` of aggregate
+  caller bounty over roughly 6.95 days; one helper won 98 of the latest 100
+
+The call has no minimum-bounty argument. If a competitor harvests first, a
+stale raw EOA call can still succeed for zero reward and burn gas. Do not add
+raw execution. A future implementation needs a reviewed atomic balance-delta
+guard that reverts on inadequate received tokens, or an equivalent protocol
+primitive, before private submission can be considered safe.
+
 ### P2 — Read-only operations dashboard
 
 Status: design outlined; not implemented.
