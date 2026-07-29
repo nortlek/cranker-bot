@@ -9,15 +9,15 @@ Last updated: 2026-07-28 (America/Denver)
 
 ## Current objective and snapshot
 
-Objective: reach at least $50 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver, measured from the original baseline and fully
-net of gas, builder payments, and other fees. The initial $10 goal was achieved
+The $50 cumulative verified net realized-profit goal was achieved before its
+2026-07-30 23:59 America/Denver deadline. The 2026-07-28 America/Denver closing
+snapshot was **$51.29412534 net**, or **102.58%** of the goal, with
+`latest == pending == 206` and net ETH equivalent of
+`0.026953131931682566`. This was measured from the original baseline and fully
+net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
-The last verified snapshot was approximately **$21.14 net**, or **42.3%** of
-the active goal, with `latest == pending == 163` and net ETH equivalent of
-approximately `0.01116625`. This is stale immediately after any transaction.
-Re-run:
+Any recorded snapshot is stale immediately after a transaction. Re-run:
 
 ```bash
 npx tsx scripts/goal-status.ts
@@ -288,6 +288,28 @@ Historical ready chains appeared near 859–995 bps; fulfilled sync/settle work
 appeared near 248 bps, while public calls were roughly 256–432 bps. Current
 production policy is intentionally separate per lifecycle. Reconstruct complete
 winning sequences before drawing a fresh conclusion from one transaction.
+
+Round 191 exposed a cross-round fast-path gap. At head block `25636285`, the
+round-191 acquisition was `ready`, round 192 was open, and standing order
+`0x8BD89DFe160925f28db6202C20F8e9401e0dd47F` exactly simulated for one
+ticket and a `0.0005 ETH` fee. The keeper returned its three-job lifecycle
+plan before funding discovery. In target block `25636286`, a competitor
+cranked that order at transaction index 97 and paid the Titan beneficiary
+`0.000474888539024186 ETH` (94.98% of the fee). Our included contiguous
+`processAcquisitions(1) -> syncFwaResult(191) -> settle(191)` transactions
+followed at indexes 107–109. Another competitor pulled round 192 in block
+`25636287`, earning the `0.0015 ETH` pull bounty and paying
+`0.000295503424785014 ETH` directly to the beneficiary.
+
+No searcher atomically combined lifecycle, funding crank, and pull in one
+sequence across rounds 188–195, but rounds 188–191 repeatedly settled one
+block before the already-covered next round was pulled. The keeper therefore
+preserves immediate lifecycle planning while concurrently revalidating a
+bounded high-fee order cache at the same head. A result available within 75 ms
+extends the existing prefix ladder with exact funding cranks and a covered
+pull; slow, stale, unavailable, or uncovered discovery falls back to the
+unchanged lifecycle-only prefixes. Lifecycle, standing-order, and pull bids
+remain reward-weighted under their existing independent policies.
 
 ### FWAToken buyback
 

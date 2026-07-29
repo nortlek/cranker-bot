@@ -73,9 +73,11 @@ import {
   acquisitionStatusName,
   buybackCallerReward,
   estimatePoolBounty,
+  lifecycleFundingSuperset,
   liveBidSweepRewardFromSimulation,
   routeRoundIds,
   selectOrdersForCoverage,
+  type LifecycleFundingSuffix,
   type PoolBountyTerms,
 } from "./lifecycle.js";
 import type { PrivateBatchOutcome } from "./keeper.js";
@@ -214,6 +216,9 @@ interface PlannedJobs {
 }
 
 let lastKnownOrderCount = 0;
+let cachedOrderCandidates: readonly OrderCandidate[] = [];
+const LIFECYCLE_FUNDING_CANDIDATE_LIMIT = 12;
+const LIFECYCLE_FUNDING_WAIT_MS = 75;
 
 interface SubmittedJob {
   readonly request: KeeperTransactionRequest;
@@ -273,12 +278,14 @@ async function getRoundSnapshot(
   client: PublicClient<Transport, Chain>,
   pool: Address,
   roundId: bigint,
+  blockNumber?: bigint,
 ): Promise<PoolRoundSnapshot> {
   const round = await client.readContract({
     address: pool,
     abi: poolAbi,
     functionName: "getRound",
     args: [roundId],
+    ...(blockNumber === undefined ? {} : { blockNumber }),
   });
   return {
     crankBountyCap: round.crankBountyCap,
@@ -357,11 +364,54 @@ async function getOrderCandidates(
       });
     }
   }
-  return candidates.sort((a, b) => {
+  const sorted = candidates.sort((a, b) => {
     if (a.crankFee === b.crankFee) {
       return a.address.localeCompare(b.address);
     }
     return a.crankFee > b.crankFee ? -1 : 1;
+  });
+  cachedOrderCandidates = sorted;
+  return sorted;
+}
+
+async function refreshCachedOrderCandidates(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly candidates: readonly OrderCandidate[];
+  readonly blockNumber: bigint;
+}): Promise<readonly OrderCandidate[]> {
+  if (parameters.candidates.length === 0) return [];
+  const [feeResults, ticketResults] = await Promise.all([
+    parameters.client.multicall({
+      allowFailure: true,
+      blockNumber: parameters.blockNumber,
+      contracts: parameters.candidates.map((candidate) => ({
+        address: candidate.address,
+        abi: standingOrderAbi,
+        functionName: "crankFee" as const,
+      })),
+    }),
+    parameters.client.multicall({
+      allowFailure: true,
+      blockNumber: parameters.blockNumber,
+      contracts: parameters.candidates.map((candidate) => ({
+        address: candidate.address,
+        abi: standingOrderAbi,
+        functionName: "ticketsPerRound" as const,
+      })),
+    }),
+  ]);
+  return parameters.candidates.flatMap((candidate, index) => {
+    const fee = feeResults[index];
+    const tickets = ticketResults[index];
+    return fee?.status === "success" && tickets?.status === "success"
+      ? [
+          {
+            address: candidate.address,
+            crankFee: fee.result,
+            ticketsPerRound: BigInt(tickets.result),
+          },
+        ]
+      : [];
   });
 }
 
@@ -372,6 +422,7 @@ async function getEligibleOrders(parameters: {
   readonly config: KeeperConfig;
   readonly maxFeePerGas: bigint;
   readonly skipped: Map<string, number>;
+  readonly blockNumber?: bigint;
 }): Promise<EligibleOrder[]> {
   const evaluations = await mapConcurrent(
     parameters.candidates,
@@ -386,6 +437,9 @@ async function getEligibleOrders(parameters: {
           address: candidate.address,
           abi: standingOrderAbi,
           functionName: "crank",
+          ...(parameters.blockNumber === undefined
+            ? {}
+            : { blockNumber: parameters.blockNumber }),
         });
         return { candidate, gas };
       } catch (error) {
@@ -539,6 +593,9 @@ async function planPrimaryJobs(parameters: {
   readonly maxFeePerGas: bigint;
   readonly bountyBaseFeePerGas: bigint;
   readonly skipped: Map<string, number>;
+  readonly blockNumber?: bigint;
+  readonly jobLimit?: number;
+  readonly allowBlockedPull?: boolean;
 }): Promise<{
   readonly jobs: KeeperJob[];
   readonly minimumViablePrefix: number;
@@ -555,7 +612,11 @@ async function planPrimaryJobs(parameters: {
     bountyBaseFeePerGas,
     skipped,
   } = parameters;
-  const limit = maxJobs(config);
+  const configuredLimit = maxJobs(config);
+  const limit =
+    parameters.jobLimit === undefined
+      ? configuredLimit
+      : Math.min(configuredLimit, parameters.jobLimit);
   if (limit === 0) return { jobs: [], minimumViablePrefix: 0 };
 
   const round = parameters.round;
@@ -838,8 +899,26 @@ async function planPrimaryJobs(parameters: {
       abi: poolAbi,
       functionName: "ticketsNeeded",
       args: [roundCount],
+      ...(parameters.blockNumber === undefined
+        ? {}
+        : { blockNumber: parameters.blockNumber }),
     });
     if (needed === 0n) {
+      if (parameters.allowBlockedPull) {
+        return {
+          jobs: [
+            poolJob({
+              kind: "pool_pull",
+              pool,
+              roundId: roundCount,
+              gas: config.poolPullGasLimit,
+              terms,
+              bidPolicy: "pool_pull",
+            }),
+          ],
+          minimumViablePrefix: 1,
+        };
+      }
       try {
         const gas = await estimatePoolCall({
           client,
@@ -878,6 +957,9 @@ async function planPrimaryJobs(parameters: {
       config,
       maxFeePerGas,
       skipped,
+      ...(parameters.blockNumber === undefined
+        ? {}
+        : { blockNumber: parameters.blockNumber }),
     });
     if (config.submissionMode === "flashbots" && limit >= 2) {
       const selected = selectOrdersForCoverage({
@@ -960,6 +1042,9 @@ async function planPrimaryJobs(parameters: {
     config,
     maxFeePerGas,
     skipped,
+    ...(parameters.blockNumber === undefined
+      ? {}
+      : { blockNumber: parameters.blockNumber }),
   });
   return {
     jobs: eligible
@@ -2340,6 +2425,64 @@ export async function planFirmReplenishment(parameters: {
   }
 }
 
+async function planLifecycleFundingSuffix(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly config: KeeperConfig;
+  readonly pool: Address;
+  readonly fwa: Address;
+  readonly fundingRoundId: bigint;
+  readonly fundingRound: Promise<PoolRoundSnapshot | undefined>;
+  readonly headBlockNumber: bigint;
+  readonly maxFeePerGas: bigint;
+  readonly bountyBaseFeePerGas: bigint;
+  readonly skipped: Map<string, number>;
+}): Promise<LifecycleFundingSuffix<KeeperJob> | undefined> {
+  // Ready lifecycle uses three transactions. Reserving all three keeps the
+  // suffix within the configured batch cap before the lifecycle plan resolves.
+  const availableJobs = maxJobs(parameters.config) - 3;
+  if (availableJobs < 1) return undefined;
+  const fundingRound = await parameters.fundingRound;
+  if (
+    fundingRound === undefined ||
+    fundingRound.state !== ROUND_STATE.open
+  ) {
+    return undefined;
+  }
+  const cached = cachedOrderCandidates.slice(
+    0,
+    LIFECYCLE_FUNDING_CANDIDATE_LIMIT,
+  );
+  const candidates = await refreshCachedOrderCandidates({
+    client: parameters.client,
+    candidates: cached,
+    blockNumber: parameters.headBlockNumber,
+  });
+  const plan = await planPrimaryJobs({
+    client: parameters.client,
+    account: parameters.account,
+    config: parameters.config,
+    pool: parameters.pool,
+    fwa: parameters.fwa,
+    candidates,
+    roundCount: parameters.fundingRoundId,
+    round: fundingRound,
+    maxFeePerGas: parameters.maxFeePerGas,
+    bountyBaseFeePerGas: parameters.bountyBaseFeePerGas,
+    skipped: parameters.skipped,
+    blockNumber: parameters.headBlockNumber,
+    jobLimit: availableJobs,
+    allowBlockedPull: true,
+  });
+  return {
+    source: "cache",
+    headBlockNumber: parameters.headBlockNumber,
+    fundingRoundId: parameters.fundingRoundId,
+    coverageSatisfied: plan.jobs.at(-1)?.kind === "pool_pull",
+    jobs: plan.jobs,
+  };
+}
+
 async function planJobs(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly discoveryClient: PublicClient<Transport, Chain>;
@@ -2384,6 +2527,16 @@ async function planJobs(parameters: {
     );
   }
   const routing = routeRoundIds({ roundCount, ethPendingRound });
+  const fundingRoundPromise =
+    routing.fundingRoundId === undefined ||
+    routing.fundingRoundId === routing.lifecycleRoundId
+      ? Promise.resolve(undefined)
+      : getRoundSnapshot(
+          parameters.client,
+          parameters.config.expectedPoolAddress,
+          routing.fundingRoundId,
+          parameters.headBlockNumber,
+        );
   const plannerBase = {
     client: parameters.client,
     account: parameters.account,
@@ -2394,6 +2547,30 @@ async function planJobs(parameters: {
     bountyBaseFeePerGas: parameters.bountyBaseFeePerGas,
     skipped,
   } as const;
+  const lifecycleFundingSkipped = new Map<string, number>();
+  const lifecycleFundingPromise =
+    routing.fundingRoundId === undefined ||
+    routing.lifecycleRoundId === undefined ||
+    routing.fundingRoundId === routing.lifecycleRoundId
+      ? undefined
+      : planLifecycleFundingSuffix({
+          client: parameters.client,
+          account: parameters.account,
+          config: parameters.config,
+          pool: parameters.config.expectedPoolAddress,
+          fwa: getAddress(fwa),
+          fundingRoundId: routing.fundingRoundId,
+          fundingRound: fundingRoundPromise,
+          headBlockNumber: parameters.headBlockNumber,
+          maxFeePerGas: parameters.maxFeePerGas,
+          bountyBaseFeePerGas: parameters.bountyBaseFeePerGas,
+          skipped: lifecycleFundingSkipped,
+        }).catch((error: unknown) => {
+          log("debug", "lifecycle_funding_enrichment_failed", {
+            reason: errorMessage(error),
+          });
+          return undefined;
+        });
 
   const primaryProfit = (
     plan: Awaited<ReturnType<typeof planPrimaryJobs>>,
@@ -2438,15 +2615,38 @@ async function planJobs(parameters: {
       lifecyclePrimary.jobs.length > 0 &&
       profit >= requiredProfit(parameters.config.minProfitWei)
     ) {
+      const enriched =
+        routing.fundingRoundId === undefined
+          ? {
+              jobs: lifecyclePrimary.jobs,
+              minimumViablePrefix:
+                lifecyclePrimary.minimumViablePrefix,
+              enriched: false,
+              reason: "funding_unavailable" as const,
+            }
+          : await lifecycleFundingSuperset({
+              lifecycleJobs: lifecyclePrimary.jobs,
+              lifecycleMinimumViablePrefix:
+                lifecyclePrimary.minimumViablePrefix,
+              headBlockNumber: parameters.headBlockNumber,
+              fundingRoundId: routing.fundingRoundId,
+              funding: lifecycleFundingPromise,
+              timeoutMs: LIFECYCLE_FUNDING_WAIT_MS,
+            });
       log("debug", "lifecycle_fast_path_selected", {
         round: routing.lifecycleRoundId.toString(),
-        jobs: lifecyclePrimary.jobs.length,
+        jobs: enriched.jobs.length,
+        baseJobs: lifecyclePrimary.jobs.length,
+        fundingEnriched: enriched.enriched,
+        ...(enriched.reason === undefined
+          ? {}
+          : { fundingFallback: enriched.reason }),
         estimatedProfit: eth(profit),
       });
       return {
-        jobs: lifecyclePrimary.jobs,
+        jobs: enriched.jobs,
         minimumViablePrefix:
-          lifecyclePrimary.minimumViablePrefix,
+          enriched.minimumViablePrefix,
         orders: lastKnownOrderCount,
         skipped,
       };
@@ -2460,15 +2660,6 @@ async function planJobs(parameters: {
       ? parameters.config.vaultFactoryAddress
       : undefined,
   );
-  const fundingRoundPromise =
-    routing.fundingRoundId === undefined ||
-    routing.fundingRoundId === routing.lifecycleRoundId
-      ? Promise.resolve(undefined)
-      : getRoundSnapshot(
-          parameters.client,
-          parameters.config.expectedPoolAddress,
-          routing.fundingRoundId,
-        );
   const liquityPromise = planLiquityLiquidation({
     client: parameters.client,
     account: parameters.account,

@@ -73,41 +73,45 @@ cost.
 
 Each new block, the keeper:
 
-1. Reads the standing-order factory's `allOrders()` and the compatible vault
-   factory's `allVaults()` registries.
-2. Reads each subscription's fee and ticket count in multicalls, then simulates
-   every currently callable order or vault.
-3. Runs `eth_estimateGas` for `crank()` from the keeper account. Typed contract
-   reverts are treated as ineligible orders.
-4. Reads `roundCount` for the newest funding round and `ethPendingRound` for
+1. Reads `roundCount` for the newest funding round and `ethPendingRound` for
    the independently resolving acquisition. It prioritizes
    `syncFwaResult → settle` for fulfilled acquisitions. When the acquisition is
    ready and is next in FWA's sequence, it builds
    `processAcquisitions(1) → syncFwaResult → settle` instead. Direct
    `settle`/`settleForcedEth` remains available for claimable rounds.
-5. If the round is short of tickets, finds the least net-cost set of callable
+2. While planning that lifecycle prefix, revalidates a bounded cache of the
+   highest-fee standing orders against the same head block. It waits at most
+   75 ms after the base lifecycle plan is ready, then either appends an exact
+   `crank(s) → pull(nextRound)` suffix or submits the unchanged lifecycle
+   prefixes. Slow, stale, uncovered, or unavailable funding discovery is
+   fail-open only to the already-safe lifecycle plan.
+3. Outside that fast path, reads the standing-order and compatible vault
+   registries, refreshes the candidate cache, and exact-estimates every
+   currently callable `crank()` from the keeper account. Typed contract
+   reverts are treated as ineligible orders.
+4. If the round is short of tickets, finds the least net-cost set of callable
    standing orders that covers the shortfall and appends `pull`. This allows a
    low- or zero-fee order only when the paid pull makes the complete sequence
    profitable.
-6. Scans Liquity V2's official WETH, wstETH, and rETH branches for active or
+5. Scans Liquity V2's official WETH, wstETH, and rETH branches for active or
    zombie troves below their branch MCR. It exact-simulates
    `batchLiquidateTroves`, budgets only the guaranteed 0.0375 WETH compensation
    per trove, and ignores variable collateral compensation when deciding
    profitability.
-7. Compares the conservative net value of the PullPool/order plan, Liquity
+6. Compares the conservative net value of the PullPool/order plan, Liquity
    liquidation, Convex `earmarkRewards`, Stake DAO Curve harvest, FiRM forced
    replenishment, FWAToken `buyback()`, and LiveBidAdapter `sweep()`, then
    selects the best currently executable plan.
-8. In live mode, reads the account's `latest` and `pending` transaction counts
+7. In live mode, reads the account's `latest` and `pending` transaction counts
    and assigns an explicit contiguous nonce range.
-9. Signs the generic call sequence locally, simulates it in nonce order, and
+8. Signs the generic call sequence locally, simulates it in nonce order, and
    prices its combined rewards against combined gas. Pool bounties use the
    round's snapshotted cap/tip and a configurable reimbursement haircut.
-10. Submits only economically safe contiguous prefixes as private Flashbots
+9. Submits only economically safe contiguous prefixes as private Flashbots
    bundles for the next block. A cross-subsidized `orders → pull` sequence has
    a full-length dependency floor, so no subsidized crank is ever offered
    alone.
-11. Records each relay-accepted bundle hash, target, and prefix length, then
+10. Records each relay-accepted bundle hash, target, and prefix length, then
    watches the target block and reports inclusion and realized profit. For
    missed orders it measures both priority fees and direct block-beneficiary
    payments made by the winning crank transaction, then updates that order's
@@ -388,6 +392,15 @@ unpaid processor alone: the minimum dependency prefix is
 include `settle` if necessary. No losing transaction leaks into the public
 mempool. Public mode deliberately disables cross-subsidized coverage and sends
 only the first currently estimable paid step of a state transition.
+
+When an older acquisition and a newer funding round coexist, the lifecycle
+prefix may be extended as
+`process → sync → settle(previous) → exact crank(s) → pull(current)`.
+The prefix ladder still offers the unchanged lifecycle-safe prefixes alongside
+the longer same-nonce alternatives. `pull(current)` is never offered unless
+the preceding lifecycle settles and the exact crank prefix supplies sufficient
+coverage. Each job retains its own bid policy, so the relay prices the bundle
+with the existing reward-weighted lifecycle, order, and pull bids.
 
 ### Profit controls
 

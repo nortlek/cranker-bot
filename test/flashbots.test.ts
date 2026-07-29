@@ -191,4 +191,48 @@ describe("submitBundlePrefixLadder", () => {
 
     expect(calls).toEqual([3]);
   });
+
+  it("submits lifecycle-safe prefixes and same-nonce funding supersets together", async () => {
+    const recorded: string[][] = [];
+    const relay = {
+      url: "https://relay.example",
+      sendBundle: async (transactions: readonly string[]) => {
+        recorded.push([...transactions]);
+        return {
+          bundleHash: `0x${transactions.length
+            .toString(16)
+            .padStart(64, "0")}`,
+          smart: true,
+        };
+      },
+    } as unknown as FlashbotsRelay;
+    const transactions = [
+      "0x01", // process
+      "0x02", // sync: base dependency floor
+      "0x03", // settle
+      "0x04", // funding crank
+      "0x05", // covered pull
+    ] as const;
+
+    await submitBundlePrefixLadder(
+      [relay],
+      transactions,
+      42n,
+      ["flashbots"],
+      2,
+    );
+
+    expect(recorded).toEqual([
+      transactions.slice(0, 2),
+      transactions.slice(0, 3),
+      transactions.slice(0, 4),
+      transactions.slice(0, 5),
+    ]);
+    expect(recorded.every((bundle) => bundle[0] === "0x01")).toBe(
+      true,
+    );
+    expect(recorded.every((bundle) => bundle[1] === "0x02")).toBe(
+      true,
+    );
+  });
 });

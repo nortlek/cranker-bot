@@ -57,6 +57,121 @@ export interface RoundRouting {
   readonly lifecycleRoundId?: bigint;
 }
 
+export interface LifecycleFundingJob {
+  readonly kind: string;
+  readonly roundId?: bigint;
+}
+
+export interface LifecycleFundingSuffix<TJob extends LifecycleFundingJob> {
+  readonly source: "cache";
+  readonly headBlockNumber: bigint;
+  readonly fundingRoundId: bigint;
+  readonly coverageSatisfied: boolean;
+  readonly jobs: readonly TJob[];
+}
+
+export interface LifecycleFundingSuperset<TJob extends LifecycleFundingJob> {
+  readonly jobs: readonly TJob[];
+  readonly minimumViablePrefix: number;
+  readonly enriched: boolean;
+  readonly reason?:
+    | "lifecycle_settle_missing"
+    | "funding_unavailable"
+    | "funding_stale"
+    | "funding_suffix_invalid"
+    | "funding_empty";
+}
+
+/**
+ * Adds a timeout-bounded funding suffix without changing the lifecycle-safe
+ * prefix. The suffix is deliberately narrow: exactly simulated order cranks
+ * followed by, at most, one covered pull for the current funding round.
+ */
+export async function lifecycleFundingSuperset<
+  TJob extends LifecycleFundingJob,
+>(parameters: {
+  readonly lifecycleJobs: readonly TJob[];
+  readonly lifecycleMinimumViablePrefix: number;
+  readonly headBlockNumber: bigint;
+  readonly fundingRoundId: bigint;
+  readonly funding:
+    | Promise<LifecycleFundingSuffix<TJob> | undefined>
+    | undefined;
+  readonly timeoutMs: number;
+}): Promise<LifecycleFundingSuperset<TJob>> {
+  const fallback = (
+    reason: NonNullable<LifecycleFundingSuperset<TJob>["reason"]>,
+  ): LifecycleFundingSuperset<TJob> => ({
+    jobs: parameters.lifecycleJobs,
+    minimumViablePrefix: parameters.lifecycleMinimumViablePrefix,
+    enriched: false,
+    reason,
+  });
+  const finalLifecycleJob = parameters.lifecycleJobs.at(-1);
+  const settlesLifecycle =
+    finalLifecycleJob?.kind === "pool_settle" ||
+    finalLifecycleJob?.kind === "pool_settle_forced_eth";
+  if (!settlesLifecycle) {
+    return fallback("lifecycle_settle_missing");
+  }
+  if (parameters.funding === undefined || parameters.timeoutMs < 0) {
+    return fallback("funding_unavailable");
+  }
+
+  let timeout: number | undefined;
+  const timedOut = new Promise<undefined>((resolve) => {
+    timeout = setTimeout(resolve, parameters.timeoutMs);
+  });
+  let funding: LifecycleFundingSuffix<TJob> | undefined;
+  try {
+    funding = await Promise.race([
+      parameters.funding.catch(() => undefined),
+      timedOut,
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+  if (funding === undefined) {
+    return fallback("funding_unavailable");
+  }
+  if (
+    funding.headBlockNumber !== parameters.headBlockNumber ||
+    funding.fundingRoundId !== parameters.fundingRoundId
+  ) {
+    return fallback("funding_stale");
+  }
+
+  const cranks: TJob[] = [];
+  let pull: TJob | undefined;
+  for (let index = 0; index < funding.jobs.length; index += 1) {
+    const job = funding.jobs[index]!;
+    if (job.kind === "standing_order" && pull === undefined) {
+      cranks.push(job);
+      continue;
+    }
+    if (
+      job.kind === "pool_pull" &&
+      pull === undefined &&
+      index === funding.jobs.length - 1 &&
+      job.roundId === parameters.fundingRoundId
+    ) {
+      pull = job;
+      continue;
+    }
+    return fallback("funding_suffix_invalid");
+  }
+  const safePull = funding.coverageSatisfied ? pull : undefined;
+  const suffix = [...cranks, ...(safePull === undefined ? [] : [safePull])];
+  if (suffix.length === 0) {
+    return fallback("funding_empty");
+  }
+  return {
+    jobs: [...parameters.lifecycleJobs, ...suffix],
+    minimumViablePrefix: parameters.lifecycleMinimumViablePrefix,
+    enriched: true,
+  };
+}
+
 /**
  * PullPool may open and fund a newer round while one earlier acquisition is
  * still resolving. `roundCount` identifies the funding round, while

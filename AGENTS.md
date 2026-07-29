@@ -13,12 +13,13 @@ profitable after gas and builder payments.
 
 The initial goal of **$10 verified net realized profit by
 2026-07-29 23:59 America/Denver** was achieved at `$11.35632645` on
-2026-07-28 America/Denver. The active stretch goal is **$50 cumulative verified
-net realized profit by 2026-07-30 23:59 America/Denver**, measured from the
-same original baseline and fully net of gas, builder payments, and other fees.
-Continue to protect and reconcile realized profit; either goal is not
-permission to expand custody, approval, or contract risk. Never claim progress
-from a log estimate alone: reconcile wallet balances and successful receipts.
+2026-07-28 America/Denver. The subsequent **$50 cumulative verified net
+realized profit by 2026-07-30 23:59 America/Denver** stretch goal was achieved
+at `$51.29412534` on 2026-07-28 America/Denver, measured from the same original
+baseline and fully net of gas, builder payments, and other fees. Continue to
+protect and reconcile realized profit; either goal is not permission to expand
+custody, approval, or contract risk. Never claim progress from a log estimate
+alone: reconcile wallet balances and successful receipts.
 
 The production signer runs on Railway. Do not run a second live signer locally.
 Local runs must be `DRY_RUN=true`, preferably `RUN_ONCE=true`.

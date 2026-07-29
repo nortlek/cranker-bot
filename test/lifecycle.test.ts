@@ -6,6 +6,7 @@ import {
   acquisitionStatusName,
   buybackCallerReward,
   estimatePoolBounty,
+  lifecycleFundingSuperset,
   liveBidSweepRewardFromSimulation,
   quoteLiveBidSweep,
   routeRoundIds,
@@ -217,6 +218,156 @@ describe("routeRoundIds", () => {
         ethPendingRound: 0n,
       }),
     ).toEqual({ fundingRoundId: 140n });
+  });
+});
+
+describe("lifecycleFundingSuperset", () => {
+  interface TestJob {
+    readonly kind: string;
+    readonly roundId?: bigint;
+  }
+  const lifecycle: readonly TestJob[] = [
+    { kind: "fwa_process" },
+    { kind: "pool_sync", roundId: 191n },
+    { kind: "pool_settle", roundId: 191n },
+  ];
+  const crank: TestJob = { kind: "standing_order" };
+  const pull: TestJob = { kind: "pool_pull", roundId: 192n };
+
+  it("appends a cached covered funding suffix in exact dependency order", async () => {
+    const result = await lifecycleFundingSuperset({
+      lifecycleJobs: lifecycle,
+      lifecycleMinimumViablePrefix: 2,
+      headBlockNumber: 25_636_285n,
+      fundingRoundId: 192n,
+      funding: Promise.resolve({
+        source: "cache",
+        headBlockNumber: 25_636_285n,
+        fundingRoundId: 192n,
+        coverageSatisfied: true,
+        jobs: [crank, pull],
+      }),
+      timeoutMs: 10,
+    });
+
+    expect(result.enriched).toBe(true);
+    expect(result.minimumViablePrefix).toBe(2);
+    expect(result.jobs.map((job) => job.kind)).toEqual([
+      "fwa_process",
+      "pool_sync",
+      "pool_settle",
+      "standing_order",
+      "pool_pull",
+    ]);
+  });
+
+  it("falls back unchanged when funding is unavailable or slow", async () => {
+    const unavailable = await lifecycleFundingSuperset({
+      lifecycleJobs: lifecycle,
+      lifecycleMinimumViablePrefix: 2,
+      headBlockNumber: 100n,
+      fundingRoundId: 192n,
+      funding: undefined,
+      timeoutMs: 10,
+    });
+    const slow = await lifecycleFundingSuperset({
+      lifecycleJobs: lifecycle,
+      lifecycleMinimumViablePrefix: 2,
+      headBlockNumber: 100n,
+      fundingRoundId: 192n,
+      funding: new Promise<undefined>(() => {}),
+      timeoutMs: 1,
+    });
+
+    expect(unavailable).toMatchObject({
+      jobs: lifecycle,
+      minimumViablePrefix: 2,
+      enriched: false,
+      reason: "funding_unavailable",
+    });
+    expect(slow).toMatchObject({
+      jobs: lifecycle,
+      minimumViablePrefix: 2,
+      enriched: false,
+      reason: "funding_unavailable",
+    });
+  });
+
+  it("rejects a funding snapshot from a stale head block", async () => {
+    const result = await lifecycleFundingSuperset({
+      lifecycleJobs: lifecycle,
+      lifecycleMinimumViablePrefix: 2,
+      headBlockNumber: 101n,
+      fundingRoundId: 192n,
+      funding: Promise.resolve({
+        source: "cache",
+        headBlockNumber: 100n,
+        fundingRoundId: 192n,
+        coverageSatisfied: true,
+        jobs: [crank, pull],
+      }),
+      timeoutMs: 10,
+    });
+
+    expect(result).toMatchObject({
+      jobs: lifecycle,
+      minimumViablePrefix: 2,
+      enriched: false,
+      reason: "funding_stale",
+    });
+  });
+
+  it("never appends pull without sufficient funding coverage", async () => {
+    const result = await lifecycleFundingSuperset({
+      lifecycleJobs: lifecycle,
+      lifecycleMinimumViablePrefix: 2,
+      headBlockNumber: 100n,
+      fundingRoundId: 192n,
+      funding: Promise.resolve({
+        source: "cache",
+        headBlockNumber: 100n,
+        fundingRoundId: 192n,
+        coverageSatisfied: false,
+        jobs: [crank, pull],
+      }),
+      timeoutMs: 10,
+    });
+
+    expect(result.minimumViablePrefix).toBe(2);
+    expect(result.jobs.map((job) => job.kind)).toEqual([
+      "fwa_process",
+      "pool_sync",
+      "pool_settle",
+      "standing_order",
+    ]);
+  });
+
+  it("does not enrich a lifecycle prefix that cannot settle", async () => {
+    const base: readonly TestJob[] = [
+      { kind: "fwa_process" },
+      { kind: "pool_sync", roundId: 191n },
+    ];
+    const result = await lifecycleFundingSuperset({
+      lifecycleJobs: base,
+      lifecycleMinimumViablePrefix: 2,
+      headBlockNumber: 100n,
+      fundingRoundId: 192n,
+      funding: Promise.resolve({
+        source: "cache",
+        headBlockNumber: 100n,
+        fundingRoundId: 192n,
+        coverageSatisfied: true,
+        jobs: [crank, pull],
+      }),
+      timeoutMs: 10,
+    });
+
+    expect(result).toMatchObject({
+      jobs: base,
+      minimumViablePrefix: 2,
+      enriched: false,
+      reason: "lifecycle_settle_missing",
+    });
   });
 });
 
