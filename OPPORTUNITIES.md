@@ -210,8 +210,8 @@ minimum expected profit of `0.00069927 ETH` and a median of
 
 Status: gas cutoff deployed to production on 2026-07-29 in Railway deployment
 `907570f9-3c4c-4faf-9b50-7ace142d8fd8` from commit
-`f18cc0eb72b180275e78acb3f013d7f6c740e378`; wider queue discovery validated
-locally and pending deployment.
+`f18cc0eb72b180275e78acb3f013d7f6c740e378`; the wider queue discovery is live
+in deployment `85c8f552-c7f3-484c-a995-aeb5086811ef`.
 
 The ready-cycle planner previously rejected a directly estimated
 `processAcquisitions` call when its buffered gas exceeded `3,000,000`, before
