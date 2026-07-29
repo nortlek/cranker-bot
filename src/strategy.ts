@@ -3763,7 +3763,10 @@ export async function runKeeperPass(
     });
   }
 
-  if (privateTargetBlock !== undefined) {
+  if (
+    privateTargetBlock !== undefined &&
+    submitted.length > 0
+  ) {
     const deadline = Date.now() + context.config.receiptTimeoutMs;
     while (
       (await context.publicClient.getBlockNumber()) <

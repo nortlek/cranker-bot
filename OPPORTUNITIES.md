@@ -213,6 +213,16 @@ most ten 100 ms waits. It never changes the block or provider, and unrelated or
 persistent invalid-parameter failures still fail closed. Successful waits emit
 `planning_state_availability_waited` and planning attempt/wait fields.
 
+Live timing then exposed a separate zero-submission delay. At block
+`25639710`, the exact ready-chain simulation correctly rejected the bundle
+because its `0.001134976261628922 ETH` gross reward could not cover
+`2,459,456` gas at the current base fee even with no builder payment. The relay
+sender returned zero transaction hashes, but the strategy still waited for the
+nominal target block and stretched the no-submission pass to `14.24 seconds`.
+Private target-block receipt waiting is now conditional on at least one
+submitted transaction, so an economically rejected quote returns immediately
+and the next head remains available for replanning.
+
 Next actions, in order:
 
 1. Move Liquity discovery to a conservative near-MCR background watchlist,
