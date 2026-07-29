@@ -43,8 +43,11 @@ before reporting progress or deploying.
 
 ### P0 — Capture same-block standing-order funding backruns
 
-Status: implemented behind `ENABLE_PENDING_FUNDING_BACKRUNS`; pending
-production validation.
+Status: live in production deployment
+`dbfa8717-9a5c-4da7-8c26-167937754faf` with a 1000-bps lane-specific bid.
+The filtered 64-target subscription acknowledged before `keeper_started`;
+Railway/PostgreSQL show one open signer run and healthy WebSocket passes.
+Monitoring the first candidate, submission, and reconciled receipt.
 
 Block `25640168` exposed a confirmed-head blind spot. Transaction
 `0xdc83150b31e45d68157ed0083c2437f3834ee4054063c09fa44beba4408ed0a4`
@@ -81,10 +84,8 @@ the ordinary planner. A miss is measured only when the funding transaction
 landed and another transaction emitted `Cranked`; the observed competitor bid
 is logged without contaminating confirmed-head standing-order learning.
 
-Next acceptance criteria:
+Remaining acceptance criteria:
 
-- deploy with the feature enabled and verify one healthy signer lease plus a
-  live hash-only subscription
 - inspect every candidate rejection, exact simulation, relay result, and
   receipt from durable telemetry
 - reconcile the first included crank from its decoded `Cranked` fee and only
