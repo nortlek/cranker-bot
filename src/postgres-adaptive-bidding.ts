@@ -30,6 +30,7 @@ interface BidStateRow {
   readonly target_address: string;
   readonly current_bid_bps: number;
   readonly consecutive_full_wins: number;
+  readonly consecutive_contradicting_wins: number;
   readonly last_observed_winning_bid_bps: number | null;
   readonly last_observed_winning_block: string | null;
   readonly lowest_winning_bid_bps: number | null;
@@ -67,6 +68,7 @@ export class PostgresAdaptiveBidPersistence
           target_address,
           current_bid_bps,
           consecutive_full_wins,
+          consecutive_contradicting_wins,
           last_observed_winning_bid_bps,
           last_observed_winning_block,
           lowest_winning_bid_bps,
@@ -88,6 +90,12 @@ export class PostgresAdaptiveBidPersistence
             policy,
           ),
           consecutiveFullWins: row.consecutive_full_wins,
+          ...(row.consecutive_contradicting_wins <= 0
+            ? {}
+            : {
+                consecutiveContradictingWins:
+                  row.consecutive_contradicting_wins,
+              }),
           ...(row.last_observed_winning_bid_bps === null
             ? {}
             : {
@@ -156,6 +164,7 @@ export class PostgresAdaptiveBidPersistence
               target_address,
               current_bid_bps,
               consecutive_full_wins,
+              consecutive_contradicting_wins,
               last_observed_winning_bid_bps,
               last_observed_winning_block,
               lowest_winning_bid_bps,
@@ -167,6 +176,7 @@ export class PostgresAdaptiveBidPersistence
             )
             VALUES (
               $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+              $12,
               now()
             )
             ON CONFLICT (scope, target_address) DO UPDATE
@@ -174,6 +184,8 @@ export class PostgresAdaptiveBidPersistence
               current_bid_bps = EXCLUDED.current_bid_bps,
               consecutive_full_wins =
                 EXCLUDED.consecutive_full_wins,
+              consecutive_contradicting_wins =
+                EXCLUDED.consecutive_contradicting_wins,
               last_observed_winning_bid_bps =
                 EXCLUDED.last_observed_winning_bid_bps,
               last_observed_winning_block =
@@ -194,6 +206,7 @@ export class PostgresAdaptiveBidPersistence
             targetAddress.toLowerCase(),
             Number(state.currentBidBps),
             state.consecutiveFullWins,
+            state.consecutiveContradictingWins ?? 0,
             state.lastObservedWinningBidBps === undefined
               ? null
               : Number(state.lastObservedWinningBidBps),

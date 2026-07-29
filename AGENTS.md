@@ -142,6 +142,8 @@ railway logs \
 jq -c 'select(
   .event == "keeper_opportunity" or
   .event == "builder_bid" or
+  .event == "keeper_batch_submitted" or
+  .event == "keeper_batch_result" or
   .event == "keeper_transaction_sent" or
   .event == "keeper_receipt" or
   .event == "keeper_transaction_expired" or
@@ -196,6 +198,18 @@ Named acquisition events have the form
 `acquisition_status_<status-name>`. The general `acquisition_status` event also
 contains the numeric status, named label, lifecycle round, and relevant FWA
 state.
+
+Multi-transaction private bundles retain one durable
+`keeper_transaction_sent`, `keeper_receipt`, or `keeper_transaction_expired`
+event per member, but Discord groups them into one `keeper_batch_submitted`
+embed and one aggregate `keeper_batch_result` embed. Evaluate the batch's
+`totalReward`, `totalGasCost`, and `realizedProfit`; individual members can
+have negative receipt-level attribution because all members share one
+gas-normalized priority fee.
+
+`keeper_batch_result.realizedProfit` is a presentation aggregate of the
+member `keeper_receipt.realizedProfit` values. For SQL P&L totals, sum either
+member receipts or batch results for grouped batches, never both.
 
 Never run `railway variables` without a narrow JSON filter. Its unfiltered
 output contains secrets.

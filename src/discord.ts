@@ -88,6 +88,24 @@ function displayedEthWei(value: LogFieldValue | undefined): bigint | undefined {
   }
 }
 
+function positiveInteger(
+  value: LogFieldValue | undefined,
+): number | undefined {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value)
+        ? Number(value)
+        : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed > 0
+    ? parsed
+    : undefined;
+}
+
+function isGroupedPrivateBatchEntry(entry: LogEntry): boolean {
+  return (positiveInteger(entry.batchTransactionCount) ?? 0) > 1;
+}
+
 function commonEmbed(
   entry: LogEntry,
   parameters: {
@@ -189,6 +207,7 @@ export function buildDiscordEmbed(
   }
 
   if (entry.event === "keeper_transaction_sent") {
+    if (isGroupedPrivateBatchEntry(entry)) return undefined;
     return commonEmbed(entry, {
       title: "Keeper transaction submitted",
       color: COLOR.blue,
@@ -204,7 +223,29 @@ export function buildDiscordEmbed(
     });
   }
 
+  if (entry.event === "keeper_batch_submitted") {
+    return commonEmbed(entry, {
+      title: "Keeper batch submitted",
+      color: COLOR.blue,
+      fields: [
+        field("Jobs", entry.kinds, false),
+        field("Transactions", entry.transactionCount),
+        field("Target block", entry.targetBlock),
+        field(
+          "Nonces",
+          `${compact(entry.firstNonce)}–${compact(entry.lastNonce)}`,
+        ),
+        field(
+          "Effective bid",
+          `${compact(entry.effectiveBuilderBidBps)} bps`,
+        ),
+        field("Relays", entry.relayCount),
+      ],
+    });
+  }
+
   if (entry.event === "keeper_receipt") {
+    if (isGroupedPrivateBatchEntry(entry)) return undefined;
     const pnlWei = displayedEthWei(entry.realizedProfit);
     const successful = entry.status === "success";
     return commonEmbed(entry, {
@@ -232,6 +273,65 @@ export function buildDiscordEmbed(
         field(
           "Session realized P&L",
           `${formatEther(cumulativeRealizedPnlWei)} ETH`,
+        ),
+      ],
+    });
+  }
+
+  if (entry.event === "keeper_batch_result") {
+    const transactionCount =
+      positiveInteger(entry.transactionCount) ?? 0;
+    const confirmedTransactions =
+      positiveInteger(entry.confirmedTransactions) ?? 0;
+    const revertedTransactions =
+      positiveInteger(entry.revertedTransactions) ?? 0;
+    const expiredTransactions =
+      positiveInteger(entry.expiredTransactions) ?? 0;
+    const pnlWei = displayedEthWei(entry.realizedProfit);
+    const allExpired =
+      transactionCount > 0 &&
+      expiredTransactions === transactionCount;
+    const title =
+      revertedTransactions > 0
+        ? "Keeper batch had reverted transactions"
+        : allExpired
+          ? "Keeper batch expired"
+          : expiredTransactions > 0
+            ? "Keeper batch partially confirmed"
+            : "Keeper batch confirmed";
+    const color =
+      revertedTransactions > 0 ||
+      (pnlWei !== undefined && pnlWei < 0n)
+        ? COLOR.red
+        : expiredTransactions > 0
+          ? COLOR.orange
+          : COLOR.green;
+    return commonEmbed(entry, {
+      title,
+      color,
+      fields: [
+        field("Jobs", entry.kinds, false),
+        field("Block", entry.block || entry.targetBlock),
+        field(
+          "Confirmed",
+          `${confirmedTransactions}/${transactionCount}`,
+        ),
+        ...(revertedTransactions > 0
+          ? [field("Reverted", revertedTransactions)]
+          : []),
+        ...(expiredTransactions > 0
+          ? [field("Expired", expiredTransactions)]
+          : []),
+        field("Total reward", entry.totalReward),
+        field("Total gas cost", entry.totalGasCost),
+        field("Batch P&L", entry.realizedProfit),
+        field(
+          "Session realized P&L",
+          `${formatEther(cumulativeRealizedPnlWei)} ETH`,
+        ),
+        field(
+          "Effective bid",
+          `${compact(entry.effectiveBuilderBidBps)} bps`,
         ),
       ],
     });
@@ -284,6 +384,12 @@ export function buildDiscordEmbed(
   }
 
   if (FAILURE_EVENTS.has(entry.event)) {
+    if (
+      entry.event === "keeper_transaction_expired" &&
+      isGroupedPrivateBatchEntry(entry)
+    ) {
+      return undefined;
+    }
     return commonEmbed(entry, {
       title: titleForFailure(entry.event),
       color: COLOR.red,

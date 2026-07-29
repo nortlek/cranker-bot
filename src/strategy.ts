@@ -3681,7 +3681,25 @@ export async function runKeeperPass(
     }
   }
 
-  for (const submission of submitted) {
+  if (
+    privateTargetBlock !== undefined &&
+    submitted.length > 1
+  ) {
+    log("info", "keeper_batch_submitted", {
+      kinds: JSON.stringify(
+        submitted.map(({ request }) => request.kind),
+      ),
+      transactionCount: submitted.length,
+      targetBlock: privateTargetBlock.toString(),
+      firstNonce: submitted[0]?.request.nonce ?? "",
+      lastNonce:
+        submitted[submitted.length - 1]?.request.nonce ?? "",
+      relayCount: batchResult?.relayCount ?? 0,
+      effectiveBuilderBidBps:
+        batchResult?.effectiveBuilderBidBps?.toString() ?? "",
+    });
+  }
+  for (const [index, submission] of submitted.entries()) {
     log("info", "keeper_transaction_sent", {
       kind: submission.request.kind,
       label: submission.request.label,
@@ -3690,6 +3708,13 @@ export async function runKeeperPass(
       mode:
         privateTargetBlock === undefined ? "public" : "flashbots",
       targetBlock: privateTargetBlock?.toString() ?? "",
+      ...(privateTargetBlock !== undefined &&
+      submitted.length > 1
+        ? {
+            batchTransactionCount: submitted.length,
+            batchPosition: index + 1,
+          }
+        : {}),
     });
   }
   for (const bundle of batchResult?.bundles ?? []) {
@@ -3716,7 +3741,16 @@ export async function runKeeperPass(
   }
 
   const receiptResults = await Promise.all(
-    submitted.map(async (submission) => {
+    submitted.map(async (submission, index) => {
+      const batchFields =
+        privateTargetBlock !== undefined &&
+        submitted.length > 1
+          ? {
+              batchTransactionCount: submitted.length,
+              batchPosition: index + 1,
+              batchTargetBlock: privateTargetBlock.toString(),
+            }
+          : {};
       try {
         const receipt =
           privateTargetBlock === undefined
@@ -3870,8 +3904,15 @@ export async function runKeeperPass(
             : {}),
           gasCost: eth(gasCost),
           realizedProfit: eth(paidReward - gasCost),
+          ...batchFields,
         });
-        return successful;
+        return {
+          outcome: "confirmed" as const,
+          successful,
+          paidReward,
+          gasCost,
+          blockNumber: receipt.blockNumber,
+        };
       } catch (error) {
         log(
           "warn",
@@ -3884,12 +3925,65 @@ export async function runKeeperPass(
             hash: submission.hash,
             nonce: submission.request.nonce,
             reason: errorMessage(error),
+            ...batchFields,
           },
         );
-        return false;
+        return {
+          outcome: "expired" as const,
+          successful: false,
+          paidReward: 0n,
+          gasCost: 0n,
+        };
       }
     }),
   );
+
+  if (
+    privateTargetBlock !== undefined &&
+    submitted.length > 1
+  ) {
+    const confirmedResults = receiptResults.filter(
+      (result) => result.outcome === "confirmed",
+    );
+    const confirmedTransactions = confirmedResults.filter(
+      (result) => result.successful,
+    ).length;
+    const revertedTransactions =
+      confirmedResults.length - confirmedTransactions;
+    const expiredTransactions =
+      receiptResults.length - confirmedResults.length;
+    const totalReward = receiptResults.reduce(
+      (total, result) => total + result.paidReward,
+      0n,
+    );
+    const totalGasCost = receiptResults.reduce(
+      (total, result) => total + result.gasCost,
+      0n,
+    );
+    const receiptBlock = confirmedResults.find(
+      (result) => result.blockNumber !== undefined,
+    )?.blockNumber;
+    log(
+      revertedTransactions > 0 ? "warn" : "info",
+      "keeper_batch_result",
+      {
+        kinds: JSON.stringify(
+          submitted.map(({ request }) => request.kind),
+        ),
+        transactionCount: submitted.length,
+        confirmedTransactions,
+        revertedTransactions,
+        expiredTransactions,
+        targetBlock: privateTargetBlock.toString(),
+        block: receiptBlock?.toString() ?? "",
+        totalReward: eth(totalReward),
+        totalGasCost: eth(totalGasCost),
+        realizedProfit: eth(totalReward - totalGasCost),
+        effectiveBuilderBidBps:
+          batchResult?.effectiveBuilderBidBps?.toString() ?? "",
+      },
+    );
+  }
 
   const orderAttempts = submitted.flatMap((submission, index) => {
     const order = submission.request.order;
@@ -3903,7 +3997,7 @@ export async function runKeeperPass(
         order,
         crankFee: reward.amountWei,
         hash: submission.hash,
-        included: receiptResults[index] ?? false,
+        included: receiptResults[index]?.successful ?? false,
         ...(effectiveBidBps === undefined
           ? {}
           : { effectiveBidBps }),
@@ -3928,7 +4022,9 @@ export async function runKeeperPass(
     }
   }
 
-  const confirmed = receiptResults.filter(Boolean).length;
+  const confirmed = receiptResults.filter(
+    (result) => result.successful,
+  ).length;
   log("info", "pass_complete", {
     orders: plan.orders,
     viable,

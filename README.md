@@ -489,7 +489,7 @@ Bid state is maintained per order because orders with `0.0002`, `0.0003`, and
   `ADAPTIVE_BID_WIN_STREAK` consecutive wins, then bisects the durable bracket
   between the lowest effective bid that has won and the greater of
   `ADAPTIVE_BID_MIN_BPS`, the highest effective bid that has lost, and its
-  last measured winner plus `ADAPTIVE_BID_STEP_BPS`.
+  last uncontradicted measured winner plus `ADAPTIVE_BID_STEP_BPS`.
   `ADAPTIVE_BID_DECAY_BPS` remains the minimum reduction for a probe.
 - The bundle-effective bid after profit and fee caps—not merely the requested
   bid—is recorded in each participating order's bracket and compared with the
@@ -500,8 +500,12 @@ Bid state is maintained per order because orders with `0.0002`, `0.0003`, and
   ceiling exists, while retaining the failed lower bound so it does not repeat
   the same price probe.
 - Measured competitors and losing probes remain lower-bound evidence for
-  `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`; an unobserved win cannot erase fresh
-  evidence.
+  `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`. One cheaper win cannot erase fresh
+  competitor evidence, but an uninterrupted configured win streak with every
+  effective bid no higher than that observation retires the contradicted
+  measurement.
+  Losing-probe evidence remains authoritative until it expires or a lower bid
+  actually wins.
 - A loss at or above the starting bid still holds rather than blindly
   escalating unless a measured higher winner supplies direct price evidence.
 - Partial-prefix inclusion updates each order independently: included orders

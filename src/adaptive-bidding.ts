@@ -19,6 +19,7 @@ export interface AdaptiveBidPolicy {
 export interface AdaptiveBidState {
   readonly currentBidBps: bigint;
   readonly consecutiveFullWins: number;
+  readonly consecutiveContradictingWins?: number;
   readonly lastObservedWinningBidBps?: bigint;
   readonly lastObservedWinningBlock?: bigint;
   readonly lowestWinningBidBps?: bigint;
@@ -126,6 +127,7 @@ function searchLowerBound(
   state: AdaptiveBidState,
   policy: AdaptiveBidPolicy,
   blockNumber: bigint,
+  includeObservedWinningEvidence = true,
 ): bigint {
   let lowerBound = policy.minimumBidBps;
   if (
@@ -142,6 +144,7 @@ function searchLowerBound(
     );
   }
   if (
+    includeObservedWinningEvidence &&
     state.lastObservedWinningBidBps !== undefined &&
     evidenceIsFresh(
       state.lastObservedWinningBlock,
@@ -350,10 +353,22 @@ export function adjustAdaptiveBid(
     state.consecutiveFullWins + 1,
     policy.winsBeforeDecay,
   );
+  const consecutiveContradictingWins =
+    lastObservedWinningBidBps !== undefined &&
+    effectiveBidBps <= lastObservedWinningBidBps
+      ? Math.min(
+          (state.consecutiveContradictingWins ?? 0) + 1,
+          policy.winsBeforeDecay,
+        )
+      : 0;
+  const observedWinningEvidenceContradicted =
+    lastObservedWinningBidBps !== undefined &&
+    consecutiveContradictingWins >= policy.winsBeforeDecay;
   const lowerTarget = searchLowerBound(
     boundedState,
     policy,
     outcome.blockNumber,
+    !observedWinningEvidenceContradicted,
   );
   const shouldDecay =
     consecutiveFullWins >= policy.winsBeforeDecay &&
@@ -377,15 +392,21 @@ export function adjustAdaptiveBid(
     consecutiveFullWins: shouldDecay ? 0 : consecutiveFullWins,
     lastUpdatedBlock: outcome.blockNumber,
     lowestWinningBidBps,
-    ...(lastObservedWinningBidBps === undefined
+    ...(lastObservedWinningBidBps === undefined ||
+    observedWinningEvidenceContradicted
       ? {}
       : {
           lastObservedWinningBidBps:
             lastObservedWinningBidBps,
         }),
-    ...(lastObservedWinningBlock === undefined
+    ...(lastObservedWinningBlock === undefined ||
+    observedWinningEvidenceContradicted
       ? {}
       : { lastObservedWinningBlock }),
+    ...(observedWinningEvidenceContradicted ||
+    consecutiveContradictingWins === 0
+      ? {}
+      : { consecutiveContradictingWins }),
     ...(highestLosingBidBps === undefined
       ? {}
       : { highestLosingBidBps }),
@@ -405,6 +426,7 @@ export function adjustAdaptiveBid(
 interface SerializedOrderBidState {
   readonly currentBidBps: string;
   readonly consecutiveFullWins: number;
+  readonly consecutiveContradictingWins?: number;
   readonly lastObservedWinningBidBps?: string;
   readonly lastObservedWinningBlock?: string;
   readonly lowestWinningBidBps?: string;
@@ -443,6 +465,16 @@ function deserializeOrderState(
       serialized.consecutiveFullWins >= 0
         ? serialized.consecutiveFullWins
         : 0,
+    ...(serialized.consecutiveContradictingWins === undefined ||
+    !Number.isSafeInteger(
+      serialized.consecutiveContradictingWins,
+    ) ||
+    serialized.consecutiveContradictingWins <= 0
+      ? {}
+      : {
+          consecutiveContradictingWins:
+            serialized.consecutiveContradictingWins,
+        }),
     ...(serialized.lastObservedWinningBidBps === undefined
       ? {}
       : {
@@ -547,6 +579,12 @@ class FileAdaptiveBidPersistence
       orders[order] = {
         currentBidBps: state.currentBidBps.toString(),
         consecutiveFullWins: state.consecutiveFullWins,
+        ...(state.consecutiveContradictingWins === undefined
+          ? {}
+          : {
+              consecutiveContradictingWins:
+                state.consecutiveContradictingWins,
+            }),
         ...(state.lastObservedWinningBidBps === undefined
           ? {}
           : {

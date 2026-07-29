@@ -18,15 +18,18 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 07:21 America/Denver, the
-verified snapshot was **$135.41631151 net**, or **54.16%** of the goal, with
-`latest == pending == 387` and net ETH equivalent of
-`0.071248741690526874`. Since deployment `86b27aa2-ddc3-4ecf-96f4-22066e67e60e`,
-172 successful receipts reconciled exactly to a `0.043126556881111625 ETH`
-wallet increase: 38 settles, 41 syncs, 41 processors, 5 pulls, and 47
-standing-order cranks. No fatal, keeper-pass, Discord, or telemetry failures
-were recorded; 99 private transactions expired without inclusion and did not
-leak into the public mempool.
+2026-07-30 23:59 America/Denver**. At 2026-07-29 10:12 America/Denver, the
+verified snapshot was **$135.94624856 net**, or **54.37%** of the goal, with
+`latest == pending == 414` and net ETH equivalent of
+`0.072009268652492456`. An earlier full reconciliation through nonce 387 found
+172 successful receipts and matched them exactly to a
+`0.043126556881111625 ETH` wallet increase: 38 settles, 41 syncs, 41
+processors, 5 pulls, and 47 standing-order cranks. Those attempts had no fatal,
+keeper-pass, Discord, or telemetry failures; 99 private transactions expired
+without inclusion and did not leak into the public mempool. A later isolated
+provider “Missing or invalid parameters” pass error at block `25639595`
+recovered on the same block two seconds later without submission or nonce
+movement.
 
 Any recorded snapshot is stale immediately after a transaction. Re-run:
 
@@ -40,7 +43,7 @@ before reporting progress or deploying.
 
 ### P0 — Replace the standing-order bid floor with bounded price discovery
 
-Status: implemented and validated; deploy and measure.
+Status: deployed and measuring; follow-up correction validated locally.
 
 The previous per-order controller started at `8,644 bps` and could learn upward,
 but its downward decay stopped at that same value. In the 24 hours ending
@@ -70,6 +73,18 @@ gas-free when it misses.
 
 Measure retained profit, target-specific inclusion, and recovery speed before
 changing the hard minimum or the existing maximum.
+
+Deployment `3411c130-67e6-43c5-91a9-c7ae9f11d631` first missed a five-order
+private batch at an effective `6,342 bps`, then won consecutive five-order
+batches at `6,293` and `6,898 bps`. The wins added
+`0.000181109044245335 ETH` net after receipts. Durable state also exposed one
+order with three full wins as low as `3,318 bps` while a four-hour-old
+`8,659 bps` competitor observation still blocked probing until the observation
+aged for `7,200` blocks. The follow-up controller retains a single cheaper win
+as weak evidence, but after an uninterrupted configured streak in which every
+effective winning bid is cheaper, it retires the contradicted competitor
+observation and resumes bounded bracket search. Misses remain private and
+gas-free.
 
 ### P0 — Make the live signer lease continuously fail-closed
 

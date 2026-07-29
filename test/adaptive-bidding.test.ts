@@ -146,7 +146,7 @@ describe("adjustAdaptiveBid", () => {
     expect(adjustment.currentBidBps).toBe(8_100n);
   });
 
-  it("learns from the effective profit-capped bid", () => {
+  it("retires contradicted competitor evidence after repeated cheaper wins", () => {
     const miss = adjustAdaptiveBid(
       {
         currentBidBps: 8_644n,
@@ -169,7 +169,7 @@ describe("adjustAdaptiveBid", () => {
     expect(miss.state.lastObservedWinningBidBps).toBe(3_850n);
 
     let state = miss.state;
-    for (const blockNumber of [49n, 50n, 51n]) {
+    for (const blockNumber of [49n, 50n]) {
       state = adjustAdaptiveBid(
         state,
         {
@@ -184,13 +184,10 @@ describe("adjustAdaptiveBid", () => {
       ).state;
     }
 
-    expect(state.lowestWinningBidBps).toBe(3_762n);
-    expect(state.highestLosingBidBps).toBe(3_690n);
-    expect(state.lastObservedWinningBidBps).toBe(3_850n);
-    expect(state.lastObservedWinningBlock).toBe(48n);
     expect(state.currentBidBps).toBe(8_644n);
+    expect(state.lastObservedWinningBidBps).toBe(3_850n);
 
-    const aged = adjustAdaptiveBid(
+    const third = adjustAdaptiveBid(
       state,
       {
         ...policy,
@@ -198,12 +195,78 @@ describe("adjustAdaptiveBid", () => {
       },
       {
         kind: "full_win",
-        blockNumber: 7_249n,
+        blockNumber: 51n,
         effectiveBidBps: 3_762n,
       },
     );
-    expect(aged.currentBidBps).toBe(2_381n);
-    expect(aged.state.activeProbeBidBps).toBe(2_381n);
+    state = third.state;
+
+    expect(state.lowestWinningBidBps).toBe(3_762n);
+    expect(state.highestLosingBidBps).toBe(3_690n);
+    expect(state.lastObservedWinningBidBps).toBeUndefined();
+    expect(state.lastObservedWinningBlock).toBeUndefined();
+    expect(state.currentBidBps).toBe(3_738n);
+    expect(state.activeProbeBidBps).toBe(3_738n);
+  });
+
+  it("does not combine an expensive win with a cheaper contradiction streak", () => {
+    let state = adjustAdaptiveBid(
+      {
+        currentBidBps: 8_644n,
+        consecutiveFullWins: 0,
+      },
+      {
+        ...policy,
+        baselineBidBps: 8_644n,
+      },
+      {
+        kind: "miss",
+        blockNumber: 60n,
+        effectiveBidBps: 3_690n,
+        observedWinningBidBps: 3_850n,
+      },
+    ).state;
+
+    for (const [blockNumber, effectiveBidBps] of [
+      [61n, 3_762n],
+      [62n, 8_644n],
+      [63n, 3_762n],
+      [64n, 3_762n],
+    ] as const) {
+      state = adjustAdaptiveBid(
+        state,
+        {
+          ...policy,
+          baselineBidBps: 8_644n,
+        },
+        {
+          kind: "full_win",
+          blockNumber,
+          effectiveBidBps,
+        },
+      ).state;
+    }
+
+    expect(state.currentBidBps).toBe(8_644n);
+    expect(state.lastObservedWinningBidBps).toBe(3_850n);
+    expect(state.consecutiveContradictingWins).toBe(2);
+
+    state = adjustAdaptiveBid(
+      state,
+      {
+        ...policy,
+        baselineBidBps: 8_644n,
+      },
+      {
+        kind: "full_win",
+        blockNumber: 65n,
+        effectiveBidBps: 3_762n,
+      },
+    ).state;
+
+    expect(state.currentBidBps).toBe(3_738n);
+    expect(state.lastObservedWinningBidBps).toBeUndefined();
+    expect(state.consecutiveContradictingWins).toBeUndefined();
   });
 
   it("recovers to a known winning ceiling and keeps the failed probe bracket", () => {

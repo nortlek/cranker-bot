@@ -924,6 +924,8 @@ async function main(): Promise<void> {
                 adjustment.currentBidBps.toString(),
               consecutiveFullWins:
                 adjustment.state.consecutiveFullWins,
+              consecutiveContradictingWins:
+                adjustment.state.consecutiveContradictingWins ?? 0,
               lowestWinningBidBps:
                 adjustment.state.lowestWinningBidBps?.toString() ??
                 "",

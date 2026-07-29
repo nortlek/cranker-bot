@@ -78,6 +78,103 @@ describe("buildDiscordEmbed", () => {
 
     expect(embed).toBeUndefined();
   });
+
+  it("suppresses grouped transaction receipts in favor of an aggregate batch result", () => {
+    const memberEmbed = buildDiscordEmbed(
+      {
+        time: "2026-07-29T15:54:29.000Z",
+        level: "info",
+        event: "keeper_receipt",
+        kind: "standing_order",
+        label: "standing_order:0x1234",
+        hash: `0x${"56".repeat(32)}`,
+        block: "25639517",
+        status: "success",
+        gasUsed: "183753",
+        paidReward: "0.0003 ETH",
+        gasCost: "0.000313670644176015 ETH",
+        realizedProfit: "-0.000013670644176015 ETH",
+        batchTransactionCount: 5,
+        batchPosition: 2,
+        batchTargetBlock: "25639517",
+      },
+      -13_670_644_176_015n,
+    );
+    const batchEmbed = buildDiscordEmbed(
+      {
+        time: "2026-07-29T15:54:29.200Z",
+        level: "info",
+        event: "keeper_batch_result",
+        kinds: JSON.stringify(
+          Array.from({ length: 5 }, () => "standing_order"),
+        ),
+        transactionCount: 5,
+        confirmedTransactions: 5,
+        revertedTransactions: 0,
+        expiredTransactions: 0,
+        targetBlock: "25639517",
+        block: "25639517",
+        totalReward: "0.0016 ETH",
+        totalGasCost: "0.001568353220880075 ETH",
+        realizedProfit: "0.000031646779119925 ETH",
+        effectiveBuilderBidBps: "6898",
+      },
+      31_646_779_119_925n,
+    );
+
+    expect(memberEmbed).toBeUndefined();
+    expect(batchEmbed?.title).toBe("Keeper batch confirmed");
+    expect(batchEmbed?.color).toBe(0x2ecc71);
+    expect(
+      batchEmbed?.fields?.find(
+        (entry) => entry.name === "Batch P&L",
+      )?.value,
+    ).toBe("0.000031646779119925 ETH");
+  });
+
+  it("renders a gas-free grouped batch miss once as an expiration", () => {
+    const memberEmbed = buildDiscordEmbed(
+      {
+        time: "2026-07-29T15:51:28.000Z",
+        level: "warn",
+        event: "keeper_transaction_expired",
+        kind: "standing_order",
+        label: "standing_order:0x1234",
+        hash: `0x${"78".repeat(32)}`,
+        targetBlock: "25639502",
+        reason: "receipt not found",
+        batchTransactionCount: 5,
+        batchPosition: 1,
+        batchTargetBlock: "25639502",
+      },
+      0n,
+    );
+    const batchEmbed = buildDiscordEmbed(
+      {
+        time: "2026-07-29T15:51:29.000Z",
+        level: "info",
+        event: "keeper_batch_result",
+        kinds: JSON.stringify(
+          Array.from({ length: 5 }, () => "standing_order"),
+        ),
+        transactionCount: 5,
+        confirmedTransactions: 0,
+        revertedTransactions: 0,
+        expiredTransactions: 5,
+        targetBlock: "25639502",
+        block: "",
+        totalReward: "0 ETH",
+        totalGasCost: "0 ETH",
+        realizedProfit: "0 ETH",
+        effectiveBuilderBidBps: "6342",
+      },
+      0n,
+    );
+
+    expect(memberEmbed).toBeUndefined();
+    expect(batchEmbed?.title).toBe("Keeper batch expired");
+    expect(batchEmbed?.color).toBe(0xf39c12);
+  });
 });
 
 describe("DiscordWebhookNotifier", () => {
@@ -150,6 +247,100 @@ describe("DiscordWebhookNotifier", () => {
         )?.value,
       ).toBe("0.00015 ETH");
       expect(second.embeds[0]?.color).toBe(0xe74c3c);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error === undefined) resolve();
+          else reject(error);
+        });
+      });
+    }
+  });
+
+  it("counts grouped member receipts once and sends only the aggregate result", async () => {
+    const messages: unknown[] = [];
+    const server = createServer((request, response) => {
+      let source = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => {
+        source += chunk;
+      });
+      request.on("end", () => {
+        messages.push(JSON.parse(source) as unknown);
+        response.writeHead(204);
+        response.end();
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    try {
+      const address = server.address() as AddressInfo;
+      const notifier = new DiscordWebhookNotifier({
+        url: `http://127.0.0.1:${address.port}/webhook`,
+        timeoutMs: 2_000,
+      });
+      for (const [index, realizedProfit] of [
+        "-0.00001 ETH",
+        "0.00004 ETH",
+      ].entries()) {
+        notifier.notify({
+          time: `2026-07-29T16:00:0${index}.000Z`,
+          level: "info",
+          event: "keeper_receipt",
+          kind: "standing_order",
+          label: `standing_order:${index}`,
+          hash: `0x${String(index + 1)
+            .padStart(2, "0")
+            .repeat(32)}`,
+          block: "25639517",
+          status: "success",
+          gasUsed: "183753",
+          paidReward: "0.0003 ETH",
+          gasCost: "0.0003 ETH",
+          realizedProfit,
+          batchTransactionCount: 2,
+          batchPosition: index + 1,
+          batchTargetBlock: "25639517",
+        });
+      }
+      notifier.notify({
+        time: "2026-07-29T16:00:02.000Z",
+        level: "info",
+        event: "keeper_batch_result",
+        kinds: JSON.stringify([
+          "standing_order",
+          "standing_order",
+        ]),
+        transactionCount: 2,
+        confirmedTransactions: 2,
+        revertedTransactions: 0,
+        expiredTransactions: 0,
+        targetBlock: "25639517",
+        block: "25639517",
+        totalReward: "0.0006 ETH",
+        totalGasCost: "0.00057 ETH",
+        realizedProfit: "0.00003 ETH",
+        effectiveBuilderBidBps: "5000",
+      });
+      await notifier.flush();
+
+      expect(messages).toHaveLength(1);
+      const message = messages[0] as {
+        embeds: Array<{
+          title: string;
+          fields: Array<{ name: string; value: string }>;
+        }>;
+      };
+      expect(message.embeds[0]?.title).toBe(
+        "Keeper batch confirmed",
+      );
+      expect(
+        message.embeds[0]?.fields.find(
+          (entry) => entry.name === "Session realized P&L",
+        )?.value,
+      ).toBe("0.00003 ETH");
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {
