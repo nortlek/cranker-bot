@@ -12,6 +12,7 @@ import { standingOrderAbi } from "../src/abi.js";
 import {
   aggregateKnownCrankFees,
   calculateWinningBidBps,
+  competitionRegistryBlockNumber,
 } from "../src/competition.js";
 
 const ORDER_A = getAddress(
@@ -26,6 +27,20 @@ const UNKNOWN_ORDER = getAddress(
 const CALLER = getAddress(
   "0x4444444444444444444444444444444444444444",
 );
+
+describe("competitionRegistryBlockNumber", () => {
+  it("uses the fully available planning parent state", () => {
+    expect(competitionRegistryBlockNumber(25_640_510n)).toBe(
+      25_640_509n,
+    );
+  });
+
+  it("rejects a target without a parent", () => {
+    expect(() => competitionRegistryBlockNumber(0n)).toThrow(
+      "must have a parent block",
+    );
+  });
+});
 
 function crankLog(address: Address, fee: bigint) {
   return {

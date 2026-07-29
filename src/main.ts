@@ -551,6 +551,8 @@ async function main(): Promise<void> {
             baseFeePerGas: bountyBaseFeePerGas,
             poolBountyEstimateBps:
               config.poolBountyEstimateBps,
+            poolPullBountyEstimateBps:
+              config.poolPullBountyEstimateBps,
           });
           let requestBidBps: bigint;
           let requestMinimumPriorityFeePerGas = 0n;
@@ -814,6 +816,8 @@ async function main(): Promise<void> {
             baseFeePerGas: bountyBaseFeePerGas,
             poolBountyEstimateBps:
               config.poolBountyEstimateBps,
+            poolPullBountyEstimateBps:
+              config.poolPullBountyEstimateBps,
           });
           prefixGas += transactionGas;
           const count = index + 1;
@@ -1496,6 +1500,8 @@ async function main(): Promise<void> {
     liveBidAdapter: config.liveBidAdapterAddress,
     poolBountyEstimateBps:
       config.poolBountyEstimateBps.toString(),
+    poolPullBountyEstimateBps:
+      config.poolPullBountyEstimateBps.toString(),
     fwaProcessGasLimit: config.fwaProcessGasLimit.toString(),
     fwaProcessMaxCount: config.fwaProcessMaxCount,
     discordNotifications: discordNotifier !== undefined,

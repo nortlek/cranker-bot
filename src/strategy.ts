@@ -39,7 +39,10 @@ import {
 } from "./abi.js";
 import { quoteCompetitiveFees } from "./bidding.js";
 import { mapConcurrent } from "./concurrency.js";
-import type { KeeperConfig } from "./config.js";
+import {
+  ETHEREUM_TRANSACTION_GAS_LIMIT,
+  type KeeperConfig,
+} from "./config.js";
 import {
   CONVEX_BOOSTER_ADDRESS,
   CONVEX_KICK_CANDIDATES,
@@ -135,6 +138,7 @@ export interface KeeperJob {
   readonly gas: bigint;
   readonly reward: JobReward;
   readonly poolBuilderBidPolicy?: PoolBuilderBidPolicy;
+  readonly requiresBundleSimulation?: boolean;
   readonly order?: Address;
   readonly roundId?: bigint;
   readonly stakeDaoCrvReward?: bigint;
@@ -812,6 +816,7 @@ function poolJob(parameters: {
   readonly gas: bigint;
   readonly terms: PoolBountyTerms;
   readonly bidPolicy: PoolBuilderBidPolicy;
+  readonly requiresBundleSimulation?: boolean;
 }): KeeperJob {
   const functionName = {
     pool_pull: "pull",
@@ -838,6 +843,12 @@ function poolJob(parameters: {
       terms: parameters.terms,
     },
     poolBuilderBidPolicy: parameters.bidPolicy,
+    ...(parameters.requiresBundleSimulation === undefined
+      ? {}
+      : {
+          requiresBundleSimulation:
+            parameters.requiresBundleSimulation,
+        }),
     roundId: parameters.roundId,
   };
 }
@@ -1250,9 +1261,10 @@ async function planPrimaryJobs(parameters: {
               kind: "pool_pull",
               pool,
               roundId: roundCount,
-              gas: config.poolPullGasLimit,
+              gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
               terms,
               bidPolicy: "pool_pull",
+              requiresBundleSimulation: true,
             }),
           ],
           minimumViablePrefix: 1,
@@ -1329,11 +1341,18 @@ async function planPrimaryJobs(parameters: {
             kind: "pool_pull",
             pool,
             roundId: roundCount,
-            gas: config.poolPullGasLimit,
+            gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
             terms,
             bidPolicy: "pool_pull",
+            requiresBundleSimulation: true,
           }),
         );
+        if (jobs.some((job) => job.requiresBundleSimulation)) {
+          return {
+            jobs,
+            minimumViablePrefix: jobs.length,
+          };
+        }
         const grossReward = jobs.reduce(
           (total, job) =>
             total +
@@ -1343,6 +1362,8 @@ async function planPrimaryJobs(parameters: {
               baseFeePerGas: bountyBaseFeePerGas,
               poolBountyEstimateBps:
                 config.poolBountyEstimateBps,
+              poolPullBountyEstimateBps:
+                config.poolPullBountyEstimateBps,
             }),
           0n,
         );
@@ -2960,6 +2981,8 @@ async function planJobs(parameters: {
           baseFeePerGas: parameters.bountyBaseFeePerGas,
           poolBountyEstimateBps:
             parameters.config.poolBountyEstimateBps,
+          poolPullBountyEstimateBps:
+            parameters.config.poolPullBountyEstimateBps,
         }),
       0n,
     );
@@ -3253,6 +3276,7 @@ export function estimatedJobReward(parameters: {
   readonly gasUsed: bigint;
   readonly baseFeePerGas: bigint;
   readonly poolBountyEstimateBps: bigint;
+  readonly poolPullBountyEstimateBps: bigint;
 }): bigint {
   if (parameters.job.reward.kind === "fixed") {
     return parameters.job.reward.amountWei;
@@ -3261,8 +3285,36 @@ export function estimatedJobReward(parameters: {
     gasUsed: parameters.gasUsed,
     baseFeePerGas: parameters.baseFeePerGas,
     terms: parameters.job.reward.terms,
-    estimateBps: parameters.poolBountyEstimateBps,
+    estimateBps:
+      parameters.job.kind === "pool_pull"
+        ? parameters.poolPullBountyEstimateBps
+        : parameters.poolBountyEstimateBps,
   });
+}
+
+export function maximumFundableGasEnvelope(parameters: {
+  readonly requestedGas: bigint;
+  readonly accountBalance: bigint;
+  readonly reservedGasCost: bigint;
+  readonly maxFeePerGas: bigint;
+}): bigint | undefined {
+  if (
+    parameters.requestedGas < 0n ||
+    parameters.accountBalance < 0n ||
+    parameters.reservedGasCost < 0n ||
+    parameters.maxFeePerGas <= 0n
+  ) {
+    throw new Error("invalid gas-envelope parameters");
+  }
+  const available =
+    parameters.accountBalance - parameters.reservedGasCost;
+  if (available <= 0n) return undefined;
+  const fundableGas = available / parameters.maxFeePerGas;
+  const gas =
+    parameters.requestedGas < fundableGas
+      ? parameters.requestedGas
+      : fundableGas;
+  return gas >= 21_000n ? gas : undefined;
 }
 
 type ReceiptLog = {
@@ -3496,12 +3548,20 @@ export async function runKeeperPass(
   const bountyBaseFeePerGas =
     latestBlock.baseFeePerGas ?? baseFeePerGas;
   const estimatedComponents = plan.jobs.map((job) => {
+    if (job.requiresBundleSimulation) {
+      return {
+        rewardWei: 0n,
+        maxGasCostWei: 0n,
+      };
+    }
     const rewardWei = estimatedJobReward({
       job,
       gasUsed: job.gas,
       baseFeePerGas: bountyBaseFeePerGas,
       poolBountyEstimateBps:
         context.config.poolBountyEstimateBps,
+      poolPullBountyEstimateBps:
+        context.config.poolPullBountyEstimateBps,
     });
     const planningMaxFeePerGas =
       context.config.submissionMode === "flashbots" &&
@@ -3544,6 +3604,9 @@ export async function runKeeperPass(
       ),
       fullEstimatedProfit: eth(fullEstimatedProfit),
       requiredProfit: eth(requiredProfit(context.config.minProfitWei)),
+      exactSimulationDeferredJobs: plan.jobs.filter(
+        (job) => job.requiresBundleSimulation,
+      ).length,
       accepted: planProfitable,
     });
     if (!planProfitable) {
@@ -3551,20 +3614,27 @@ export async function runKeeperPass(
     }
   }
   for (const job of plan.jobs) {
-    const reward = estimatedJobReward({
-      job,
-      gasUsed: job.gas,
-      baseFeePerGas:
-        maxFeePerGas - maxPriorityFeePerGas,
-      poolBountyEstimateBps:
-        context.config.poolBountyEstimateBps,
-    });
+    const reward = job.requiresBundleSimulation
+      ? undefined
+      : estimatedJobReward({
+          job,
+          gasUsed: job.gas,
+          baseFeePerGas:
+            maxFeePerGas - maxPriorityFeePerGas,
+          poolBountyEstimateBps:
+            context.config.poolBountyEstimateBps,
+          poolPullBountyEstimateBps:
+            context.config.poolPullBountyEstimateBps,
+        });
     log("info", "keeper_opportunity", {
       kind: job.kind,
       label: job.label,
       target: job.target,
       gasLimit: job.gas.toString(),
-      estimatedReward: eth(reward),
+      estimatedReward:
+        reward === undefined ? "" : eth(reward),
+      exactSimulationRequired:
+        job.requiresBundleSimulation === true,
       dependencyFloor: plan.minimumViablePrefix,
       dryRun: context.config.dryRun,
     });
@@ -3664,7 +3734,34 @@ export async function runKeeperPass(
     if (job === undefined || nonce === undefined) {
       throw new Error("nonce plan did not cover every keeper job");
     }
-    const maxGasCost = job.gas * maxFeePerGas;
+    const transactionGas =
+      job.requiresBundleSimulation === true
+        ? maximumFundableGasEnvelope({
+            requestedGas: job.gas,
+            accountBalance,
+            reservedGasCost,
+            maxFeePerGas,
+          })
+        : job.gas;
+    if (transactionGas === undefined) {
+      incrementReason(
+        plan.skipped,
+        "keeper_balance_reserve",
+      );
+      break;
+    }
+    if (job.requiresBundleSimulation) {
+      log("info", "dependency_gas_envelope_assigned", {
+        kind: job.kind,
+        label: job.label,
+        protocolGasCeiling: job.gas.toString(),
+        fundedGasEnvelope: transactionGas.toString(),
+        maxFeePerGas: gwei(maxFeePerGas),
+        reservedGasCost: eth(reservedGasCost),
+        accountBalance: eth(accountBalance),
+      });
+    }
+    const maxGasCost = transactionGas * maxFeePerGas;
     if (reservedGasCost + maxGasCost > accountBalance) {
       incrementReason(
         plan.skipped,
@@ -3675,6 +3772,7 @@ export async function runKeeperPass(
     reservedGasCost += maxGasCost;
     requests.push({
       ...job,
+      gas: transactionGas,
       nonce,
       maxFeePerGas,
       maxPriorityFeePerGas,

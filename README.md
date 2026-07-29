@@ -263,10 +263,10 @@ successful `crank` fees are sent to that keeper address.
 - `BUILDER_BID_BPS`: starting bid and lower bound for every order. The default
   is `8100` (81%).
 - `POOL_BUILDER_BID_BPS`: builder share for a ready
-  `processAcquisitions → sync → settle` chain. The default is `1000` (10%).
+  `processAcquisitions → sync → settle` chain. The default is `500` (5%).
 - `POOL_PULL_BUILDER_BID_BPS`: independent builder share for `pull`. The
-  default floor is `850` (8.5%); production can start higher when recent
-  specialist bids warrant it.
+  default is `1000` (10%). Exact standalone-pull traces show this clears the
+  low-bid cluster without paying into the near-zero-margin high-bid cluster.
 - `POOL_FULFILLED_BUILDER_BID_BPS`: builder share for ordinary fulfilled
   `sync → settle` and settle-only work. The default is `300` (3%).
   Mixed order/pool bundles weight every component by its own policy.
@@ -368,10 +368,16 @@ successful `crank` fees are sent to that keeper address.
   forced-replenishment watcher. It defaults to `false` and configuration fails
   closed unless `SUBMISSION_MODE=flashbots`.
 - `POOL_BOUNTY_ESTIMATE_BPS`: conservative haircut on simulated gas when
-  estimating PullPool's internal gas-indexed reimbursement.
-- `POOL_PULL_GAS_LIMIT`, `POOL_SYNC_GAS_LIMIT`, and
-  `POOL_SETTLE_GAS_LIMIT`: conservative limits for calls that become valid only
-  after an earlier bundled state transition.
+  estimating PullPool's internal gas-indexed reimbursement for sync and settle
+  work.
+- `POOL_PULL_BOUNTY_ESTIMATE_BPS`: pull-specific reimbursement estimate. It
+  defaults to `10000`; historical direct-pull receipts still make this
+  conservative because PullPool's internal meter includes pre-call overhead.
+- `POOL_SYNC_GAS_LIMIT` and `POOL_SETTLE_GAS_LIMIT`: conservative limits for
+  calls that become valid only after an earlier bundled state transition.
+  A dependency-blocked pull instead receives the largest protocol-valid
+  envelope the signer can fund; exact bundle simulation supplies its actual
+  gas and remains the submission gate.
 - `FWA_PROCESS_GAS_LIMIT`: safety ceiling for the directly estimated
   permissionless acquisition processor. It defaults to Ethereum's
   `16,777,216` per-transaction protocol cap instead of imposing a lower

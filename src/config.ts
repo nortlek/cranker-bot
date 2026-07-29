@@ -73,7 +73,7 @@ export interface KeeperConfig {
   readonly enableStakeDaoCurveHarvests: boolean;
   readonly enableFirmReplenishments: boolean;
   readonly poolBountyEstimateBps: bigint;
-  readonly poolPullGasLimit: bigint;
+  readonly poolPullBountyEstimateBps: bigint;
   readonly poolSyncGasLimit: bigint;
   readonly poolSettleGasLimit: bigint;
   readonly fwaProcessGasLimit: bigint;
@@ -313,7 +313,7 @@ export function loadConfig(): KeeperConfig {
   );
   const poolBuilderBidBps = integerEnv(
     "POOL_BUILDER_BID_BPS",
-    1_000,
+    500,
     {
       min: 0,
       max: 10_000,
@@ -321,7 +321,7 @@ export function loadConfig(): KeeperConfig {
   );
   const poolPullBuilderBidBps = integerEnv(
     "POOL_PULL_BUILDER_BID_BPS",
-    2_000,
+    1_000,
     {
       min: 0,
       max: 10_000,
@@ -547,10 +547,10 @@ export function loadConfig(): KeeperConfig {
         max: 10_000,
       }),
     ),
-    poolPullGasLimit: BigInt(
-      integerEnv("POOL_PULL_GAS_LIMIT", 3_000_000, {
-        min: 21_000,
-        max: 5_000_000,
+    poolPullBountyEstimateBps: BigInt(
+      integerEnv("POOL_PULL_BOUNTY_ESTIMATE_BPS", 10_000, {
+        min: 0,
+        max: 10_000,
       }),
     ),
     poolSyncGasLimit: BigInt(

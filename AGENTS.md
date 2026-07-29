@@ -421,6 +421,11 @@ These constraints prevent expensive or unsafe regressions:
 - Standing-order cranks and a pool `pull` may form a cross-subsidized sequence.
   If so, the minimum viable prefix must include every call needed for the
   aggregate profit. Never submit a subsidized crank by itself.
+- A `pull` that is blocked until an earlier bundled funding transaction changes
+  state has no artificial gas cutoff. Give it the largest Ethereum-valid
+  envelope the signer can fund after prior reservations, defer its preliminary
+  economics, and let exact signed-bundle simulation provide actual gas before
+  bidding or submission.
 - Explicit contiguous nonces are assigned only when `latest == pending`.
 - A pending-funding backrun is always the exact two-transaction bundle
   `[public empty-calldata ETH transfer, keeper crank]`. Verify the raw hash,
@@ -458,6 +463,11 @@ These constraints prevent expensive or unsafe regressions:
 - Profit checks include gas and builder payments. A receipt is the source of
   truth for gas; decoded token transfers and balance reconciliation are the
   source of truth for reward value.
+- Post-block standing-order competition reads registry membership from the
+  target's planning parent block, where every attempted order necessarily
+  existed. Winning logs, receipts, base fee, and beneficiary payments remain
+  pinned to the target block. Do not move registry `eth_call`s back to the
+  just-mined target state; that reintroduces the provider publication race.
 - A receipt inside a bundle may look loss-making because every transaction
   shares one gas-normalized priority fee. Do not infer marginal contribution
   from that receipt alone. Re-price every dependency-safe prefix with its own
@@ -475,8 +485,8 @@ At the last handoff, the configured policy was approximately:
 | Standing-order learned minimum | 10% |
 | Standing-order learned maximum in use | 94.54% |
 | Pending-funding standing-order backrun | 10% |
-| Pool pull | 20% |
-| Pool acquisition ready | 10% |
+| Pool pull | 10% |
+| Pool acquisition ready | 5% |
 | Pool acquisition fulfilled | 5% |
 | LiveBid sweep | 1% |
 | Liquity V2 | 81% |

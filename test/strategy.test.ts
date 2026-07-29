@@ -7,10 +7,15 @@ import { describe, expect, it } from "vitest";
 import {
   highestPositiveClaimableIndexes,
   isFreshBlockStateUnavailable,
+  estimatedJobReward,
+  maximumFundableGasEnvelope,
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
 } from "../src/strategy.js";
+
+const POOL =
+  "0x1111111111111111111111111111111111111111" as const;
 
 describe("isFreshBlockStateUnavailable", () => {
   it("recognizes the provider race observed after a fresh header", () => {
@@ -61,6 +66,75 @@ describe("isFreshBlockStateUnavailable", () => {
         new Error("Missing or invalid parameters."),
       ),
     ).toBe(false);
+  });
+});
+
+describe("pool pull exact-simulation economics", () => {
+  const poolJob = (kind: "pool_pull" | "pool_sync") => ({
+    kind,
+    label: kind,
+    target: POOL,
+    data: "0x" as const,
+    gas: 100n,
+    reward: {
+      kind: "pool_bounty" as const,
+      terms: {
+        crankBountyCap: 100_000n,
+        bountyTipWei: 0n,
+      },
+    },
+  });
+
+  it("uses the pull-specific reimbursement estimate", () => {
+    const common = {
+      gasUsed: 100n,
+      baseFeePerGas: 10n,
+      poolBountyEstimateBps: 9_000n,
+      poolPullBountyEstimateBps: 10_000n,
+    };
+
+    expect(
+      estimatedJobReward({
+        ...common,
+        job: poolJob("pool_pull"),
+      }),
+    ).toBe(1_000n);
+    expect(
+      estimatedJobReward({
+        ...common,
+        job: poolJob("pool_sync"),
+      }),
+    ).toBe(900n);
+  });
+
+  it("caps an unknown-state envelope only by protocol request and funds", () => {
+    expect(
+      maximumFundableGasEnvelope({
+        requestedGas: 100_000n,
+        accountBalance: 1_000_000n,
+        reservedGasCost: 100_000n,
+        maxFeePerGas: 10n,
+      }),
+    ).toBe(90_000n);
+    expect(
+      maximumFundableGasEnvelope({
+        requestedGas: 50_000n,
+        accountBalance: 1_000_000n,
+        reservedGasCost: 100_000n,
+        maxFeePerGas: 10n,
+      }),
+    ).toBe(50_000n);
+  });
+
+  it("rejects an envelope below intrinsic transaction gas", () => {
+    expect(
+      maximumFundableGasEnvelope({
+        requestedGas: 100_000n,
+        accountBalance: 200_000n,
+        reservedGasCost: 0n,
+        maxFeePerGas: 10n,
+      }),
+    ).toBeUndefined();
   });
 });
 

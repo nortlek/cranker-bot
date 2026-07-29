@@ -15,6 +15,12 @@ const originalPendingFundingBackruns =
   process.env.ENABLE_PENDING_FUNDING_BACKRUNS;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
+const originalPoolBuilderBidBps =
+  process.env.POOL_BUILDER_BID_BPS;
+const originalPoolPullBuilderBidBps =
+  process.env.POOL_PULL_BUILDER_BID_BPS;
+const originalPoolPullBountyEstimateBps =
+  process.env.POOL_PULL_BOUNTY_ESTIMATE_BPS;
 const originalWsUrl = process.env.WS_URL;
 const originalSubmissionMode = process.env.SUBMISSION_MODE;
 
@@ -42,6 +48,24 @@ afterEach(() => {
   } else {
     process.env.PENDING_FUNDING_BUILDER_BID_BPS =
       originalPendingFundingBuilderBidBps;
+  }
+  if (originalPoolBuilderBidBps === undefined) {
+    delete process.env.POOL_BUILDER_BID_BPS;
+  } else {
+    process.env.POOL_BUILDER_BID_BPS =
+      originalPoolBuilderBidBps;
+  }
+  if (originalPoolPullBuilderBidBps === undefined) {
+    delete process.env.POOL_PULL_BUILDER_BID_BPS;
+  } else {
+    process.env.POOL_PULL_BUILDER_BID_BPS =
+      originalPoolPullBuilderBidBps;
+  }
+  if (originalPoolPullBountyEstimateBps === undefined) {
+    delete process.env.POOL_PULL_BOUNTY_ESTIMATE_BPS;
+  } else {
+    process.env.POOL_PULL_BOUNTY_ESTIMATE_BPS =
+      originalPoolPullBountyEstimateBps;
   }
   if (originalWsUrl === undefined) delete process.env.WS_URL;
   else process.env.WS_URL = originalWsUrl;
@@ -129,5 +153,24 @@ describe("pending funding backruns", () => {
         dryRun: false,
       }),
     ).toBe(true);
+  });
+});
+
+describe("ready acquisition bidding", () => {
+  it("defaults to the evidence-backed five-percent builder bid", () => {
+    delete process.env.POOL_BUILDER_BID_BPS;
+
+    expect(loadConfig().poolBuilderBidBps).toBe(500n);
+  });
+});
+
+describe("pool pull economics", () => {
+  it("defaults to the evidence-backed bid and reimbursement estimate", () => {
+    delete process.env.POOL_PULL_BUILDER_BID_BPS;
+    delete process.env.POOL_PULL_BOUNTY_ESTIMATE_BPS;
+
+    const config = loadConfig();
+    expect(config.poolPullBuilderBidBps).toBe(1_000n);
+    expect(config.poolPullBountyEstimateBps).toBe(10_000n);
   });
 });

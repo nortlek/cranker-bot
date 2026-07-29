@@ -18,10 +18,10 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 12:50 America/Denver, the
-verified snapshot was **$146.85785253 net**, or **58.74%** of the goal, with
-`latest == pending == 453` and net ETH equivalent of
-`0.076403786506562525`. An earlier full reconciliation through nonce 387 found
+2026-07-30 23:59 America/Denver**. At 2026-07-29 13:37 America/Denver, the
+verified snapshot was **$148.86845413 net**, or **59.54%** of the goal, with
+`latest == pending == 464` and net ETH equivalent of
+`0.07829248050871885`. An earlier full reconciliation through nonce 387 found
 172 successful receipts and matched them exactly to a
 `0.043126556881111625 ETH` wallet increase: 38 settles, 41 syncs, 41
 processors, 5 pulls, and 47 standing-order cranks. Those attempts had no fatal,
@@ -195,10 +195,11 @@ cranked two known orders for `0.0006 ETH` total fees and paid
 attempted order's `0.0003 ETH` fee, reported an impossible `15,356 bps`, and
 poisoned that target's learned bid at the `9,900 bps` maximum. The correct
 aggregate observation is `7,678 bps`; with the configured 25 bps margin its
-next bid is `7,703 bps`. The corrected observer enumerates the exact-block
-factory and vault registries, decodes all known crank logs from the full
-receipt, and rejects an empty denominator. A conditional migration repairs
-only the exact poisoned durable row.
+next bid is `7,703 bps`. The corrected observer enumerates the factory and
+vault registries at the fully available planning parent block, decodes all
+known crank logs from the full target-block receipt, and rejects an empty
+denominator. A conditional migration repairs only the exact poisoned durable
+row.
 
 Fresh-block competitor reads at blocks `25639785`, `25639870`, and `25639904`
 also exposed a second provider spelling of the same JSON-RPC `-32602`
@@ -209,6 +210,14 @@ Historical replay succeeded once the blocks were available and recovered two
 previously missed clearing bids of `7,515` and `7,413 bps`. The observer now
 retries only those two exact provider messages; unrelated invalid-argument
 errors remain terminal.
+
+The same failure persisted through every short retry after target block
+`25640510`, even though its header, logs, and receipts were already available.
+Historical replay found the winner paid `8,857 bps`. The remaining failing
+calls were factory/vault registry `eth_call`s at the fresh target state. Those
+registries now use target minus one—the exact planning state—while the winning
+logs, receipt, base fee, and beneficiary payment remain pinned to the target.
+This removes the race instead of extending a latency-sensitive retry loop.
 
 Deployment `3411c130-67e6-43c5-91a9-c7ae9f11d631` first missed a five-order
 private batch at an effective `6,342 bps`, then won consecutive five-order
@@ -241,24 +250,50 @@ removed.
 
 ### P0 — Repair lifecycle funding enrichment and pool-pull bidding
 
-Status: enrichment, pull bidding, and dependency-safe preliminary prefix
-admission are live in Railway deployment
-`6f30b913-2930-4404-a671-c04c2579b6c6`.
+Status: enrichment and dependency-safe preliminary prefix admission are live
+in Railway deployment `6f30b913-2930-4404-a671-c04c2579b6c6`. The follow-up
+pull economics and gas-envelope correction is implemented and validated
+locally; deploy after the nonce/lifecycle gate.
 
 Across 58 live lifecycle plans, 36 successfully appended a next-round
 `pool_pull`, but none submitted that suffix. Every pull used the static
 `500,000` gas envelope and preliminary exact simulation truncated the bundle.
 The same pulls, once directly estimable, required buffered limits from
-`616,636` to `2,934,132` gas, with an `860,214` median. The static envelope is
-now `3,000,000`; actual gas, economics, and every final signed prefix remain
-exactly simulated.
+`616,636` to `2,934,132` gas, with an `860,214` median. The first repair raised
+the static envelope to `3,000,000`, but that remained an arbitrary cutoff
+rather than an economic constraint. A dependency-blocked pull now uses
+Ethereum's per-transaction protocol ceiling, reduced only when the signer
+cannot pre-fund that envelope after earlier bundle reservations. Preliminary
+accounting explicitly marks this call as deferred instead of treating its
+envelope as consumed gas. The relay's exact signed-bundle simulation supplies
+actual gas, then the usual reward-weighted builder bid and positive-profit gate
+decide whether any dependency-safe prefix is submitted.
 
-Standalone pulls won only 5 of 48 target blocks. Competitors pulled in 38 of
-the 43 misses, paying a median `1,872 bps`, p90 `1,998 bps`, and almost always
-using a direct block-beneficiary transfer. The pool-pull lane is therefore
-bounded at `2,000 bps`. Repricing all 48 historical quotes at that level left a
-minimum expected profit of `0.00069927 ETH` and a median of
-`0.00095048 ETH`. Ready and fulfilled lifecycle bids remain unchanged.
+An exact 20,000-block follow-up audited the latest 50 `Pulled` events with
+receipts and call traces. After excluding 23 cross-subsidized multi-action
+transactions, 27 standalone pulls produced `0.032504139519 ETH` of bounty,
+paid `0.006551341739 ETH` of base gas, `0.001134395586 ETH` of priority fee,
+and `0.003620123882 ETH` directly to builders, retaining
+`0.021198278313 ETH`. Excluding the keeper's two wins, 18 of 25 competitors
+cleared at or below `1,000 bps`; the low cluster topped out at `779 bps`.
+The high cluster reached `7,368 bps`, but its latest rounds retained almost
+nothing, so it is not an economic target.
+
+The keeper's 12 clean direct wins also show PullPool's internal reimbursed gas
+at `10,230`–`10,673 bps` of receipt gas, median `10,449 bps`. A pull-specific
+`10,000 bps` reimbursement estimate therefore remains conservative while the
+shared sync/settle estimate stays at `9,000 bps`. The pool-pull builder policy
+is reduced from `2,000` to **`1,000 bps`**: it still clears the evidenced cheap
+cluster without paying nearly twice as much in the otherwise empty bid band.
+Ready and fulfilled lifecycle policies remain independent.
+
+Round 290 then supplied a live confirmation of the cross-subsidized pull path.
+Two funding cranks plus `pull` cleared atomically for
+`0.000718906984853275 ETH` aggregate net; the pull itself used `502,574` gas
+and paid `0.00118036197053133 ETH`. The subsequent seven-request
+`processAcquisitions -> sync -> settle` chain cleared for another
+`0.0004082328037365 ETH` aggregate net. Both batches were reconciled from
+successful receipts, and nonce returned to `latest == pending == 464`.
 
 The enrichment path also exposed a prefix-admission bug. The planner could
 append an optional next-round suffix to a profitable lifecycle base, then the
@@ -617,7 +652,6 @@ or latency rather than an insufficient bid.
 Action taken:
 
 - added direct Titan and Beaver relay delivery alongside Flashbots and Quasar
-- retained the 10% ready-cycle policy while collecting more evidence
 - won the full round-171 and round-172
   `processAcquisitions -> syncFwaResult -> settle` bundles in Titan-built
   blocks, netting `0.001007735370452469 ETH` and
@@ -625,6 +659,17 @@ Action taken:
 - Titan's direct bundle tracer marked both full bundles `Submitted`, with
   builder payments of about `0.000100994 ETH` and `0.000101023 ETH`
 - asked the operator to pursue FWAVRFService allowlisting for the keeper
+
+The later direct-relay sample submitted eight ready cycles between target
+blocks `25639655` and `25640514`; all eight won, including one profit-capped
+bundle that cleared at an effective `435 bps`. The other seven paid
+approximately `1001 bps`. The most recent round-288 chain realized
+`0.000761554213542174 ETH` net after all three receipts. Combined with the
+measured incumbent's `250 bps` direct Titan payment, this supports lowering the
+ready-cycle policy from 1000 to **500 bps** while leaving fulfilled and pull
+lanes independent. This is a bounded retention improvement, not a bid-ceiling
+increase; exact signed-bundle simulation and the positive-profit floor remain
+unchanged.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the

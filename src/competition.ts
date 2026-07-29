@@ -55,6 +55,17 @@ export interface CompetitionRegistryConfig {
   readonly vaultFactoryAddress: Address | undefined;
 }
 
+export function competitionRegistryBlockNumber(
+  targetBlock: bigint,
+): bigint {
+  if (targetBlock < 1n) {
+    throw new Error(
+      "competition target block must have a parent block",
+    );
+  }
+  return targetBlock - 1n;
+}
+
 export function aggregateKnownCrankFees(
   logs: readonly {
     readonly address: Address;
@@ -189,6 +200,9 @@ export async function observeWinningCrankBids(
   );
   if (lostOrderAddresses.size === 0) return [];
   const lostOrders = new Set(lostOrderAddresses.keys());
+  const registryBlock = competitionRegistryBlockNumber(
+    outcome.targetBlock,
+  );
 
   const [block, logsByOrder, orders, vaults] = await Promise.all([
     publicClient.getBlock({ blockNumber: outcome.targetBlock }),
@@ -207,7 +221,7 @@ export async function observeWinningCrankBids(
       address: registryConfig.factoryAddress,
       abi: factoryAbi,
       functionName: "allOrders",
-      blockNumber: outcome.targetBlock,
+      blockNumber: registryBlock,
     }),
     registryConfig.vaultFactoryAddress === undefined
       ? Promise.resolve([])
@@ -215,7 +229,7 @@ export async function observeWinningCrankBids(
           address: registryConfig.vaultFactoryAddress,
           abi: vaultFactoryAbi,
           functionName: "allVaults",
-          blockNumber: outcome.targetBlock,
+          blockNumber: registryBlock,
         }),
   ]);
   const knownOrders = [...orders, ...vaults];
