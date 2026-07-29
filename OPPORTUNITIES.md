@@ -111,17 +111,25 @@ The bundle sender now retains the successful preliminary prefix simulation
 instead of repeating the same relay call only to recover gas. The final
 competitively priced signed bundle still undergoes exact simulation.
 
+The first production telemetry sample also proved that `"latest"` is not a
+stable planning identifier behind the load-balanced RPC: `eth_blockNumber`
+reported block `25638975` while the immediately following
+`eth_getBlockByNumber("latest")` returned `25638974`. Core pool state, round
+snapshots, order/vault registries, prefilters, and lifecycle simulations are now
+pinned to the exact block first observed by the loop. A head that cannot be
+fetched is retried; a plan is discarded if a newer head exists before nonce
+gating, and a bundle is discarded if its target block arrives before relay
+submission.
+
 Next actions, in order:
 
 1. Add a dedicated low-latency WebSocket `newHeads` source with polling
    fallback and a separate discovery endpoint.
-2. Record head hash/timestamp and reject or re-plan if the head changes before
-   signing.
-3. Replace per-pass factory enumeration with an event-maintained order/vault
+2. Replace per-pass factory enumeration with an event-maintained order/vault
    registry; retain the new exact-head balance/round prefilter.
-4. Refresh Convex, Liquity, and other cold scans on separate cadences and
+3. Refresh Convex, Liquity, and other cold scans on separate cadences and
    revalidate only their best cached candidates at the exact head.
-5. Move receipt finalization, competitor tracing, and adaptive-bid persistence
+4. Move receipt finalization, competitor tracing, and adaptive-bid persistence
    behind a bounded observer queue so the signer can process the next head.
 
 Do not lower `BLOCK_POLL_MS` in isolation until RPC request volume and

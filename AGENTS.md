@@ -374,6 +374,10 @@ These constraints prevent expensive or unsafe regressions:
   If so, the minimum viable prefix must include every call needed for the
   aggregate profit. Never submit a subsidized crank by itself.
 - Explicit contiguous nonces are assigned only when `latest == pending`.
+- `eth_blockNumber` selects the planning head. Fetch that exact block number
+  and pin core pool, lifecycle, order/vault, and prefilter reads to it; never
+  substitute a later `"latest"` response. Discard the plan if the head changes
+  before nonce gating, and never submit after its target block arrives.
 - The exact signed bundle and every economically safe prefix are simulated
   before submission.
 - Private one-block bundles are the default. A missed bundle expires and must

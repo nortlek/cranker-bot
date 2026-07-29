@@ -643,6 +643,15 @@ async function main(): Promise<void> {
         if (minimumEconomicPrefix > selected.length) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
+        const submissionHead = await publicClient.getBlockNumber();
+        if (submissionHead >= targetBlock) {
+          log("info", "bundle_target_expired_before_submission", {
+            targetBlock: targetBlock.toString(),
+            currentBlock: submissionHead.toString(),
+            action: "skip_submission",
+          });
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
         await assertSignerLeaseHeld();
         const relaySubmissionStartedAt = performance.now();
         let firstAcceptedMs: number | undefined;
@@ -923,7 +932,6 @@ async function main(): Promise<void> {
     try {
       const block = await publicClient.getBlockNumber();
       if (block !== lastProcessedBlock) {
-        lastProcessedBlock = block;
         const passId = randomUUID();
         const passStartedAt = performance.now();
         await withLogContext(
@@ -939,6 +947,7 @@ async function main(): Promise<void> {
             await runKeeperPass({
               publicClient,
               discoveryClient,
+              headBlockNumber: block,
               account,
               config,
               sendTransaction,
@@ -951,6 +960,7 @@ async function main(): Promise<void> {
             });
           },
         );
+        lastProcessedBlock = block;
         if (signerLeaseFailure !== undefined) {
           throw signerLeaseFailure;
         }

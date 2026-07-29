@@ -65,6 +65,7 @@ const IMPORTANT_EVENTS = new Set([
   "keeper_receipt",
   "keeper_pass_stage_timing",
   "keeper_pass_timing",
+  "keeper_plan_stale",
   "keeper_transaction_expired",
   "keeper_transaction_sent",
   "relay_submission_result",

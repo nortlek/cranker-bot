@@ -179,6 +179,7 @@ export interface KeeperPassResult {
 export interface StrategyContext {
   readonly publicClient: PublicClient<Transport, Chain>;
   readonly discoveryClient?: PublicClient<Transport, Chain>;
+  readonly headBlockNumber: bigint;
   readonly account: Account | Address;
   readonly config: KeeperConfig;
   readonly sendTransaction:
@@ -317,12 +318,14 @@ async function getOrderCandidates(
   client: PublicClient<Transport, Chain>,
   factoryAddress: Address,
   vaultFactoryAddress: Address | undefined,
+  blockNumber: bigint,
 ): Promise<OrderCandidate[]> {
   const [orders, vaults] = await Promise.all([
     client.readContract({
       address: factoryAddress,
       abi: factoryAbi,
       functionName: "allOrders",
+      blockNumber,
     }),
     vaultFactoryAddress === undefined
       ? Promise.resolve([])
@@ -330,6 +333,7 @@ async function getOrderCandidates(
           address: vaultFactoryAddress,
           abi: vaultFactoryAbi,
           functionName: "allVaults",
+          blockNumber,
         }),
   ]);
   const subscriptions = [...new Set([...orders, ...vaults])];
@@ -339,6 +343,7 @@ async function getOrderCandidates(
   const [feeResults, ticketResults] = await Promise.all([
     client.multicall({
       allowFailure: true,
+      blockNumber,
       contracts: subscriptions.map((address) => ({
         address,
         abi: standingOrderAbi,
@@ -347,6 +352,7 @@ async function getOrderCandidates(
     }),
     client.multicall({
       allowFailure: true,
+      blockNumber,
       contracts: subscriptions.map((address) => ({
         address,
         abi: standingOrderAbi,
@@ -655,6 +661,7 @@ async function estimatePoolCall(parameters: {
     | "settleForcedEth";
   readonly roundId: bigint;
   readonly config: KeeperConfig;
+  readonly blockNumber?: bigint;
 }): Promise<bigint> {
   const estimate = await parameters.client.estimateContractGas({
     account: parameters.account,
@@ -662,6 +669,9 @@ async function estimatePoolCall(parameters: {
     abi: poolAbi,
     functionName: parameters.functionName,
     args: [parameters.roundId],
+    ...(parameters.blockNumber === undefined
+      ? {}
+      : { blockNumber: parameters.blockNumber }),
   });
   return bufferedGas(
     estimate,
@@ -735,6 +745,9 @@ async function planPrimaryJobs(parameters: {
       abi: fwaAbi,
       functionName: "acquisitions",
       args: [requestId],
+      ...(parameters.blockNumber === undefined
+        ? {}
+        : { blockNumber: parameters.blockNumber }),
     });
     const acquisitionStatus = Number(acquisition[4]);
     const acquisitionStatusLabel =
@@ -767,11 +780,17 @@ async function planPrimaryJobs(parameters: {
               address: fwa,
               abi: fwaAbi,
               functionName: "nextSequenceToProcess",
+              ...(parameters.blockNumber === undefined
+                ? {}
+                : { blockNumber: parameters.blockNumber }),
             }),
             client.readContract({
               address: fwa,
               abi: fwaAbi,
               functionName: "lastIssuedSequence",
+              ...(parameters.blockNumber === undefined
+                ? {}
+                : { blockNumber: parameters.blockNumber }),
             }),
           ]);
         const availableSequenceCount =
@@ -789,6 +808,9 @@ async function planPrimaryJobs(parameters: {
         );
         const queuedRequestIds = await client.multicall({
           allowFailure: false,
+          ...(parameters.blockNumber === undefined
+            ? {}
+            : { blockNumber: parameters.blockNumber }),
           contracts: processSequences.map((sequence) => ({
             address: fwa,
             abi: fwaAbi,
@@ -815,6 +837,9 @@ async function planPrimaryJobs(parameters: {
               abi: fwaAbi,
               functionName: "processAcquisitions",
               args: [processCount],
+              ...(parameters.blockNumber === undefined
+                ? {}
+                : { blockNumber: parameters.blockNumber }),
             }),
             client.estimateContractGas({
               account,
@@ -822,6 +847,9 @@ async function planPrimaryJobs(parameters: {
               abi: fwaAbi,
               functionName: "processAcquisitions",
               args: [processCount],
+              ...(parameters.blockNumber === undefined
+                ? {}
+                : { blockNumber: parameters.blockNumber }),
             }),
           ]);
         if (processSimulation.result < processCount) {
@@ -894,6 +922,9 @@ async function planPrimaryJobs(parameters: {
         functionName: "syncFwaResult",
         roundId: roundCount,
         config,
+        ...(parameters.blockNumber === undefined
+          ? {}
+          : { blockNumber: parameters.blockNumber }),
       });
       const jobs = [
         poolJob({
@@ -948,6 +979,9 @@ async function planPrimaryJobs(parameters: {
           functionName,
           roundId: roundCount,
           config,
+          ...(parameters.blockNumber === undefined
+            ? {}
+            : { blockNumber: parameters.blockNumber }),
         });
         return {
           jobs: [
@@ -1020,6 +1054,9 @@ async function planPrimaryJobs(parameters: {
           functionName: "pull",
           roundId: roundCount,
           config,
+          ...(parameters.blockNumber === undefined
+            ? {}
+            : { blockNumber: parameters.blockNumber }),
         });
         return {
           jobs: [
@@ -2598,21 +2635,25 @@ async function planJobs(parameters: {
       address: parameters.config.expectedPoolAddress,
       abi: poolAbi,
       functionName: "roundCount",
+      blockNumber: parameters.headBlockNumber,
     }),
     parameters.client.readContract({
       address: parameters.config.expectedPoolAddress,
       abi: poolAbi,
       functionName: "ethPendingRound",
+      blockNumber: parameters.headBlockNumber,
     }),
     parameters.client.readContract({
       address: parameters.config.expectedPoolAddress,
       abi: poolAbi,
       functionName: "FWA",
+      blockNumber: parameters.headBlockNumber,
     }),
     parameters.client.readContract({
       address: parameters.config.expectedPoolAddress,
       abi: poolAbi,
       functionName: "FWA_TOKEN",
+      blockNumber: parameters.headBlockNumber,
     }),
   ]);
   const tokenAddress = getAddress(token);
@@ -2641,6 +2682,7 @@ async function planJobs(parameters: {
     maxFeePerGas: parameters.maxFeePerGas,
     bountyBaseFeePerGas: parameters.bountyBaseFeePerGas,
     skipped,
+    blockNumber: parameters.headBlockNumber,
   } as const;
   const lifecycleFundingSkipped = new Map<string, number>();
   const lifecycleFundingPromise =
@@ -2698,6 +2740,7 @@ async function planJobs(parameters: {
       parameters.client,
       parameters.config.expectedPoolAddress,
       routing.lifecycleRoundId,
+      parameters.headBlockNumber,
     );
     lifecyclePrimary = await planPrimaryJobs({
       ...plannerBase,
@@ -2754,6 +2797,7 @@ async function planJobs(parameters: {
     parameters.config.enableVaults
       ? parameters.config.vaultFactoryAddress
       : undefined,
+    parameters.headBlockNumber,
   );
   const liquityPromise = planLiquityLiquidation({
     client: parameters.client,
@@ -3074,12 +3118,15 @@ export async function runKeeperPass(
     context.publicClient.estimateFeesPerGas({
       type: "eip1559",
     }),
-    context.publicClient.getBlock({ blockTag: "latest" }),
+    context.publicClient.getBlock({
+      blockNumber: context.headBlockNumber,
+    }),
   ]);
   log("info", "keeper_pass_stage_timing", {
     stage: "head_and_fees",
     durationMs: performance.now() - headAndFeesStartedAt,
     planningBlock: latestBlock.number.toString(),
+    planningBlockHash: latestBlock.hash,
     headTimestamp: latestBlock.timestamp.toString(),
     headAgeMs:
       Date.now() - Number(latestBlock.timestamp) * 1_000,
@@ -3223,6 +3270,20 @@ export async function runKeeperPass(
   ) {
     throw new Error("live mode requires a configured transaction sender");
   }
+  const submissionHead = await context.publicClient.getBlockNumber();
+  if (submissionHead !== context.headBlockNumber) {
+    log("info", "keeper_plan_stale", {
+      plannedBlock: context.headBlockNumber.toString(),
+      currentBlock: submissionHead.toString(),
+      action: "replan_next_pass",
+    });
+    return {
+      orders: plan.orders,
+      viable,
+      sent: 0,
+      confirmed: 0,
+    };
+  }
 
   const accountAddress =
     typeof context.account === "string"
@@ -3307,7 +3368,7 @@ export async function runKeeperPass(
   let privateTargetBlock: bigint | undefined;
   let batchResult: KeeperBatchResult | undefined;
   if (context.sendBatch !== undefined) {
-    const targetBlock = (await context.publicClient.getBlockNumber()) + 1n;
+    const targetBlock = context.headBlockNumber + 1n;
     try {
       batchResult = await context.sendBatch({
         requests,
