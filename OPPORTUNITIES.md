@@ -18,10 +18,16 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 16:45 America/Denver, the
-verified snapshot was **$166.77496102 net**, or **66.70%** of the goal, with
-`latest == pending == 546` and net ETH equivalent of
-`0.087468848411609806`. Since the nonce-532 snapshot, an eight-order batch,
+2026-07-30 23:59 America/Denver**. At 2026-07-29 17:32 America/Denver, the
+verified snapshot was **$168.70401067 net**, or **67.48%** of the goal, with
+`latest == pending == 560` and net ETH equivalent of
+`0.088646950067080998`. The 14 newest receipts increased the wallet by exactly
+`0.001178101655471192 ETH`: an 11-order batch earned `0.0022 ETH`, spent
+`0.001605888512157402 ETH`, and retained `0.000594111487842598 ETH`;
+round 304's `processAcquisitions(18) -> syncFwaResult -> settle` chain earned
+`0.001182614789569458 ETH`, spent `0.000598624621940864 ETH`, and retained
+`0.000583990167628594 ETH`. The decoded aggregate equals the observed wallet
+increase exactly. Since the nonce-532 snapshot, an eight-order batch,
 a three-order batch, and round 303's complete ready chain increased the wallet
 by exactly `0.001173843036778288 ETH`. The batches retained
 `0.000442084780285520 ETH` and `0.000001557720137532 ETH`; round 303's
@@ -1164,6 +1170,18 @@ reduced together from `500` to **`300 bps`**, preserving a 50-bps margin over
 the incumbent. At the sampled volume, retaining the additional two percentage
 points is about `0.001850015442576806 ETH` per day if inclusion is unchanged.
 The separately reconstructed standalone-pull market remains at `1,000 bps`.
+
+Round 304 provided the first direct production result at the reduced policy.
+The three-call ready bundle was accepted by all four relay paths for target
+block `25641777` but expired privately without state or nonce movement. The
+same exact-simulated chain was resubmitted one block later at an effective
+`301 bps` and all three transactions landed in block `25641778`. Its processor
+used `7,028,773` gas; the complete chain used `7,577,134` gas, paid
+`0.00003072997425378 ETH` through the gas-normalized builder bid, and retained
+`0.000583990167628594 ETH` after every receipt. The 300-bps policy retained
+about `0.000020486646392058 ETH` more than the former 500-bps quote would have
+on the simulated gross reward. One miss followed by one inclusion is evidence
+to hold the new quote and collect more samples, not to lower it again.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the
