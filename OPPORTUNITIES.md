@@ -252,8 +252,9 @@ removed.
 
 Status: enrichment and dependency-safe preliminary prefix admission are live
 in Railway deployment `6f30b913-2930-4404-a671-c04c2579b6c6`. The follow-up
-pull economics and gas-envelope correction is implemented and validated
-locally; deploy after the nonce/lifecycle gate.
+pull economics and gas-envelope correction is live in deployment
+`aa22e5d3-b7c6-44b2-ac29-111deeed9f2d` from commit
+`38604b653983e659a20b92ebdf0ca441a4d0cf7c`.
 
 Across 58 live lifecycle plans, 36 successfully appended a next-round
 `pool_pull`, but none submitted that suffix. Every pull used the static
