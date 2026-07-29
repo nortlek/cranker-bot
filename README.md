@@ -307,7 +307,9 @@ successful `crank` fees are sent to that keeper address.
 - `SIMULATION_CONCURRENCY`: maximum simultaneous per-order gas estimates.
 - `WS_URL`: optional WSS `newHeads` source used to wake the loop. All
   authoritative state, simulations, nonce gates, and staleness checks remain
-  on the exact block fetched through `RPC_URL`.
+  on the exact block fetched through `RPC_URL`. The same signal wakes private
+  target-block receipt finalization; HTTP must then serve that exact block
+  before receipts are classified as confirmed or expired.
 - `HEAD_STALE_TIMEOUT_MS`: maximum wait for a subscribed head before HTTP is
   consulted as a liveness assertion. If HTTP has advanced, the subscription is
   treated as broken and the worker exits for a supervised restart.

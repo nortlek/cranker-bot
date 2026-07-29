@@ -104,7 +104,9 @@ block over HTTP. HTTP also asserts subscription liveness after
 worker exits for a supervised restart instead of silently degrading to a
 second head path. The exact fixed-block read tolerates up to one second of
 publication skew by retrying only `BlockNotFound`; all other errors remain
-immediate failures. Never print either endpoint.
+immediate failures. The same WebSocket signal wakes private target-block
+receipt finalization, after which HTTP must serve that exact block before
+receipts are classified. Never print either endpoint.
 
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,

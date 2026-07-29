@@ -305,6 +305,22 @@ async function main(): Promise<void> {
   let sendTransaction:
     StrategyContext["sendTransaction"] = undefined;
   let sendBatch: StrategyContext["sendBatch"] = undefined;
+  const waitForTargetBlock:
+    StrategyContext["waitForTargetBlock"] =
+    config.headRpcUrl === undefined
+      ? undefined
+      : async (targetBlock, timeoutMs) => {
+          const afterBlock = targetBlock - 1n;
+          if (
+            headSignal.latestAfter(afterBlock) !== undefined
+          ) {
+            return true;
+          }
+          return headSignal.waitForNewer(
+            afterBlock,
+            timeoutMs,
+          );
+        };
   let observePrivateBatch:
     StrategyContext["observePrivateBatch"] = undefined;
   if (config.privateKey !== undefined) {
@@ -1093,6 +1109,7 @@ async function main(): Promise<void> {
               config,
               sendTransaction,
               sendBatch,
+              waitForTargetBlock,
               observePrivateBatch,
             });
             if (passResult.sent === 0) {

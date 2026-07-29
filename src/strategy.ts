@@ -198,6 +198,12 @@ export interface StrategyContext {
       readonly bountyBaseFeePerGas: bigint;
     }) => Promise<KeeperBatchResult>)
     | undefined;
+  readonly waitForTargetBlock:
+    | ((
+        targetBlock: bigint,
+        timeoutMs: number,
+      ) => Promise<boolean>)
+    | undefined;
   readonly observePrivateBatch:
     | ((outcome: PrivateBatchOutcome) => Promise<void>)
     | undefined;
@@ -3767,16 +3773,53 @@ export async function runKeeperPass(
     privateTargetBlock !== undefined &&
     submitted.length > 0
   ) {
-    const deadline = Date.now() + context.config.receiptTimeoutMs;
-    while (
-      (await context.publicClient.getBlockNumber()) <
-        privateTargetBlock &&
-      Date.now() < deadline
-    ) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, context.config.blockPollMs),
+    const targetBlockWaitStartedAt = performance.now();
+    let targetHeadSource = "http_poll";
+    if (context.waitForTargetBlock !== undefined) {
+      targetHeadSource = "websocket";
+      const observed = await context.waitForTargetBlock(
+        privateTargetBlock,
+        Math.min(
+          context.config.receiptTimeoutMs,
+          context.config.headStaleTimeoutMs,
+        ),
       );
+      if (!observed) {
+        throw new Error(
+          `target block ${privateTargetBlock} was not observed by the head subscription`,
+        );
+      }
+    } else {
+      const deadline =
+        Date.now() + context.config.receiptTimeoutMs;
+      while (
+        (await context.publicClient.getBlockNumber()) <
+          privateTargetBlock &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, context.config.blockPollMs),
+        );
+      }
     }
+    const targetBlockRead = await retryTransientRead({
+      read: () =>
+        context.publicClient.getBlock({
+          blockNumber: privateTargetBlock,
+        }),
+      shouldRetry: isBlockNotFound,
+      maxAttempts: 11,
+      retryDelayMs: 100,
+    });
+    log("info", "bundle_stage_timing", {
+      stage: "target_block_availability",
+      durationMs:
+        performance.now() - targetBlockWaitStartedAt,
+      targetBlock: privateTargetBlock.toString(),
+      targetHeadSource,
+      blockReadAttempts: targetBlockRead.attempts,
+      blockAvailabilityWaitMs: targetBlockRead.waitedMs,
+    });
   }
 
   const receiptResults = await Promise.all(

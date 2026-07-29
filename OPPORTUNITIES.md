@@ -223,6 +223,17 @@ Private target-block receipt waiting is now conditional on at least one
 submitted transaction, so an economically rejected quote returns immediately
 and the next head remains available for replanning.
 
+The adjacent round-277 pull miss exposed latency after a real submission. All
+four relay paths accepted the bundle within `263 ms`, but the pass lasted
+`18.47 seconds`: the WebSocket observed target block `25639689` at
+`16:28:49.868Z`, while the lagging HTTP block-number loop did not expire the
+private attempt until `16:28:57.026Z`. Private receipt finalization now wakes
+from the same strict WebSocket head signal as planning, then requires the
+authoritative HTTP endpoint to serve that exact target block before reading
+receipts. The exact-block gate retries only classified `BlockNotFound`; it
+does not switch the target block or provider. This removes polling latency
+without adding another head implementation.
+
 Next actions, in order:
 
 1. Move Liquity discovery to a conservative near-MCR background watchlist,
