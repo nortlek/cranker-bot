@@ -914,7 +914,7 @@ function poolJob(parameters: {
   };
 }
 
-function fwaProcessJob(parameters: {
+export function fwaProcessJob(parameters: {
   readonly fwa: Address;
   readonly gas: bigint;
   readonly count: bigint;
@@ -931,7 +931,21 @@ function fwaProcessJob(parameters: {
     gas: parameters.gas,
     reward: { kind: "fixed", amountWei: 0n },
     poolBuilderBidPolicy: "pool_ready",
+    requiresBundleSimulation: true,
   };
+}
+
+export function exactSimulationPlanIsAdmissible(parameters: {
+  readonly jobs: readonly KeeperJob[];
+  readonly minimumViablePrefix: number;
+}): boolean {
+  return (
+    parameters.minimumViablePrefix >= 1 &&
+    parameters.minimumViablePrefix <= parameters.jobs.length &&
+    parameters.jobs.some(
+      (job) => job.requiresBundleSimulation === true,
+    )
+  );
 }
 
 async function estimatePoolCall(parameters: {
@@ -1113,51 +1127,10 @@ async function planPrimaryJobs(parameters: {
           );
           return { jobs: [], minimumViablePrefix: 0 };
         }
-        const [processSimulation, processEstimate] =
-          await Promise.all([
-            client.simulateContract({
-              account,
-              address: fwa,
-              abi: fwaAbi,
-              functionName: "processAcquisitions",
-              args: [processCount],
-              ...(parameters.blockNumber === undefined
-                ? {}
-                : { blockNumber: parameters.blockNumber }),
-            }),
-            client.estimateContractGas({
-              account,
-              address: fwa,
-              abi: fwaAbi,
-              functionName: "processAcquisitions",
-              args: [processCount],
-              ...(parameters.blockNumber === undefined
-                ? {}
-                : { blockNumber: parameters.blockNumber }),
-            }),
-          ]);
-        if (processSimulation.result < processCount) {
-          incrementReason(
-            skipped,
-            "fwa_process_incomplete_window",
-          );
-          return { jobs: [], minimumViablePrefix: 0 };
-        }
-        const processGas = bufferedGas(
-          processEstimate,
-          config.gasLimitMultiplierBps,
-        );
-        if (processGas > config.fwaProcessGasLimit) {
-          incrementReason(
-            skipped,
-            "fwa_process_gas_above_limit",
-          );
-          return { jobs: [], minimumViablePrefix: 0 };
-        }
         const jobs = [
           fwaProcessJob({
             fwa,
-            gas: processGas,
+            gas: config.fwaProcessGasLimit,
             count: processCount,
           }),
           poolJob({
@@ -3072,9 +3045,12 @@ async function planJobs(parameters: {
       round: lifecycleRound,
     });
     const profit = primaryProfit(lifecyclePrimary);
+    const exactSimulationDeferred =
+      exactSimulationPlanIsAdmissible(lifecyclePrimary);
     if (
       lifecyclePrimary.jobs.length > 0 &&
-      profit >= requiredProfit(parameters.config.minProfitWei)
+      (exactSimulationDeferred ||
+        profit >= requiredProfit(parameters.config.minProfitWei))
     ) {
       const enriched =
         routing.fundingRoundId === undefined
@@ -3099,6 +3075,7 @@ async function planJobs(parameters: {
         jobs: enriched.jobs.length,
         baseJobs: lifecyclePrimary.jobs.length,
         fundingEnriched: enriched.enriched,
+        exactSimulationDeferred,
         ...(enriched.reason === undefined
           ? {}
           : { fundingFallback: enriched.reason }),
@@ -3279,7 +3256,10 @@ async function planJobs(parameters: {
   for (const primary of [lifecyclePrimary, fundingPrimary]) {
     if (primary === undefined || primary.jobs.length === 0) continue;
     const profit = primaryProfit(primary);
-    if (profit >= requiredProfit(parameters.config.minProfitWei)) {
+    if (
+      exactSimulationPlanIsAdmissible(primary) ||
+      profit >= requiredProfit(parameters.config.minProfitWei)
+    ) {
       alternatives.push({
         jobs: primary.jobs,
         minimumViablePrefix: primary.minimumViablePrefix,
@@ -3662,7 +3642,10 @@ export async function runKeeperPass(
     minimumViablePrefix: plan.minimumViablePrefix,
     minProfitWei: context.config.minProfitWei,
   });
-  const planProfitable = estimatedPrefix !== undefined;
+  const exactSimulationDeferred =
+    exactSimulationPlanIsAdmissible(plan);
+  const planProfitable =
+    exactSimulationDeferred || estimatedPrefix !== undefined;
   if (plan.jobs.length > 0) {
     log(planProfitable ? "info" : "warn", "keeper_plan_economics", {
       jobs: plan.jobs.length,
@@ -3678,6 +3661,8 @@ export async function runKeeperPass(
       exactSimulationDeferredJobs: plan.jobs.filter(
         (job) => job.requiresBundleSimulation,
       ).length,
+      economicsDeferredToExactSimulation:
+        exactSimulationDeferred,
       accepted: planProfitable,
     });
     if (!planProfitable) {

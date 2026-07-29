@@ -6,6 +6,8 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  exactSimulationPlanIsAdmissible,
+  fwaProcessJob,
   highestPositiveClaimableIndexes,
   isFreshBlockReadUnavailable,
   isFreshBlockStateUnavailable,
@@ -129,6 +131,69 @@ describe("resolvePlanningHead", () => {
       "does not match planning block",
     );
     expect(readExactBlock).not.toHaveBeenCalled();
+  });
+});
+
+describe("exact-simulation lifecycle admission", () => {
+  const fixedJob = {
+    kind: "standing_order" as const,
+    label: "fixed",
+    target: POOL,
+    data: "0x" as const,
+    gas: 100n,
+    reward: {
+      kind: "fixed" as const,
+      amountWei: 1n,
+    },
+  };
+
+  it("marks FWA processing for mandatory exact bundle simulation", () => {
+    expect(
+      fwaProcessJob({
+        fwa: POOL,
+        gas: 16_777_216n,
+        count: 5n,
+      }),
+    ).toMatchObject({
+      kind: "fwa_process",
+      gas: 16_777_216n,
+      requiresBundleSimulation: true,
+    });
+  });
+
+  it("admits a dependency-safe deferred plan without static gas economics", () => {
+    expect(
+      exactSimulationPlanIsAdmissible({
+        jobs: [
+          {
+            ...fixedJob,
+            requiresBundleSimulation: true,
+          },
+          fixedJob,
+        ],
+        minimumViablePrefix: 2,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not bypass economics for ordinary or invalid prefixes", () => {
+    expect(
+      exactSimulationPlanIsAdmissible({
+        jobs: [fixedJob],
+        minimumViablePrefix: 1,
+      }),
+    ).toBe(false);
+    expect(
+      exactSimulationPlanIsAdmissible({
+        jobs: [
+          {
+            ...fixedJob,
+            requiresBundleSimulation: true,
+          },
+        ],
+        minimumViablePrefix: 2,
+      }),
+    ).toBe(false);
   });
 });
 
