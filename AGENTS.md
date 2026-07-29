@@ -97,6 +97,13 @@ fail-closed. The worker verifies the exact lock before each live pass and
 immediately before submission; a lost lease stops the signer. Live mode
 requires `DATABASE_URL`. Telemetry after startup is fail-open.
 
+`WS_URL`, when configured, supplies the production `newHeads` wake-up.
+`RPC_URL` remains authoritative: the keeper fetches and pins the exact observed
+block over HTTP. HTTP also asserts subscription liveness after
+`HEAD_STALE_TIMEOUT_MS`; if the chain advanced without a subscribed head, the
+worker exits for a supervised restart instead of silently degrading to a
+second head path. Never print either endpoint.
+
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
 deploy the exact local committed source with the Railway CLI.
@@ -374,10 +381,12 @@ These constraints prevent expensive or unsafe regressions:
   If so, the minimum viable prefix must include every call needed for the
   aggregate profit. Never submit a subsidized crank by itself.
 - Explicit contiguous nonces are assigned only when `latest == pending`.
-- `eth_blockNumber` selects the planning head. Fetch that exact block number
-  and pin core pool, lifecycle, order/vault, and prefilter reads to it; never
-  substitute a later `"latest"` response. Discard the plan if the head changes
-  before nonce gating, and never submit after its target block arrives.
+- A WebSocket `newHeads` event selects the planning head when configured;
+  otherwise `eth_blockNumber` does. Fetch that exact block number over the
+  authoritative HTTP RPC and pin core pool, lifecycle, order/vault, and
+  prefilter reads to it; never substitute a later `"latest"` response. Discard
+  the plan if the head changes before nonce gating, and never submit after its
+  target block arrives.
 - The exact signed bundle and every economically safe prefix are simulated
   before submission.
 - Private one-block bundles are the default. A missed bundle expires and must

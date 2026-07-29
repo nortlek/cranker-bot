@@ -118,8 +118,11 @@ Each new block, the keeper:
    next bid. A missed bundle expires instead of entering the public mempool.
 
 Candidate gas estimates run with bounded concurrency and retain fee-ranked
-ordering. The block loop polls every 250 ms by default, so slow per-order RPC
-round trips no longer serialize the critical path.
+ordering. When `WS_URL` is configured, a `newHeads` subscription wakes the
+block loop immediately; the HTTP client then fetches and pins that exact block
+for authoritative planning. If an HTTP liveness assertion proves that the
+subscription missed a head, the process exits for a supervised restart rather
+than silently switching to a second head path.
 
 `lastRoundBought` and the pool's state remain the authoritative replay
 protection. A new batch starts only when the keeper account has no existing
@@ -209,6 +212,7 @@ gas:
 
 ```dotenv
 RPC_URL=https://your-reliable-mainnet-rpc.example
+WS_URL=wss://your-low-latency-mainnet-rpc.example
 PRIVATE_KEY=0x...
 DRY_RUN=false
 RUN_ONCE=false
@@ -293,6 +297,12 @@ successful `crank` fees are sent to that keeper address.
   bundles. It defaults to zero because `POOL_BUILDER_BID_BPS` already creates
   the intended builder payment.
 - `SIMULATION_CONCURRENCY`: maximum simultaneous per-order gas estimates.
+- `WS_URL`: optional WSS `newHeads` source used to wake the loop. All
+  authoritative state, simulations, nonce gates, and staleness checks remain
+  on the exact block fetched through `RPC_URL`.
+- `HEAD_STALE_TIMEOUT_MS`: maximum wait for a subscribed head before HTTP is
+  consulted as a liveness assertion. If HTTP has advanced, the subscription is
+  treated as broken and the worker exits for a supervised restart.
 - `DISCOVERY_RPC_URLS`: independent read-only fallback endpoints for bulk
   opportunity research so large scans cannot delay the production keeper loop.
   The singular `DISCOVERY_RPC_URL` remains supported as an override and is
@@ -300,7 +310,8 @@ successful `crank` fees are sent to that keeper address.
   and final simulations remain on `RPC_URL`.
 - `DISCOVERY_CONCURRENCY` and `DISCOVERY_VAULT_CHUNK_SIZE`: bound RPC pressure
   from the Maker vault inspector invoked with `npm run inspect:maker-barks`.
-- `BLOCK_POLL_MS`: new-head polling interval.
+- `BLOCK_POLL_MS`: new-head polling interval when `WS_URL` is absent and retry
+  delay after a failed planning pass.
 - `ENABLE_POOL_LIFECYCLE`: enables paid PullPool lifecycle calls.
 - `ENABLE_BUYBACK`: enables the conditional FWAToken buyback caller reward.
 - `ENABLE_LIVE_BID_SWEEP`: enables the independently paid LiveBidAdapter

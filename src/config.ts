@@ -19,6 +19,8 @@ import {
 export interface KeeperConfig {
   readonly rpcUrl: string;
   readonly discoveryRpcUrl: string;
+  readonly headRpcUrl: string | undefined;
+  readonly headStaleTimeoutMs: number;
   readonly submissionMode: "flashbots" | "public";
   readonly flashbotsRelayUrls: readonly string[];
   readonly flashbotsBuilders: readonly string[];
@@ -221,6 +223,21 @@ function databaseUrlEnv(): string | undefined {
   return raw;
 }
 
+function headRpcUrlEnv(): string | undefined {
+  const raw = process.env.WS_URL?.trim();
+  if (raw === undefined || raw === "") return undefined;
+  let protocol: string;
+  try {
+    protocol = new URL(raw).protocol;
+  } catch {
+    throw new Error("WS_URL must be a WebSocket URL");
+  }
+  if (protocol !== "wss:") {
+    throw new Error("WS_URL must use WSS");
+  }
+  return raw;
+}
+
 export function loadConfig(): KeeperConfig {
   const rpcUrl =
     process.env.RPC_URL || "https://ethereum-rpc.publicnode.com";
@@ -353,6 +370,7 @@ export function loadConfig(): KeeperConfig {
   return {
     rpcUrl,
     discoveryRpcUrl,
+    headRpcUrl: headRpcUrlEnv(),
     submissionMode,
     flashbotsRelayUrls: relayUrlsEnv(),
     flashbotsBuilders: flashbotsBuildersEnv(),
@@ -632,6 +650,10 @@ export function loadConfig(): KeeperConfig {
     blockPollMs: integerEnv("BLOCK_POLL_MS", 250, {
       min: 100,
       max: 60_000,
+    }),
+    headStaleTimeoutMs: integerEnv("HEAD_STALE_TIMEOUT_MS", 30_000, {
+      min: 10_000,
+      max: 300_000,
     }),
     confirmations: integerEnv("CONFIRMATIONS", 1, { min: 1, max: 64 }),
     receiptTimeoutMs: integerEnv("RECEIPT_TIMEOUT_MS", 180_000, {

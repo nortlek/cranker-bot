@@ -76,19 +76,20 @@ minimum expected profit of `0.00069927 ETH` and a median of
 
 ### P0 — Replace polling and synchronous full scans on the hot path
 
-Status: first hot-path reduction and phase telemetry implemented; deploy and
-measure before the head-loop refactor.
+Status: exact-head prefiltering, phase telemetry, and the strict WebSocket head
+path are implemented; event-maintained registries are next.
 
 The worker is network-bound, not compute-bound:
 
 - Railway usage averaged about `0.019 vCPU` and `0.276 GB` RAM.
 - Head-to-submission was p50 `2.01 seconds` and p90 `3.10 seconds`.
-- Production polls every `2,000 ms`. Block timestamp age is not publication
-  latency: a controlled 12-sample comparison found the public and authenticated
-  endpoints on the same head in every sample. The authenticated endpoint had a
-  faster standalone `getBlock` p50 (`80 ms` versus `125 ms`) but was slower in
-  three full planning passes (`2.56 seconds` versus `2.36 seconds`), so the
-  public endpoint remains primary.
+- Before the WebSocket change, production polled every `2,000 ms`. Block
+  timestamp age is not publication latency: a controlled 12-sample comparison
+  found the public and authenticated endpoints on the same head in every
+  sample. The authenticated endpoint had a faster standalone `getBlock` p50
+  (`80 ms` versus `125 ms`) but was slower in three full planning passes
+  (`2.56 seconds` versus `2.36 seconds`), so the public HTTP endpoint remains
+  authoritative.
 - Production discovery traffic is now separated onto the authenticated
   endpoint instead of sharing the latency-sensitive primary endpoint.
 - A read-only pass took `2.61 seconds` with every lane, `1.81 seconds` without
@@ -121,19 +122,26 @@ fetched is retried; a plan is discarded if a newer head exists before nonce
 gating, and a bundle is discarded if its target block arrives before relay
 submission.
 
+`WS_URL` now drives the production head wake-up while the public HTTP endpoint
+continues to fetch authoritative exact blocks and perform every simulation and
+staleness check. This is deliberately not a silent polling fallback: after
+`HEAD_STALE_TIMEOUT_MS`, HTTP asserts liveness; if it proves the chain advanced
+without a subscribed head, the worker exits for Railway to restart it. A local
+three-head validation observed the subscribed heads and began their planning
+passes in the same millisecond; `RUN_ONCE` and explicit shutdown both closed
+the shared viem socket client without leaving a process behind.
+
 Next actions, in order:
 
-1. Add a dedicated low-latency WebSocket `newHeads` source with polling
-   fallback and a separate discovery endpoint.
-2. Replace per-pass factory enumeration with an event-maintained order/vault
+1. Replace per-pass factory enumeration with an event-maintained order/vault
    registry; retain the new exact-head balance/round prefilter.
-3. Refresh Convex, Liquity, and other cold scans on separate cadences and
+2. Refresh Convex, Liquity, and other cold scans on separate cadences and
    revalidate only their best cached candidates at the exact head.
-4. Move receipt finalization, competitor tracing, and adaptive-bid persistence
+3. Move receipt finalization, competitor tracing, and adaptive-bid persistence
    behind a bounded observer queue so the signer can process the next head.
 
-Do not lower `BLOCK_POLL_MS` in isolation until RPC request volume and
-publication lag are measured from the production region.
+Do not add another head provider or polling path without measured evidence.
+The HTTP liveness assertion is a watchdog, not a second head selector.
 
 ### P1 — Add correlated, typed attempt and outcome telemetry
 

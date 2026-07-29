@@ -6,6 +6,7 @@ import {
   getAddress,
   http,
   keccak256,
+  webSocket,
   type Account,
   type Address,
 } from "viem";
@@ -39,6 +40,7 @@ import {
   setLogSink,
   withLogContext,
 } from "./format.js";
+import { LatestHeadSignal } from "./heads.js";
 import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
   estimatedJobReward,
@@ -73,11 +75,21 @@ let telemetrySink: BatchedEventSink | undefined;
 let signerLease: SignerLease | undefined;
 let adaptiveBidController: AdaptiveBidController | undefined;
 let signerLeaseFailure: Error | undefined;
+let closeHeadSubscription: (() => Promise<void>) | undefined;
 
 class SignerLeaseLostError extends Error {
   constructor(cause: unknown) {
     super(`signer lease lost: ${errorMessage(cause)}`, { cause });
     this.name = "SignerLeaseLostError";
+  }
+}
+
+class HeadSubscriptionStaleError extends Error {
+  constructor(lastObservedBlock: bigint, currentHttpBlock: bigint) {
+    super(
+      `head subscription stalled at ${lastObservedBlock}; HTTP reached ${currentHttpBlock}`,
+    );
+    this.name = "HeadSubscriptionStaleError";
   }
 }
 
@@ -102,6 +114,7 @@ async function assertSignerLeaseHeld(): Promise<void> {
 async function closeRuntimeResources(): Promise<void> {
   try {
     await Promise.all([
+      closeHeadSubscription?.(),
       adaptiveBidController?.close(),
       telemetrySink?.close(),
       discordNotifier?.flush(),
@@ -202,6 +215,56 @@ async function main(): Promise<void> {
             timeout: 20_000,
           }),
         });
+  const headSignal = new LatestHeadSignal();
+  if (config.headRpcUrl !== undefined) {
+    const headTransport = webSocket(config.headRpcUrl, {
+      timeout: 10_000,
+      reconnect: {
+        attempts: 10,
+        delay: 500,
+      },
+    });
+    const headClient = createPublicClient({
+      chain: mainnet,
+      transport: headTransport,
+    });
+    const unwatch = headClient.watchBlocks({
+      poll: false,
+      onBlock: (block) => {
+        headSignal.observe(block.number);
+        log("debug", "head_subscription_observed", {
+          block: block.number.toString(),
+          blockHash: block.hash,
+          headTimestamp: block.timestamp.toString(),
+          headAgeMs:
+            Date.now() - Number(block.timestamp) * 1_000,
+        });
+      },
+      onError: (error) => {
+        log("warn", "head_subscription_failed", {
+          errorClass: relayFailureClass(errorMessage(error)),
+          action: "reconnecting_or_watchdog_restart",
+        });
+      },
+    });
+    let headSubscriptionClosed = false;
+    closeHeadSubscription = async (): Promise<void> => {
+      if (headSubscriptionClosed) return;
+      headSubscriptionClosed = true;
+      unwatch();
+      headSignal.close();
+      try {
+        const rpcClient = await headClient.transport.getRpcClient();
+        rpcClient.close();
+      } catch {
+        // The socket may already be closed after a failed subscription.
+      }
+    };
+    log("info", "head_subscription_started", {
+      transport: "websocket",
+      staleTimeoutMs: config.headStaleTimeoutMs,
+    });
+  }
   const chainId = await publicClient.getChainId();
   if (chainId !== CHAIN_ID) {
     throw new Error(`expected Ethereum mainnet chain id 1, received ${chainId}`);
@@ -923,14 +986,50 @@ async function main(): Promise<void> {
   let stopping = false;
   const stop = (): void => {
     stopping = true;
+    headSignal.close();
   };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
 
   let lastProcessedBlock = -1n;
   do {
+    let passFailed = false;
     try {
-      const block = await publicClient.getBlockNumber();
+      let subscribedBlock =
+        headSignal.latestAfter(lastProcessedBlock);
+      if (
+        config.headRpcUrl !== undefined &&
+        lastProcessedBlock >= 0n &&
+        subscribedBlock === undefined
+      ) {
+        const observed = await headSignal.waitForNewer(
+          lastProcessedBlock,
+          config.headStaleTimeoutMs,
+        );
+        if (stopping) break;
+        subscribedBlock =
+          headSignal.latestAfter(lastProcessedBlock);
+        if (!observed || subscribedBlock === undefined) {
+          const currentHttpBlock =
+            await publicClient.getBlockNumber();
+          if (currentHttpBlock > lastProcessedBlock) {
+            throw new HeadSubscriptionStaleError(
+              lastProcessedBlock,
+              currentHttpBlock,
+            );
+          }
+          continue;
+        }
+      }
+      const block =
+        subscribedBlock ??
+        (await publicClient.getBlockNumber());
+      const headSource =
+        subscribedBlock !== undefined
+          ? "websocket"
+          : config.headRpcUrl !== undefined
+            ? "initial_http"
+            : "poll";
       if (block !== lastProcessedBlock) {
         const passId = randomUUID();
         const passStartedAt = performance.now();
@@ -938,6 +1037,7 @@ async function main(): Promise<void> {
           {
             passId,
             observedBlock: block.toString(),
+            headSource,
           },
           async () => {
             log("debug", "new_block", { block: block.toString() });
@@ -974,10 +1074,24 @@ async function main(): Promise<void> {
         });
         throw error;
       }
+      if (error instanceof HeadSubscriptionStaleError) {
+        log("error", "head_subscription_stale", {
+          reason: error.message,
+          action: "restarting_worker",
+        });
+        throw error;
+      }
+      passFailed = true;
       log("error", "keeper_pass_failed", { reason: errorMessage(error) });
       if (config.runOnce) throw error;
     }
-    if (!stopping) await sleep(config.blockPollMs);
+    if (!stopping) {
+      if (passFailed) {
+        await sleep(config.blockPollMs);
+      } else if (config.headRpcUrl === undefined) {
+        await sleep(config.blockPollMs);
+      }
+    }
   } while (!stopping);
 
   log("info", "keeper_stopped");
