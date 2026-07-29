@@ -9,13 +9,14 @@ Last updated: 2026-07-28 (America/Denver)
 
 ## Current objective and snapshot
 
-Objective: reach at least $10 of verified net realized profit by
-2026-07-29 23:59 America/Denver.
+Objective: reach at least $50 cumulative verified net realized profit by
+2026-07-30 23:59 America/Denver, measured from the original baseline and fully
+net of gas, builder payments, and other fees. The initial $10 goal was achieved
+at `$11.35632645`.
 
-The last verified snapshot was approximately **$7.47 net**, or **74.7%** of the
-goal, with `latest == pending == 143`. The lower USD value versus the preceding
-snapshot is primarily the live ETH/USD conversion; net ETH equivalent was
-approximately `0.00397059`. This is stale immediately after any transaction.
+The last verified snapshot was approximately **$21.14 net**, or **42.3%** of
+the active goal, with `latest == pending == 163` and net ETH equivalent of
+approximately `0.01116625`. This is stale immediately after any transaction.
 Re-run:
 
 ```bash

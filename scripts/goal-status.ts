@@ -5,6 +5,7 @@ import {
   getAddress,
   http,
   parseAbi,
+  parseUnits,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
@@ -16,7 +17,11 @@ import {
 } from "../src/constants.js";
 
 const BASELINE_ETH = 11_476_458_190_761_693n;
-const GOAL_USD_8 = 10n * 100_000_000n;
+const GOAL_USD = process.env.PROFIT_GOAL_USD ?? "50";
+const GOAL_DEADLINE =
+  process.env.PROFIT_GOAL_DEADLINE ??
+  "2026-07-30T23:59:00-06:00";
+const GOAL_USD_8 = parseUnits(GOAL_USD, 8);
 const WETH = getAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
 const DAI = getAddress("0x6B175474E89094C44Da98b954EedeAC495271d0F");
 const CRV = getAddress("0xD533a949740bb3306d119CC777fa900bA034cd52");
@@ -38,6 +43,9 @@ const chainlinkAbi = parseAbi([
 ]);
 
 async function main(): Promise<void> {
+  if (GOAL_USD_8 <= 0n) {
+    throw new Error("PROFIT_GOAL_USD must be positive");
+  }
   const config = loadConfig();
   if (config.privateKey === undefined) {
     throw new Error("PRIVATE_KEY is required");
@@ -155,6 +163,7 @@ async function main(): Promise<void> {
       cvxUsd: formatUnits(cvxRound[1], 8),
       netUsd: formatUnits(netUsd8, 8),
       goalUsd: formatUnits(GOAL_USD_8, 8),
+      goalDeadline: GOAL_DEADLINE,
       progressBps: ((netUsd8 * 10_000n) / GOAL_USD_8).toString(),
       latestNonce,
       pendingNonce,
