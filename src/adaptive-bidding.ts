@@ -21,6 +21,16 @@ export interface AdaptiveBidState {
   readonly lastUpdatedBlock?: bigint;
 }
 
+export interface AdaptiveBidPersistence {
+  load(
+    policy: AdaptiveBidPolicy,
+  ): Promise<Map<string, AdaptiveBidState>>;
+  save(
+    states: ReadonlyMap<string, AdaptiveBidState>,
+  ): Promise<void>;
+  close(): Promise<void>;
+}
+
 export type AdaptiveBidOutcome =
   | {
       readonly kind: "full_win";
@@ -179,29 +189,21 @@ function deserializeOrderState(
   };
 }
 
-export class AdaptiveBidController {
-  readonly #policy: AdaptiveBidPolicy;
+class FileAdaptiveBidPersistence
+  implements AdaptiveBidPersistence
+{
   readonly #statePath: string;
-  readonly #states: Map<string, AdaptiveBidState>;
 
-  private constructor(
-    policy: AdaptiveBidPolicy,
-    statePath: string,
-    states: Map<string, AdaptiveBidState>,
-  ) {
-    this.#policy = policy;
+  constructor(statePath: string) {
     this.#statePath = resolve(statePath);
-    this.#states = states;
   }
 
-  static async load(
+  async load(
     policy: AdaptiveBidPolicy,
-    statePath: string,
-  ): Promise<AdaptiveBidController> {
-    const resolvedPath = resolve(statePath);
+  ): Promise<Map<string, AdaptiveBidState>> {
     const states = new Map<string, AdaptiveBidState>();
     try {
-      const source = await readFile(resolvedPath, "utf8");
+      const source = await readFile(this.#statePath, "utf8");
       const parsed = JSON.parse(source) as unknown;
       if (
         typeof parsed !== "object" ||
@@ -229,7 +231,84 @@ export class AdaptiveBidController {
         throw error;
       }
     }
-    return new AdaptiveBidController(policy, resolvedPath, states);
+    return states;
+  }
+
+  async save(
+    states: ReadonlyMap<string, AdaptiveBidState>,
+  ): Promise<void> {
+    const orders: Record<string, SerializedOrderBidState> = {};
+    for (const [order, state] of states) {
+      orders[order] = {
+        currentBidBps: state.currentBidBps.toString(),
+        consecutiveFullWins: state.consecutiveFullWins,
+        ...(state.lastObservedWinningBidBps === undefined
+          ? {}
+          : {
+              lastObservedWinningBidBps:
+                state.lastObservedWinningBidBps.toString(),
+            }),
+        ...(state.lastUpdatedBlock === undefined
+          ? {}
+          : {
+              lastUpdatedBlock: state.lastUpdatedBlock.toString(),
+            }),
+      };
+    }
+    const serialized: SerializedAdaptiveBidState = {
+      version: 2,
+      orders,
+    };
+    await mkdir(dirname(this.#statePath), { recursive: true });
+    const temporaryPath = `${this.#statePath}.${process.pid}.tmp`;
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify(serialized)}\n`,
+      { mode: 0o600 },
+    );
+    await rename(temporaryPath, this.#statePath);
+  }
+
+  async close(): Promise<void> {
+    // File persistence does not hold open resources.
+  }
+}
+
+export class AdaptiveBidController {
+  readonly #policy: AdaptiveBidPolicy;
+  readonly #persistence: AdaptiveBidPersistence;
+  readonly #states: Map<string, AdaptiveBidState>;
+
+  private constructor(
+    policy: AdaptiveBidPolicy,
+    persistence: AdaptiveBidPersistence,
+    states: Map<string, AdaptiveBidState>,
+  ) {
+    this.#policy = policy;
+    this.#persistence = persistence;
+    this.#states = states;
+  }
+
+  static async load(
+    policy: AdaptiveBidPolicy,
+    statePath: string,
+  ): Promise<AdaptiveBidController> {
+    return AdaptiveBidController.loadWithPersistence(
+      policy,
+      new FileAdaptiveBidPersistence(statePath),
+    );
+  }
+
+  static async loadWithPersistence(
+    policy: AdaptiveBidPolicy,
+    persistence: AdaptiveBidPersistence,
+  ): Promise<AdaptiveBidController> {
+    const states = await persistence.load(policy);
+    return new AdaptiveBidController(
+      policy,
+      persistence,
+      states,
+    );
   }
 
   currentBidBps(order: string): bigint {
@@ -268,7 +347,7 @@ export class AdaptiveBidController {
       this.#states.set(key, adjustment.state);
       return { ...adjustment, order };
     });
-    await this.#persist();
+    await this.#persistence.save(this.#states);
     return adjustments;
   }
 
@@ -285,36 +364,7 @@ export class AdaptiveBidController {
     return adjustment;
   }
 
-  async #persist(): Promise<void> {
-    const orders: Record<string, SerializedOrderBidState> = {};
-    for (const [order, state] of this.#states) {
-      orders[order] = {
-        currentBidBps: state.currentBidBps.toString(),
-        consecutiveFullWins: state.consecutiveFullWins,
-        ...(state.lastObservedWinningBidBps === undefined
-          ? {}
-          : {
-              lastObservedWinningBidBps:
-                state.lastObservedWinningBidBps.toString(),
-            }),
-        ...(state.lastUpdatedBlock === undefined
-          ? {}
-          : {
-              lastUpdatedBlock: state.lastUpdatedBlock.toString(),
-            }),
-      };
-    }
-    const serialized: SerializedAdaptiveBidState = {
-      version: 2,
-      orders,
-    };
-    await mkdir(dirname(this.#statePath), { recursive: true });
-    const temporaryPath = `${this.#statePath}.${process.pid}.tmp`;
-    await writeFile(
-      temporaryPath,
-      `${JSON.stringify(serialized)}\n`,
-      { mode: 0o600 },
-    );
-    await rename(temporaryPath, this.#statePath);
+  async close(): Promise<void> {
+    await this.#persistence.close();
   }
 }

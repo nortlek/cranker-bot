@@ -192,6 +192,9 @@ for the signer. A replacement Railway deployment waits for the previous
 instance to stop before it begins chain work, preventing rollout overlap from
 racing the same account nonce. Database telemetry remains fail-open after
 startup, but failure to acquire the signer lease is deliberately fail-closed.
+Per-order adaptive builder bids are also stored in PostgreSQL when it is
+configured, so learned competition prices survive Railway's ephemeral
+filesystem and subsequent deployments.
 
 For live execution, use a dedicated keeper EOA funded only with enough ETH for
 gas:

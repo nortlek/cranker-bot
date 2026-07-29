@@ -34,6 +34,7 @@ import {
   log,
   setLogSink,
 } from "./format.js";
+import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
   estimatedJobReward,
   runKeeperPass,
@@ -66,11 +67,18 @@ async function sleep(milliseconds: number): Promise<void> {
 let discordNotifier: DiscordWebhookNotifier | undefined;
 let telemetrySink: BatchedEventSink | undefined;
 let signerLease: SignerLease | undefined;
+let adaptiveBidController: AdaptiveBidController | undefined;
 
 async function closeRuntimeResources(): Promise<void> {
-  await telemetrySink?.close();
-  await discordNotifier?.flush();
-  await signerLease?.release();
+  try {
+    await Promise.all([
+      adaptiveBidController?.close(),
+      telemetrySink?.close(),
+      discordNotifier?.flush(),
+    ]);
+  } finally {
+    await signerLease?.release();
+  }
 }
 
 async function main(): Promise<void> {
@@ -120,20 +128,30 @@ async function main(): Promise<void> {
       reason: "DATABASE_URL is not configured",
     });
   }
-  const adaptiveBidController =
+  if (
     config.adaptiveBidding &&
     config.submissionMode === "flashbots"
-      ? await AdaptiveBidController.load(
-          {
-            baselineBidBps: config.builderBidBps,
-            maximumBidBps: config.adaptiveBidMaxBps,
-            lossStepBps: config.adaptiveBidStepBps,
-            winDecayBps: config.adaptiveBidDecayBps,
-            winsBeforeDecay: config.adaptiveBidWinStreak,
-          },
-          config.adaptiveBidStatePath,
-        )
-      : undefined;
+  ) {
+    const policy = {
+      baselineBidBps: config.builderBidBps,
+      maximumBidBps: config.adaptiveBidMaxBps,
+      lossStepBps: config.adaptiveBidStepBps,
+      winDecayBps: config.adaptiveBidDecayBps,
+      winsBeforeDecay: config.adaptiveBidWinStreak,
+    };
+    adaptiveBidController =
+      config.databaseUrl === undefined
+        ? await AdaptiveBidController.load(
+            policy,
+            config.adaptiveBidStatePath,
+          )
+        : await AdaptiveBidController.loadWithPersistence(
+            policy,
+            new PostgresAdaptiveBidPersistence(
+              config.databaseUrl,
+            ),
+          );
+  }
   const publicClient = createPublicClient({
     chain: mainnet,
     transport: http(config.rpcUrl, {
@@ -519,6 +537,7 @@ async function main(): Promise<void> {
         };
       };
       if (adaptiveBidController !== undefined) {
+        const bidController = adaptiveBidController;
         observePrivateBatch = async (outcome) => {
           const includedCount = outcome.attempts.filter(
             (attempt) => attempt.included,
@@ -585,7 +604,7 @@ async function main(): Promise<void> {
           }
 
           const adjustments =
-            await adaptiveBidController.observeBatch(
+            await bidController.observeBatch(
               outcome.attempts.map((attempt) => {
                 const observedWinningBidBps =
                   observedBidsByOrder.get(

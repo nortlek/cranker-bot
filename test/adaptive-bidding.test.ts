@@ -8,7 +8,9 @@ import {
   AdaptiveBidController,
   adjustAdaptiveBid,
   initialAdaptiveBidState,
+  type AdaptiveBidPersistence,
   type AdaptiveBidPolicy,
+  type AdaptiveBidState,
 } from "../src/adaptive-bidding.js";
 
 const policy: AdaptiveBidPolicy = {
@@ -145,5 +147,57 @@ describe("adjustAdaptiveBid", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it("supports a durable persistence backend", async () => {
+    const saved = new Map<string, AdaptiveBidState>([
+      [
+        "0x0000000000000000000000000000000000000001",
+        {
+          currentBidBps: 8_700n,
+          consecutiveFullWins: 1,
+        },
+      ],
+    ]);
+    let closed = false;
+    const persistence: AdaptiveBidPersistence = {
+      load: async () => new Map(saved),
+      save: async (states) => {
+        saved.clear();
+        for (const [order, state] of states) {
+          saved.set(order, state);
+        }
+      },
+      close: async () => {
+        closed = true;
+      },
+    };
+    const controller =
+      await AdaptiveBidController.loadWithPersistence(
+        policy,
+        persistence,
+      );
+
+    expect(
+      controller.currentBidBps(
+        "0x0000000000000000000000000000000000000001",
+      ),
+    ).toBe(8_700n);
+    await controller.observe(
+      "0x0000000000000000000000000000000000000002",
+      {
+        kind: "miss",
+        blockNumber: 50n,
+        observedWinningBidBps: 8_800n,
+      },
+    );
+    expect(
+      saved.get(
+        "0x0000000000000000000000000000000000000002",
+      )?.currentBidBps,
+    ).toBe(8_825n);
+
+    await controller.close();
+    expect(closed).toBe(true);
   });
 });
