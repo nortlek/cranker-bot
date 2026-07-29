@@ -645,6 +645,23 @@ head's exact shortlist validation at `414 ms`. A representative whole planning
 pass fell from `1,688 ms` to `1,045 ms` (about 38%). These timings are now
 emitted once per pass as `keeper_planner_timing`.
 
+The next production sample showed that exact Convex shortlist validation had
+again become the dominant critical path: `0.77–1.59 seconds` across the first
+12 subscribed passes after the header-derived fee rollout. Durable telemetry
+found zero Convex opportunities, submissions, or receipts during the preceding
+24 hours, while a current 577-pool read-only scan found no profitable earmark;
+the best candidate remained about `0.000056998 ETH` net negative even at a
+`0.13800604 gwei` provider fee quote. The hot validator was serializing its
+32-gauge exact claimable multicall behind separate exact reads of the current
+staker, incentive, and price feeds. The complete background snapshot already
+binds its candidate claimables to the canonical staker, so hot planning now
+runs the exact claimable multicall concurrently with revalidating that staker,
+the live incentive, and both price feeds at the same exact head. A staker
+change invalidates only the snapshot that was actually used and skips the lane
+fail-closed; cached rewards, prices, gas, and calldata remain prohibited. This
+removes one sequential RPC phase without reducing the 32-pool candidate set or
+changing Convex economics.
+
 The first live WebSocket window also exposed cross-provider publication skew:
 three subscribed heads reached Alchemy before the public HTTP endpoint could
 serve the same numbered block, causing a full two-second pass retry. The

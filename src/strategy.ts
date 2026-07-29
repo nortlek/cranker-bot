@@ -8,6 +8,7 @@ import {
   getAddress,
   InvalidInputRpcError,
   InvalidParamsRpcError,
+  isAddressEqual,
   RpcRequestError,
   type Account,
   type Address,
@@ -369,6 +370,7 @@ interface ConvexPool {
 interface ConvexCandidateSnapshot {
   readonly requestedAtBlock: bigint;
   readonly poolsScanned: number;
+  readonly staker: Address;
   readonly pools: readonly ConvexPool[];
 }
 
@@ -487,6 +489,7 @@ async function loadConvexCandidateSnapshot(parameters: {
   return {
     requestedAtBlock: parameters.requestedAtBlock,
     poolsScanned: pools.length,
+    staker,
     pools: indexes.flatMap((index) => {
       const pool = pools[index];
       return pool === undefined ? [] : [pool];
@@ -1987,7 +1990,13 @@ async function planConvexEarmark(parameters: {
         ).toString(),
       candidates: pools.length,
     });
-    const [staker, incentiveBps, crvRound, ethRound] =
+    const [
+      staker,
+      incentiveBps,
+      crvRound,
+      ethRound,
+      claimableResults,
+    ] =
       await Promise.all([
         parameters.client.readContract({
           address: CONVEX_BOOSTER_ADDRESS,
@@ -2013,7 +2022,28 @@ async function planConvexEarmark(parameters: {
           functionName: "latestRoundData",
           blockNumber: parameters.headBlockNumber,
         }),
+        parameters.client.multicall({
+          allowFailure: true,
+          batchSize: 16_384,
+          blockNumber: parameters.headBlockNumber,
+          contracts: pools.map((pool) => ({
+            address: pool.gauge,
+            abi: curveGaugeAbi,
+            functionName: "claimable_tokens" as const,
+            args: [candidateSnapshot.staker] as const,
+          })),
+        }),
       ]);
+    if (!isAddressEqual(staker, candidateSnapshot.staker)) {
+      if (convexCandidateSnapshot === candidateSnapshot) {
+        convexCandidateSnapshot = undefined;
+      }
+      incrementReason(
+        parameters.skipped,
+        "convex_earmark_staker_changed",
+      );
+      return undefined;
+    }
     const crvUsd = crvRound[1];
     const ethUsd = ethRound[1];
     if (crvUsd <= 0n || ethUsd <= 0n) {
@@ -2023,17 +2053,6 @@ async function planConvexEarmark(parameters: {
       );
       return undefined;
     }
-    const claimableResults = await parameters.client.multicall({
-      allowFailure: true,
-      batchSize: 16_384,
-      blockNumber: parameters.headBlockNumber,
-      contracts: pools.map((pool) => ({
-        address: pool.gauge,
-        abi: curveGaugeAbi,
-        functionName: "claimable_tokens" as const,
-        args: [staker] as const,
-      })),
-    });
     const minimumPlausibleGas = 400_000n;
     const prefiltered = pools
       .flatMap((pool, index) => {
