@@ -63,6 +63,8 @@ const IMPORTANT_EVENTS = new Set([
   "keeper_transaction_sent",
   "signer_lease_acquired",
   "signer_lease_waiting",
+  "stakedao_curve_opportunity",
+  "stakedao_curve_scan_failed",
 ]);
 
 function directReport(entry: LogEntry): void {

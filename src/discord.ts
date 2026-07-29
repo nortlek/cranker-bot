@@ -42,6 +42,7 @@ const FAILURE_EVENTS = new Set([
   "nonce_batch_blocked",
   "signer_lease_disabled",
   "signer_lease_waiting",
+  "stakedao_curve_scan_failed",
   "telemetry_close_failed",
   "telemetry_queue_overflow",
   "telemetry_run_stop_failed",
@@ -152,6 +153,10 @@ export function buildDiscordEmbed(
           "Convex bid",
           `${compact(entry.configuredConvexBuilderBidBps)} bps`,
         ),
+        field(
+          "Stake DAO bid",
+          `${compact(entry.configuredStakeDaoBuilderBidBps)} bps`,
+        ),
       ],
     });
   }
@@ -206,12 +211,30 @@ export function buildDiscordEmbed(
         field("Block", entry.block),
         field("Gas used", entry.gasUsed),
         field("Reward", entry.paidReward),
+        ...(entry.paidTokenReward === undefined
+          ? []
+          : [field("Token reward", entry.paidTokenReward)]),
         field("Gas cost", entry.gasCost),
         field("P&L change", entry.realizedProfit),
         field(
           "Session realized P&L",
           `${formatEther(cumulativeRealizedPnlWei)} ETH`,
         ),
+      ],
+    });
+  }
+
+  if (entry.event === "stakedao_curve_opportunity") {
+    return commonEmbed(entry, {
+      title: "Stake DAO Curve harvest found",
+      color: COLOR.blue,
+      fields: [
+        field("Batch", entry.label, false),
+        field("Gauges", entry.gaugeCount),
+        field("Caller fee", entry.estimatedHarvesterFee),
+        field("Conservative value", entry.conservativeReward),
+        field("Gas limit", entry.gasLimit),
+        field("Submission", "Private Flashbots only"),
       ],
     });
   }

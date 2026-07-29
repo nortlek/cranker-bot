@@ -150,6 +150,17 @@ async function main(): Promise<void> {
       timeout: 20_000,
     }),
   });
+  const discoveryClient =
+    config.discoveryRpcUrl === config.rpcUrl
+      ? publicClient
+      : createPublicClient({
+          chain: mainnet,
+          transport: http(config.discoveryRpcUrl, {
+            retryCount: 3,
+            retryDelay: 500,
+            timeout: 20_000,
+          }),
+        });
   const chainId = await publicClient.getChainId();
   if (chainId !== CHAIN_ID) {
     throw new Error(`expected Ethereum mainnet chain id 1, received ${chainId}`);
@@ -337,6 +348,11 @@ async function main(): Promise<void> {
           ) {
             requestBidBps = config.convexBuilderBidBps;
             requestBidPolicy = "convex";
+          } else if (
+            request.kind === "stakedao_curve_harvest"
+          ) {
+            requestBidBps = config.stakeDaoBuilderBidBps;
+            requestBidPolicy = "stakedao_curve";
           } else {
             requestBidBps = config.builderBidBps;
             requestBidPolicy = "default";
@@ -451,6 +467,8 @@ async function main(): Promise<void> {
             config.liquityBuilderBidBps.toString(),
           configuredConvexBuilderBidBps:
             config.convexBuilderBidBps.toString(),
+          configuredStakeDaoBuilderBidBps:
+            config.stakeDaoBuilderBidBps.toString(),
           effectiveBuilderBidBps:
             quote.effectiveBuilderBidBps.toString(),
           builderPayment: eth(quote.builderPayment),
@@ -734,6 +752,8 @@ async function main(): Promise<void> {
       config.liquityBuilderBidBps.toString(),
     configuredConvexBuilderBidBps:
       config.convexBuilderBidBps.toString(),
+    configuredStakeDaoBuilderBidBps:
+      config.stakeDaoBuilderBidBps.toString(),
     poolMinPriorityFeePerGas: gwei(
       config.poolMinPriorityFeePerGas,
     ),
@@ -751,6 +771,8 @@ async function main(): Promise<void> {
     liquityLiquidations: config.enableLiquityLiquidations,
     convexEarmarks: config.enableConvexEarmarks,
     convexKicks: config.enableConvexKicks,
+    stakeDaoCurveHarvests:
+      config.enableStakeDaoCurveHarvests,
     liveBidAdapter: config.liveBidAdapterAddress,
     poolBountyEstimateBps:
       config.poolBountyEstimateBps.toString(),
@@ -774,6 +796,7 @@ async function main(): Promise<void> {
         log("debug", "new_block", { block: block.toString() });
         await runKeeperPass({
           publicClient,
+          discoveryClient,
           account,
           config,
           sendTransaction,

@@ -106,21 +106,39 @@ Acceptance:
 
 ### P1 — Reconstruct full FWA ready-cycle competition
 
-Status: needs investigation before changing the ready bid.
+Status: investigated and acted on.
 
-At round 167, a competitor directly called `processAcquisitions` with roughly
-766k gas and very little visible priority payment. That transaction alone is
-not enough to infer the competitor's total bid: associated sync/settle or
-wrapper transactions in the same block may include a direct beneficiary
-payment.
+The incumbent processor is not paying the public core-FWA cost. It calls the
+official `FWAVRFService` at
+`0xa084c33Fb7a467307452898b8D58165ebd2E5D9f`, whose allowlisted operator path
+reimburses acquisition gas. In block `25636032`, its processor received
+`0.000151422516 ETH` against about `0.000146243145 ETH` of transaction gas.
+The service exposed about `26.98 ETH` of available processor surplus at the
+time of inspection. Our keeper is not currently an authorized operator, so it
+must continue using the public core FWA path unless the service owner calls
+`setOperator(0xeAaf34AEaF4A10F9c5f5400E0bD6f9f5a8Ba2D48, true)`.
 
-Next action:
+The same competitor's pool wrapper collected the sync and settle bounties and
+paid the Titan beneficiary exactly 2.5% of gross, with no material priority
+fee. Our lost round-169 bundle offered 10%, so the primary problem was delivery
+or latency rather than an insufficient bid.
 
-- inspect every pool/FWA transaction in block `25635965`
-- associate process, sync, settle, and wrapper calls
-- inspect receipts and direct block-beneficiary transfers
-- compute bid as a share of the complete lifecycle reward
-- adjust `POOL_BUILDER_BID_BPS` only from the complete result
+Action taken:
+
+- added direct Titan and Beaver relay delivery alongside Flashbots and Quasar
+- retained the 10% ready-cycle policy while collecting more evidence
+- won the full round-171 and round-172
+  `processAcquisitions -> syncFwaResult -> settle` bundles in Titan-built
+  blocks, netting `0.001007735370452469 ETH` and
+  `0.000991136629002709 ETH` respectively after all gas
+- Titan's direct bundle tracer marked both full bundles `Submitted`, with
+  builder payments of about `0.000100994 ETH` and `0.000101023 ETH`
+- asked the operator to pursue FWAVRFService allowlisting for the keeper
+
+Next action: if allowlisting is granted, add an operator-checked sponsored
+processor path that verifies the service's FWA address and accounts for the
+decoded `AcquisitionsSponsored` reimbursement. Never attempt the service call
+while `operators(keeper)` is false.
 
 ### P1 — Finish Railway GitHub-source deployment
 
@@ -204,6 +222,52 @@ Status: live watcher.
 
 Rewards are thin and use an independent bid. Keep contract/event decoding
 current and do not treat an estimated token equivalent as realized P&L.
+
+### Stake DAO v4 Curve Accountant harvests
+
+Status: implemented and mainnet-validated, default-off.
+
+Canonical Ethereum mainnet contracts:
+
+- ProtocolController:
+  `0x2d8BcE1FaE00a959354aCD9eBf9174337A64d4fb`
+- Curve Accountant:
+  `0x93b4B9bd266fFA8AF68e39EDFa8cFe2A62011Ce0`
+- Curve Strategy:
+  `0xb010C392F9572aEb5Ea3817e94DC6745421b2bb5`
+- Curve Locker:
+  `0x52f541764E6e90eeBc5c21Ff570De0e2D63766B6`
+
+The Accountant's permissionless `harvest(gauges, harvestData, receiver)` pays
+the receiver its configured harvest fee in CRV. The live fee observed during
+implementation was `0.1%`. A recent 10-gauge winning transaction harvested
+about `5,312.159145 CRV`, paid about `5.312159 CRV` to the caller, and used
+`2,696,607` gas. Smaller winners can be marginal, so batches must be selected
+by exact simulation and total net value rather than by raw claimable CRV.
+
+Implementation constraints:
+
+- discover all Curve gauges from canonical `VaultRegistered` events and verify
+  current vault/shutdown state on every pass
+- use the live Accountant fee and vault accounting; ignore sidecar reward
+  upside in the eligibility floor
+- convert CRV through canonical Chainlink CRV/USD and ETH/USD feeds, reject
+  stale/incomplete rounds, and apply a configurable 5% haircut
+- simulate each high-value single gauge and bounded reward-ranked batch with
+  empty `harvestData`
+- cap buffered gas at 5M by default and send one atomic transaction only
+- submit through private Flashbots bundles only, with an independent builder
+  bid; never fall back to the public mempool
+- decode actual `Harvest` events for CRV reward and P&L telemetry
+- do not approve, swap, or otherwise move the received CRV
+
+The validation pass found 344 Curve registrations, 301 active gauges, and ran
+35 exact simulations. Its best six-gauge candidate was worth about
+`0.000147311 ETH` after the configured CRV haircut, with a buffered gas limit
+of `2,327,328`; no transaction was sent. Keep the lane default-off while this
+margin is thin. Enable only when the exact conservative net is comfortably
+positive and the stale-harvest race behavior has been confirmed or protected
+by an on-chain minimum-reward guard.
 
 ## Promising dormant opportunities
 

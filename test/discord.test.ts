@@ -37,6 +37,28 @@ describe("buildDiscordEmbed", () => {
     expect(embed?.title).toBe("Telemetry Write Failed");
     expect(embed?.color).toBe(0xe74c3c);
   });
+
+  it("renders Stake DAO harvest opportunities with token economics", () => {
+    const embed = buildDiscordEmbed(
+      {
+        time: "2026-07-28T00:00:00.000Z",
+        level: "info",
+        event: "stakedao_curve_opportunity",
+        label: "stakedao_curve_harvest:3:0x1234",
+        gaugeCount: "3",
+        estimatedHarvesterFee: "1.5 CRV",
+        conservativeReward: "0.0002 ETH",
+        gasLimit: "1200000",
+      },
+      0n,
+    );
+
+    expect(embed?.title).toBe("Stake DAO Curve harvest found");
+    expect(
+      embed?.fields?.find((entry) => entry.name === "Caller fee")
+        ?.value,
+    ).toBe("1.5 CRV");
+  });
 });
 
 describe("DiscordWebhookNotifier", () => {

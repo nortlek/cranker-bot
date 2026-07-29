@@ -18,6 +18,7 @@ import {
 
 export interface KeeperConfig {
   readonly rpcUrl: string;
+  readonly discoveryRpcUrl: string;
   readonly submissionMode: "flashbots" | "public";
   readonly flashbotsRelayUrls: readonly string[];
   readonly flashbotsBuilders: readonly string[];
@@ -30,6 +31,7 @@ export interface KeeperConfig {
   readonly liveBidSweepBuilderBidBps: bigint;
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
+  readonly stakeDaoBuilderBidBps: bigint;
   readonly adaptiveBidding: boolean;
   readonly adaptiveBidStepBps: bigint;
   readonly adaptiveBidMaxBps: bigint;
@@ -58,6 +60,7 @@ export interface KeeperConfig {
   readonly enableLiquityLiquidations: boolean;
   readonly enableConvexEarmarks: boolean;
   readonly enableConvexKicks: boolean;
+  readonly enableStakeDaoCurveHarvests: boolean;
   readonly poolBountyEstimateBps: bigint;
   readonly poolPullGasLimit: bigint;
   readonly poolSyncGasLimit: bigint;
@@ -70,6 +73,12 @@ export interface KeeperConfig {
   readonly liquityMaxTrovesPerBatch: number;
   readonly convexEarmarkGasLimit: bigint;
   readonly convexKickGasLimit: bigint;
+  readonly stakeDaoHarvestGasLimit: bigint;
+  readonly stakeDaoHarvestMaxBatchSize: number;
+  readonly stakeDaoHarvestMaxCandidates: number;
+  readonly stakeDaoHarvestRewardHaircutBps: bigint;
+  readonly stakeDaoOracleMaxAgeSeconds: number;
+  readonly stakeDaoDiscoveryBlockRange: number;
   readonly dryRun: boolean;
   readonly runOnce: boolean;
   readonly privateKey: Hex | undefined;
@@ -96,7 +105,7 @@ function submissionModeEnv(): "flashbots" | "public" {
 function relayUrlsEnv(): readonly string[] {
   const values = (
     process.env.FLASHBOTS_RELAY_URLS ||
-    "https://relay.flashbots.net,https://rpc.quasar.win"
+    "https://relay.flashbots.net,https://rpc.quasar.win,https://rpc.titanbuilder.xyz,https://rpc.beaverbuild.org"
   )
     .split(",")
     .map((value) => value.trim())
@@ -204,6 +213,25 @@ function databaseUrlEnv(): string | undefined {
 }
 
 export function loadConfig(): KeeperConfig {
+  const rpcUrl =
+    process.env.RPC_URL || "https://ethereum-rpc.publicnode.com";
+  const discoveryRpcUrl =
+    process.env.DISCOVERY_RPC_URL ||
+    process.env.DISCOVERY_RPC_URLS?.split(",")[0]?.trim() ||
+    rpcUrl;
+  const submissionMode = submissionModeEnv();
+  const enableStakeDaoCurveHarvests = booleanEnv(
+    "ENABLE_STAKEDAO_CURVE_HARVESTS",
+    false,
+  );
+  if (
+    enableStakeDaoCurveHarvests &&
+    submissionMode !== "flashbots"
+  ) {
+    throw new Error(
+      "ENABLE_STAKEDAO_CURVE_HARVESTS requires SUBMISSION_MODE=flashbots",
+    );
+  }
   const builderBidBps = integerEnv("BUILDER_BID_BPS", 8_100, {
     min: 0,
     max: 10_000,
@@ -256,6 +284,14 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const stakeDaoBuilderBidBps = integerEnv(
+    "STAKEDAO_BUILDER_BID_BPS",
+    1_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const adaptiveBidMaxBps = integerEnv(
     "ADAPTIVE_BID_MAX_BPS",
     9_900,
@@ -289,8 +325,9 @@ export function loadConfig(): KeeperConfig {
   );
 
   return {
-    rpcUrl: process.env.RPC_URL || "https://ethereum-rpc.publicnode.com",
-    submissionMode: submissionModeEnv(),
+    rpcUrl,
+    discoveryRpcUrl,
+    submissionMode,
     flashbotsRelayUrls: relayUrlsEnv(),
     flashbotsBuilders: flashbotsBuildersEnv(),
     flashbotsAuthPrivateKey: optionalPrivateKeyEnv(
@@ -309,6 +346,7 @@ export function loadConfig(): KeeperConfig {
       BigInt(liveBidSweepBuilderBidBps),
     liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
     convexBuilderBidBps: BigInt(convexBuilderBidBps),
+    stakeDaoBuilderBidBps: BigInt(stakeDaoBuilderBidBps),
     adaptiveBidding: booleanEnv("ADAPTIVE_BIDDING", true),
     adaptiveBidStepBps: BigInt(
       integerEnv("ADAPTIVE_BID_STEP_BPS", 25, {
@@ -395,6 +433,7 @@ export function loadConfig(): KeeperConfig {
       true,
     ),
     enableConvexKicks: booleanEnv("ENABLE_CONVEX_KICKS", true),
+    enableStakeDaoCurveHarvests,
     poolBountyEstimateBps: BigInt(
       integerEnv("POOL_BOUNTY_ESTIMATE_BPS", 9_000, {
         min: 0,
@@ -467,6 +506,38 @@ export function loadConfig(): KeeperConfig {
         min: 21_000,
         max: 5_000_000,
       }),
+    ),
+    stakeDaoHarvestGasLimit: BigInt(
+      integerEnv("STAKEDAO_HARVEST_GAS_LIMIT", 5_000_000, {
+        min: 21_000,
+        max: 16_777_216,
+      }),
+    ),
+    stakeDaoHarvestMaxBatchSize: integerEnv(
+      "STAKEDAO_HARVEST_MAX_BATCH_SIZE",
+      12,
+      { min: 1, max: 50 },
+    ),
+    stakeDaoHarvestMaxCandidates: integerEnv(
+      "STAKEDAO_HARVEST_MAX_CANDIDATES",
+      24,
+      { min: 1, max: 250 },
+    ),
+    stakeDaoHarvestRewardHaircutBps: BigInt(
+      integerEnv("STAKEDAO_HARVEST_REWARD_HAIRCUT_BPS", 9_500, {
+        min: 0,
+        max: 10_000,
+      }),
+    ),
+    stakeDaoOracleMaxAgeSeconds: integerEnv(
+      "STAKEDAO_ORACLE_MAX_AGE_SECONDS",
+      86_400,
+      { min: 60, max: 604_800 },
+    ),
+    stakeDaoDiscoveryBlockRange: integerEnv(
+      "STAKEDAO_DISCOVERY_BLOCK_RANGE",
+      100_000,
+      { min: 1_000, max: 1_000_000 },
     ),
     dryRun: booleanEnv("DRY_RUN", true),
     runOnce: booleanEnv("RUN_ONCE", false),

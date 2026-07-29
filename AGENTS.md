@@ -11,10 +11,12 @@ The bot competes for permissionless Ethereum mainnet keeper rewards and submits
 only transactions or atomic transaction sequences that are expected to remain
 profitable after gas and builder payments.
 
-The current user goal is at least **$10 of verified net realized profit by
-2026-07-29 23:59 America/Denver**. Treat this as a profit target, not permission
-to expand custody, approval, or contract risk. Never claim progress from a log
-estimate alone: reconcile wallet balances and successful receipts.
+The initial goal of **$10 verified net realized profit by
+2026-07-29 23:59 America/Denver** was achieved at `$11.35632645` on
+2026-07-28 America/Denver. Continue to protect and reconcile realized profit;
+the completed goal is not permission to expand custody, approval, or contract
+risk. Never claim progress from a log estimate alone: reconcile wallet
+balances and successful receipts.
 
 The production signer runs on Railway. Do not run a second live signer locally.
 Local runs must be `DRY_RUN=true`, preferably `RUN_ONCE=true`.
@@ -89,6 +91,12 @@ fail-closed; telemetry after startup is fail-open.
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
 deploy the exact local committed source with the Railway CLI.
+
+Production submits private bundles through four paths: Flashbots, Quasar,
+direct Titan, and direct Beaver. Flashbots also multiplexes to the configured
+builder list. Do not remove the direct Titan/Beaver paths without evidence:
+after they were added, the keeper won consecutive round-171 and round-172
+ready-cycle bundles in Titan-built blocks.
 
 ## Reading production logs
 
@@ -362,6 +370,7 @@ At the last handoff, the configured policy was approximately:
 | LiveBid sweep | 1% |
 | Liquity V2 | 81% |
 | Convex | 10% |
+| Stake DAO Curve harvest | 10% |
 
 These values are context, not immutable recommendations. Re-read recent
 competition and durable bid state before changing them.
@@ -377,6 +386,8 @@ Production currently evaluates:
 - LiveBidAdapter `sweep()`
 - official Liquity V2 WETH, wstETH, and rETH liquidations
 - Convex `earmarkRewards` and expired vlCVX lock kicks
+- optional Stake DAO v4 Curve Accountant harvests; the code is validated but
+  the production feature remains default-off while margins are thin
 
 The core control flow is:
 
@@ -395,7 +406,7 @@ The core control flow is:
 - `src/config.ts`: environment parsing and validation
 - `src/abi.ts` and `src/constants.ts`: contract interfaces and addresses
 
-Tests live alongside source as `src/*.test.ts`. Add focused tests for economic,
+Tests live under `test/*.test.ts`. Add focused tests for economic,
 lifecycle, bidding, and relay-prefix behavior whenever practical.
 
 ## Research and one-off scripts

@@ -164,6 +164,22 @@ export const CRV_USD_FEED_ADDRESS = getAddress(
 export const ETH_USD_FEED_ADDRESS = getAddress(
   "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
 );
+export const STAKE_DAO_ACCOUNTANT_ADDRESS = getAddress(
+  "0x93b4B9bd266fFA8AF68e39EDFa8cFe2A62011Ce0",
+);
+export const STAKE_DAO_PROTOCOL_CONTROLLER_ADDRESS = getAddress(
+  "0x2d8BcE1FaE00a959354aCD9eBf9174337A64d4fb",
+);
+export const STAKE_DAO_CURVE_STRATEGY_ADDRESS = getAddress(
+  "0xb010C392F9572aEb5Ea3817e94DC6745421b2bb5",
+);
+export const STAKE_DAO_CURVE_LOCKER_ADDRESS = getAddress(
+  "0x52f541764E6e90eeBc5c21Ff570De0e2D63766B6",
+);
+export const STAKE_DAO_CURVE_PROTOCOL_ID = "0xc715e373" as const;
+// First observed VaultRegistered event on the canonical controller. Starting
+// here discovers the complete current registry without depending on an API.
+export const STAKE_DAO_REGISTRY_START_BLOCK = 23_232_834n;
 export const CREATION_TX =
   "0xe446200c31daf3d5727f49d993f9d18da9cf141a54e8948fe6013952cf820d89";
 export const CREATION_BLOCK = 25_633_039n;

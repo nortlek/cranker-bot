@@ -1,4 +1,4 @@
-import { parseAbi } from "viem";
+import { parseAbi, parseAbiItem } from "viem";
 
 export const factoryAbi = parseAbi([
   "function POOL() view returns (address)",
@@ -127,4 +127,21 @@ export const curveGaugeAbi = parseAbi([
 
 export const chainlinkPriceFeedAbi = parseAbi([
   "function latestRoundData() view returns(uint80,int256,uint256,uint256,uint80)",
+]);
+
+export const stakeDaoProtocolControllerAbi = parseAbi([
+  "function vault(address gauge) view returns(address)",
+  "function isShutdown(address gauge) view returns(bool)",
+  "event VaultRegistered(address indexed gauge,address indexed vault,address indexed asset,address rewardReceiver,bytes4 protocolId)",
+]);
+
+export const stakeDaoVaultRegisteredEvent = parseAbiItem(
+  "event VaultRegistered(address indexed gauge,address indexed vault,address indexed asset,address rewardReceiver,bytes4 protocolId)",
+);
+
+export const stakeDaoAccountantAbi = parseAbi([
+  "function harvest(address[] gauges,bytes[] harvestData,address receiver)",
+  "function getHarvestFeePercent() view returns(uint128)",
+  "function vaults(address vault) view returns(uint256 integral,uint128 supply,uint128 feeSubjectAmount,uint128 totalAmount,uint128 netCredited,uint128 reservedHarvestFee,uint128 reservedProtocolFee)",
+  "event Harvest(address indexed vault,uint256 integral,uint256 supply,uint256 amount,uint256 protocolFee,uint256 harvesterFee)",
 ]);

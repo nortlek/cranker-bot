@@ -10,7 +10,8 @@ FWA acquisition processor when it unlocks those bounties, and the FWAToken
 permissionless liquidations. It also prices Convex pool `earmarkRewards`
 caller incentives and expired vlCVX lock `kickExpiredLocks` rewards. Every
 candidate or dependent sequence is simulated and priced before private
-submission.
+submission. An optional private-only lane also batches profitable Stake DAO v4
+Curve Accountant harvests for their CRV caller fee.
 
 ## Examined transaction
 
@@ -92,8 +93,9 @@ Each new block, the keeper:
    per trove, and ignores variable collateral compensation when deciding
    profitability.
 7. Compares the conservative net value of the PullPool/order plan, Liquity
-   liquidation, Convex `earmarkRewards`, FWAToken `buyback()`, and
-   LiveBidAdapter `sweep()`, then selects the best currently executable plan.
+   liquidation, Convex `earmarkRewards`, Stake DAO Curve harvest, FWAToken
+   `buyback()`, and LiveBidAdapter `sweep()`, then selects the best currently
+   executable plan.
 8. In live mode, reads the account's `latest` and `pending` transaction counts
    and assigns an explicit contiguous nonce range.
 9. Signs the generic call sequence locally, simulates it in nonce order, and
@@ -217,6 +219,10 @@ successful `crank` fees are sent to that keeper address.
 - `ENABLE_VAULTS` and `VAULT_FACTORY_ADDRESS`: include the compatible
   PullVault registry. Startup verifies that it targets the expected pool.
 - `FLASHBOTS_RELAY_URLS`: comma-separated authenticated bundle relay endpoints.
+  The default sends through Flashbots and Quasar plus direct Titan and Beaver
+  endpoints. Flashbots still multiplexes to the configured builder list; the
+  direct paths reduce latency and provide independent delivery for short FWA
+  ready windows.
   The first must support `eth_callBundle` and is used for simulation; remaining
   endpoints receive the already-simulated bundle. The default also submits
   directly to Quasar because it has recently built competing pool cycles.
@@ -245,6 +251,9 @@ successful `crank` fees are sent to that keeper address.
 - `CONVEX_BUILDER_BID_BPS`: independent builder share for Convex earmarks and
   expired-lock kicks. It defaults to `1000` (10%) so thin caller incentives do
   not inherit the 81% standing-order bid.
+- `STAKEDAO_BUILDER_BID_BPS`: independent builder share for Stake DAO Curve
+  harvests. It defaults to `1000` (10%) and never inherits the standing-order
+  bid.
 - `ADAPTIVE_BIDDING`: enables post-block per-order bid learning.
 - `ADAPTIVE_BID_STEP_BPS`: margin added above a measured winning bid after a
   loss. The default is `25` (0.25 percentage points).
@@ -277,7 +286,9 @@ successful `crank` fees are sent to that keeper address.
 - `SIMULATION_CONCURRENCY`: maximum simultaneous per-order gas estimates.
 - `DISCOVERY_RPC_URLS`: independent read-only fallback endpoints for bulk
   opportunity research so large scans cannot delay the production keeper loop.
-  The singular `DISCOVERY_RPC_URL` remains supported as an override.
+  The singular `DISCOVERY_RPC_URL` remains supported as an override and is
+  also used for the Stake DAO registry's historical log scan; current state
+  and final simulations remain on `RPC_URL`.
 - `DISCOVERY_CONCURRENCY` and `DISCOVERY_VAULT_CHUNK_SIZE`: bound RPC pressure
   from the Maker vault inspector invoked with `npm run inspect:maker-barks`.
 - `BLOCK_POLL_MS`: new-head polling interval.
@@ -292,6 +303,9 @@ successful `crank` fees are sent to that keeper address.
 - `ENABLE_CONVEX_KICKS`: scans the bounded set of observed unlockable vlCVX
   accounts and enables profitable exact-simulated `kickExpiredLocks` calls.
   Economics count only one reward epoch and apply a 5% CVX price haircut.
+- `ENABLE_STAKEDAO_CURVE_HARVESTS`: enables the canonical Stake DAO v4 Curve
+  Accountant watcher. It defaults to `false` and configuration fails closed
+  unless `SUBMISSION_MODE=flashbots`.
 - `POOL_BOUNTY_ESTIMATE_BPS`: conservative haircut on simulated gas when
   estimating PullPool's internal gas-indexed reimbursement.
 - `POOL_PULL_GAS_LIMIT`, `POOL_SYNC_GAS_LIMIT`, and
@@ -313,6 +327,27 @@ successful `crank` fees are sent to that keeper address.
   below Ethereum's per-transaction limit.
 - `CONVEX_EARMARK_GAS_LIMIT`: safety ceiling for a Convex reward harvest.
 - `CONVEX_KICK_GAS_LIMIT`: safety ceiling for an expired-lock kick.
+- `STAKEDAO_HARVEST_GAS_LIMIT`: cap on buffered gas for one atomic harvest
+  batch.
+- `STAKEDAO_HARVEST_MAX_BATCH_SIZE` and
+  `STAKEDAO_HARVEST_MAX_CANDIDATES`: bound exact single/batch simulations.
+- `STAKEDAO_HARVEST_REWARD_HAIRCUT_BPS`: haircut applied after converting the
+  exact conservative CRV caller fee through CRV/USD and ETH/USD Chainlink
+  feeds.
+- `STAKEDAO_ORACLE_MAX_AGE_SECONDS`: rejects incomplete or stale Chainlink
+  rounds.
+- `STAKEDAO_DISCOVERY_BLOCK_RANGE`: bounds each controller event-log request;
+  the process caches the complete registry and incrementally scans new blocks.
+
+The Stake DAO watcher starts at the canonical ProtocolController's first
+`VaultRegistered` block, filters the `CURVE` protocol id, and re-reads every
+gauge's current vault and shutdown status. It reads the Accountant's live
+harvest percentage and vault accounting, treats locker CRV as a lower bound
+that excludes sidecar upside, and applies the configured price haircut. It
+exact-simulates each single gauge plus bounded reward-ranked prefixes with
+empty `harvestData`. One reverting or raced gauge invalidates only its atomic
+candidate; the selected call is re-simulated as a next-block private bundle.
+The bot grants no token approvals and performs no reward swaps.
 
 The private alternatives contain nonce `N`, then `N+1`, and so on. Each
 alternative is atomic, and the shortest alternative is raised when a plan has

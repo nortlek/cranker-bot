@@ -3,6 +3,7 @@ import {
   ContractFunctionRevertedError,
   decodeEventLog,
   encodeFunctionData,
+  formatUnits,
   getAddress,
   type Account,
   type Address,
@@ -25,6 +26,7 @@ import {
   liquityTroveManagerAbi,
   liveBidAdapterAbi,
   poolAbi,
+  stakeDaoAccountantAbi,
   standingOrderAbi,
   vaultFactoryAbi,
 } from "./abi.js";
@@ -40,6 +42,8 @@ import {
   ETH_USD_FEED_ADDRESS,
   LIQUITY_BRANCHES,
   LIQUITY_ETH_GAS_COMPENSATION,
+  STAKE_DAO_ACCOUNTANT_ADDRESS,
+  STAKE_DAO_CURVE_LOCKER_ADDRESS,
 } from "./constants.js";
 import {
   assessProfit,
@@ -61,6 +65,13 @@ import {
 } from "./lifecycle.js";
 import type { PrivateBatchOutcome } from "./keeper.js";
 import { buildNoncePlan } from "./nonces.js";
+import {
+  conservativeCrvToEthWei,
+  conservativeStakeDaoHarvesterFee,
+  discoverStakeDaoCurveGauges,
+  isFreshChainlinkRound,
+  stakeDaoGaugePrefixes,
+} from "./stakedao.js";
 
 export type KeeperJobKind =
   | "standing_order"
@@ -73,7 +84,8 @@ export type KeeperJobKind =
   | "live_bid_sweep"
   | "liquity_liquidation"
   | "convex_earmark"
-  | "convex_kick";
+  | "convex_kick"
+  | "stakedao_curve_harvest";
 
 export type PoolBuilderBidPolicy =
   | "pool_pull"
@@ -100,6 +112,10 @@ export interface KeeperJob {
   readonly poolBuilderBidPolicy?: PoolBuilderBidPolicy;
   readonly order?: Address;
   readonly roundId?: bigint;
+  readonly stakeDaoCrvReward?: bigint;
+  readonly stakeDaoCrvUsd?: bigint;
+  readonly stakeDaoEthUsd?: bigint;
+  readonly stakeDaoRewardHaircutBps?: bigint;
 }
 
 export interface KeeperTransactionRequest extends KeeperJob {
@@ -131,6 +147,7 @@ export interface KeeperPassResult {
 
 export interface StrategyContext {
   readonly publicClient: PublicClient<Transport, Chain>;
+  readonly discoveryClient?: PublicClient<Transport, Chain>;
   readonly account: Account | Address;
   readonly config: KeeperConfig;
   readonly sendTransaction:
@@ -1673,12 +1690,308 @@ async function planConvexKick(parameters: {
   }
 }
 
+async function planStakeDaoCurveHarvest(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly discoveryClient: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly config: KeeperConfig;
+  readonly maxFeePerGas: bigint;
+  readonly skipped: Map<string, number>;
+}): Promise<KeeperJob | undefined> {
+  if (!parameters.config.enableStakeDaoCurveHarvests) return undefined;
+  if (parameters.config.submissionMode !== "flashbots") {
+    incrementReason(parameters.skipped, "stakedao_curve_private_only");
+    return undefined;
+  }
+  try {
+    const gauges = await discoverStakeDaoCurveGauges({
+      client: parameters.discoveryClient,
+      stateClient: parameters.client,
+      maximumBlockRange: BigInt(
+        parameters.config.stakeDaoDiscoveryBlockRange,
+      ),
+      concurrency: parameters.config.simulationConcurrency,
+    });
+    const [
+      harvestFeePercent,
+      crvRound,
+      ethRound,
+      claimableResults,
+      accountingResults,
+    ] = await Promise.all([
+      parameters.client.readContract({
+        address: STAKE_DAO_ACCOUNTANT_ADDRESS,
+        abi: stakeDaoAccountantAbi,
+        functionName: "getHarvestFeePercent",
+      }),
+      parameters.client.readContract({
+        address: CRV_USD_FEED_ADDRESS,
+        abi: chainlinkPriceFeedAbi,
+        functionName: "latestRoundData",
+      }),
+      parameters.client.readContract({
+        address: ETH_USD_FEED_ADDRESS,
+        abi: chainlinkPriceFeedAbi,
+        functionName: "latestRoundData",
+      }),
+      parameters.client.multicall({
+        allowFailure: true,
+        batchSize: 16_384,
+        contracts: gauges.map(({ gauge }) => ({
+          address: gauge,
+          abi: curveGaugeAbi,
+          functionName: "claimable_tokens" as const,
+          args: [STAKE_DAO_CURVE_LOCKER_ADDRESS] as const,
+        })),
+      }),
+      parameters.client.multicall({
+        allowFailure: true,
+        batchSize: 16_384,
+        contracts: gauges.map(({ vault }) => ({
+          address: STAKE_DAO_ACCOUNTANT_ADDRESS,
+          abi: stakeDaoAccountantAbi,
+          functionName: "vaults" as const,
+          args: [vault] as const,
+        })),
+      }),
+    ]);
+    const nowSeconds = BigInt(Math.floor(Date.now() / 1_000));
+    const maximumAgeSeconds = BigInt(
+      parameters.config.stakeDaoOracleMaxAgeSeconds,
+    );
+    if (
+      harvestFeePercent <= 0n ||
+      harvestFeePercent > 1_000_000_000_000_000_000n ||
+      !isFreshChainlinkRound({
+        roundId: crvRound[0],
+        answer: crvRound[1],
+        updatedAt: crvRound[3],
+        answeredInRound: crvRound[4],
+        nowSeconds,
+        maximumAgeSeconds,
+      }) ||
+      !isFreshChainlinkRound({
+        roundId: ethRound[0],
+        answer: ethRound[1],
+        updatedAt: ethRound[3],
+        answeredInRound: ethRound[4],
+        nowSeconds,
+        maximumAgeSeconds,
+      })
+    ) {
+      incrementReason(
+        parameters.skipped,
+        "stakedao_curve_invalid_fee_or_oracle",
+      );
+      return undefined;
+    }
+
+    const crvUsd = crvRound[1];
+    const ethUsd = ethRound[1];
+    const candidates = gauges
+      .flatMap((entry, index) => {
+        const claimable = claimableResults[index];
+        const accounting = accountingResults[index];
+        if (
+          claimable?.status !== "success" ||
+          claimable.result === 0n ||
+          accounting?.status !== "success"
+        ) {
+          return [];
+        }
+        const [, supply, , , netCredited, reservedHarvestFee, reservedProtocolFee] =
+          accounting.result;
+        const harvesterFeeCrv =
+          conservativeStakeDaoHarvesterFee({
+            claimableCrv: claimable.result,
+            harvestFeePercent,
+            accounting: {
+              supply,
+              netCredited,
+              reservedHarvestFee,
+              reservedProtocolFee,
+            },
+          });
+        if (harvesterFeeCrv === 0n) return [];
+        const rewardEthEquivalent = conservativeCrvToEthWei({
+          crvAmount: harvesterFeeCrv,
+          crvUsd,
+          ethUsd,
+          haircutBps:
+            parameters.config.stakeDaoHarvestRewardHaircutBps,
+        });
+        if (rewardEthEquivalent === 0n) return [];
+        return [{
+          ...entry,
+          harvesterFeeCrv,
+          rewardEthEquivalent,
+        }];
+      })
+      .sort((left, right) =>
+        left.rewardEthEquivalent === right.rewardEthEquivalent
+          ? left.gauge.localeCompare(right.gauge)
+          : left.rewardEthEquivalent > right.rewardEthEquivalent
+            ? -1
+            : 1,
+      )
+      .slice(0, parameters.config.stakeDaoHarvestMaxCandidates);
+
+    const prefixBatches = stakeDaoGaugePrefixes(
+      candidates,
+      parameters.config.stakeDaoHarvestMaxBatchSize,
+    );
+    const batches = [
+      ...candidates.map((candidate) => [candidate] as const),
+      ...prefixBatches.filter((batch) => batch.length > 1),
+    ];
+    const estimates = await mapConcurrent(
+      batches,
+      parameters.config.simulationConcurrency,
+      async (batch): Promise<KeeperJob | undefined> => {
+        const gaugeAddresses = batch.map(({ gauge }) => gauge);
+        const harvesterFeeCrv = batch.reduce(
+          (total, candidate) =>
+            total + candidate.harvesterFeeCrv,
+          0n,
+        );
+        const rewardEthEquivalent = batch.reduce(
+          (total, candidate) =>
+            total + candidate.rewardEthEquivalent,
+          0n,
+        );
+        try {
+          // This is the final calldata, including one empty harvestData entry
+          // per gauge and the actual receiver. A reverting gauge rejects only
+          // this atomic candidate; single-gauge alternatives remain eligible.
+          const estimatedGas =
+            await parameters.client.estimateContractGas({
+              account: parameters.account,
+              address: STAKE_DAO_ACCOUNTANT_ADDRESS,
+              abi: stakeDaoAccountantAbi,
+              functionName: "harvest",
+              args: [
+                gaugeAddresses,
+                gaugeAddresses.map(() => "0x" as const),
+                typeof parameters.account === "string"
+                  ? parameters.account
+                  : parameters.account.address,
+              ],
+            });
+          const decision = assessProfit({
+            crankFee: rewardEthEquivalent,
+            estimatedGas,
+            maxFeePerGas: parameters.maxFeePerGas,
+            gasLimitMultiplierBps:
+              parameters.config.gasLimitMultiplierBps,
+            minProfitWei: parameters.config.minProfitWei,
+          });
+          if (
+            !decision.profitable ||
+            decision.gasLimit >
+              parameters.config.stakeDaoHarvestGasLimit
+          ) {
+            return undefined;
+          }
+          return {
+            kind: "stakedao_curve_harvest",
+            label:
+              `stakedao_curve_harvest:${gaugeAddresses.length}:` +
+              gaugeAddresses[0],
+            target: STAKE_DAO_ACCOUNTANT_ADDRESS,
+            data: encodeFunctionData({
+              abi: stakeDaoAccountantAbi,
+              functionName: "harvest",
+              args: [
+                gaugeAddresses,
+                gaugeAddresses.map(() => "0x" as const),
+                typeof parameters.account === "string"
+                  ? parameters.account
+                  : parameters.account.address,
+              ],
+            }),
+            gas: decision.gasLimit,
+            reward: {
+              kind: "fixed",
+              amountWei: rewardEthEquivalent,
+            },
+            stakeDaoCrvReward: harvesterFeeCrv,
+            stakeDaoCrvUsd: crvUsd,
+            stakeDaoEthUsd: ethUsd,
+            stakeDaoRewardHaircutBps:
+              parameters.config.stakeDaoHarvestRewardHaircutBps,
+          };
+        } catch {
+          return undefined;
+        }
+      },
+    );
+    const selected = estimates
+      .filter((job): job is KeeperJob => job !== undefined)
+      .sort((left, right) => {
+        const leftReward =
+          left.reward.kind === "fixed" ? left.reward.amountWei : 0n;
+        const rightReward =
+          right.reward.kind === "fixed" ? right.reward.amountWei : 0n;
+        const leftProfit =
+          leftReward - left.gas * parameters.maxFeePerGas;
+        const rightProfit =
+          rightReward - right.gas * parameters.maxFeePerGas;
+        return leftProfit === rightProfit
+          ? left.label.localeCompare(right.label)
+          : leftProfit > rightProfit
+            ? -1
+            : 1;
+      })[0];
+    if (selected === undefined) {
+      incrementReason(
+        parameters.skipped,
+        "stakedao_curve_none_profitable",
+      );
+      log("debug", "stakedao_curve_scan", {
+        activeGauges: gauges.length,
+        rewardCandidates: candidates.length,
+        exactSimulations: batches.length,
+        selected: false,
+      });
+      return undefined;
+    }
+    log("info", "stakedao_curve_opportunity", {
+      label: selected.label,
+      activeGauges: gauges.length,
+      rewardCandidates: candidates.length,
+      exactSimulations: batches.length,
+      gaugeCount: selected.label.split(":")[1] ?? "",
+      estimatedHarvesterFee:
+        `${formatUnits(selected.stakeDaoCrvReward ?? 0n, 18)} CRV`,
+      conservativeReward:
+        selected.reward.kind === "fixed"
+          ? eth(selected.reward.amountWei)
+          : eth(0n),
+      gasLimit: selected.gas.toString(),
+      privateOnly: true,
+    });
+    return selected;
+  } catch (error) {
+    incrementReason(
+      parameters.skipped,
+      revertedErrorName(error) ??
+        "stakedao_curve_scan_failed",
+    );
+    log("warn", "stakedao_curve_scan_failed", {
+      reason: errorMessage(error),
+    });
+    return undefined;
+  }
+}
+
 async function planJobs(parameters: {
   readonly client: PublicClient<Transport, Chain>;
+  readonly discoveryClient: PublicClient<Transport, Chain>;
   readonly account: Account | Address;
   readonly config: KeeperConfig;
   readonly maxFeePerGas: bigint;
   readonly convexMaxFeePerGas: bigint;
+  readonly stakeDaoMaxFeePerGas: bigint;
   readonly baseFeeAllowancePerGas: bigint;
   readonly bountyBaseFeePerGas: bigint;
 }): Promise<PlannedJobs> {
@@ -1818,12 +2131,21 @@ async function planJobs(parameters: {
     maxFeePerGas: parameters.convexMaxFeePerGas,
     skipped,
   });
+  const stakeDaoPromise = planStakeDaoCurveHarvest({
+    client: parameters.client,
+    discoveryClient: parameters.discoveryClient,
+    account: parameters.account,
+    config: parameters.config,
+    maxFeePerGas: parameters.stakeDaoMaxFeePerGas,
+    skipped,
+  });
   const [
     candidates,
     fundingRound,
     liquity,
     convex,
     convexKick,
+    stakeDao,
     buyback,
     liveBidSweep,
   ] = await Promise.all([
@@ -1832,6 +2154,7 @@ async function planJobs(parameters: {
       liquityPromise,
       convexPromise,
       convexKickPromise,
+      stakeDaoPromise,
       planBuyback({
         client: parameters.client,
         account: parameters.account,
@@ -1901,6 +2224,7 @@ async function planJobs(parameters: {
     liquity,
     convex,
     convexKick,
+    stakeDao,
     buyback,
     liveBidSweep,
   ]) {
@@ -1908,6 +2232,8 @@ async function planJobs(parameters: {
     const planningMaxFeePerGas =
       job.kind === "convex_earmark" || job.kind === "convex_kick"
         ? parameters.convexMaxFeePerGas
+        : job.kind === "stakedao_curve_harvest"
+          ? parameters.stakeDaoMaxFeePerGas
         : parameters.maxFeePerGas;
     alternatives.push({
       jobs: [job],
@@ -1950,13 +2276,41 @@ export function estimatedJobReward(parameters: {
   });
 }
 
+type ReceiptLog = {
+  readonly address: Address;
+  readonly data: Hex;
+  readonly topics: [] | [Hex, ...Hex[]];
+};
+
+function actualStakeDaoCrvReward(
+  request: KeeperTransactionRequest,
+  logs: readonly ReceiptLog[],
+): bigint {
+  if (request.kind !== "stakedao_curve_harvest") return 0n;
+  let total = 0n;
+  for (const entry of logs) {
+    if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
+      continue;
+    }
+    try {
+      const decoded = decodeEventLog({
+        abi: stakeDaoAccountantAbi,
+        data: entry.data,
+        topics: entry.topics,
+      });
+      if (decoded.eventName === "Harvest") {
+        total += decoded.args.harvesterFee;
+      }
+    } catch {
+      // Ignore unrelated Accountant events.
+    }
+  }
+  return total;
+}
+
 function actualJobReward(
   request: KeeperTransactionRequest,
-  logs: readonly {
-    readonly address: Address;
-    readonly data: Hex;
-    readonly topics: [] | [Hex, ...Hex[]];
-  }[],
+  logs: readonly ReceiptLog[],
 ): bigint {
   if (
     (request.kind === "liquity_liquidation" ||
@@ -1965,6 +2319,21 @@ function actualJobReward(
     request.reward.kind === "fixed"
   ) {
     return request.reward.amountWei;
+  }
+  if (request.kind === "stakedao_curve_harvest") {
+    if (
+      request.stakeDaoCrvUsd === undefined ||
+      request.stakeDaoEthUsd === undefined ||
+      request.stakeDaoRewardHaircutBps === undefined
+    ) {
+      return 0n;
+    }
+    return conservativeCrvToEthWei({
+      crvAmount: actualStakeDaoCrvReward(request, logs),
+      crvUsd: request.stakeDaoCrvUsd,
+      ethUsd: request.stakeDaoEthUsd,
+      haircutBps: request.stakeDaoRewardHaircutBps,
+    });
   }
   for (const entry of logs) {
     if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
@@ -2043,10 +2412,16 @@ export async function runKeeperPass(
 
   const plan = await planJobs({
     client: context.publicClient,
+    discoveryClient:
+      context.discoveryClient ?? context.publicClient,
     account: context.account,
     config: context.config,
     maxFeePerGas,
     convexMaxFeePerGas:
+      context.config.submissionMode === "flashbots"
+        ? feeQuote.maxFeePerGas
+        : maxFeePerGas,
+    stakeDaoMaxFeePerGas:
       context.config.submissionMode === "flashbots"
         ? feeQuote.maxFeePerGas
         : maxFeePerGas,
@@ -2076,7 +2451,9 @@ export async function runKeeperPass(
       total +
       job.gas *
         (context.config.submissionMode === "flashbots" &&
-        (job.kind === "convex_earmark" || job.kind === "convex_kick")
+        (job.kind === "convex_earmark" ||
+          job.kind === "convex_kick" ||
+          job.kind === "stakedao_curve_harvest")
           ? feeQuote.maxFeePerGas
           : maxFeePerGas),
     0n,
@@ -2309,6 +2686,12 @@ export async function runKeeperPass(
         const paidReward = successful
           ? actualJobReward(submission.request, receipt.logs)
           : 0n;
+        const paidStakeDaoCrv = successful
+          ? actualStakeDaoCrvReward(
+              submission.request,
+              receipt.logs,
+            )
+          : 0n;
         const gasCost =
           receipt.gasUsed * receipt.effectiveGasPrice;
         log(successful ? "info" : "warn", "keeper_receipt", {
@@ -2320,6 +2703,13 @@ export async function runKeeperPass(
           status: receipt.status,
           gasUsed: receipt.gasUsed.toString(),
           paidReward: eth(paidReward),
+          ...(submission.request.kind ===
+          "stakedao_curve_harvest"
+            ? {
+                paidTokenReward:
+                  `${formatUnits(paidStakeDaoCrv, 18)} CRV`,
+              }
+            : {}),
           gasCost: eth(gasCost),
           realizedProfit: eth(paidReward - gasCost),
         });
