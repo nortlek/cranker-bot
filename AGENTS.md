@@ -560,6 +560,17 @@ with names such as `claim-*` or `liquidate-*` can sign and submit transactions;
 do not run them until you have read the code, confirmed their dry-run behavior,
 verified current state, and passed the nonce and profitability gates.
 
+The announced PullPool V2 suite is inspected with:
+
+```bash
+npm run inspect:pull-pool-v2
+```
+
+The inspector pins the canonical deployer's creation transactions, all known
+component bytecode hashes, the V2 order-factory relationship, immutable FWA
+relationships, and launch state. V2 is not a live keeper lane while the pool is
+paused or its expanded round layout lacks canonical source verification.
+
 Third-party CLIs may echo environment-derived URLs, including embedded API
 keys. Inspect their source or filter/suppress output before running them. Do not
 paste a secret-bearing URL into logs, Discord, commits, or agent responses.

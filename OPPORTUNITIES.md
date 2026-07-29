@@ -18,10 +18,19 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 13:37 America/Denver, the
-verified snapshot was **$148.86845413 net**, or **59.54%** of the goal, with
-`latest == pending == 464` and net ETH equivalent of
-`0.07829248050871885`. An earlier full reconciliation through nonce 387 found
+2026-07-30 23:59 America/Denver**. At 2026-07-29 13:59 America/Denver, the
+verified snapshot was **$149.49418811 net**, or **59.79%** of the goal, with
+`latest == pending == 470` and net ETH equivalent of
+`0.07919459619486467`. Since the prior snapshot at nonce 464, six successful
+transactions increased the wallet by `0.000902115686145820 ETH`. Round 291's
+`processAcquisitions(2) -> syncFwaResult -> settle` chain earned
+`0.001326643737918444 ETH` gross, spent `0.000404057653338204 ETH` of base gas
+and `0.000057725256565197 ETH` of priority-fee builder payment, and retained
+`0.000864860828015043 ETH`. The other three standing orders retained
+`0.000037254858130777 ETH` in aggregate; one `0.0001 ETH` receipt was
+individually negative, but its two-transaction bundle retained
+`0.000023920702791492 ETH` after the shared gas-normalized bid. An earlier full
+reconciliation through nonce 387 found
 172 successful receipts and matched them exactly to a
 `0.043126556881111625 ETH` wallet increase: 38 settles, 41 syncs, 41
 processors, 5 pulls, and 47 standing-order cranks. Those attempts had no fatal,
@@ -555,8 +564,10 @@ calls, delegatecall, approvals, retained balances, and public submission.
 
 ### P0 — Discover and support the announced PullPool V2
 
-Status: announced as nearly finished; no deployment or canonical source
-identified yet.
+Status: the canonical deployer suite is identified on-chain and has a
+fail-closed read-only inspector. The pool remains paused with no rounds or
+orders, and verified source is not yet available; live execution is not
+enabled.
 
 On 2026-07-28, [the pool author reported](https://x.com/ripe0x/status/2082297793478082570)
 that subscriptions are filling new pools almost as soon as they open and that a
@@ -569,24 +580,54 @@ This has two immediate implications:
 - A single pinned V1 pool/factory will miss V2 revenue if V2 uses new
   deployments, registries, ABIs, lifecycle states, or reward formulas.
 
+The V1 pool's direct deployer
+`0xCB43078C32423F5348Cab5885911C3B5faE217F9` created the V2 pool
+`0x03C45c9C594b19ca5Fde54f38C7e6b6A5f2329d7` in block `25639384`
+through transaction
+`0x369e1819e8477df92540e26919a168d9bfd99d2b73907657b6fb0d9ca258f64c`
+on 2026-07-29 at 09:27 America/Denver. Its runtime hash is
+`0x9086cc5f10b8b8ee1a775ae683f0770d151665a56e7b5f9632cc2253ec68a792`.
+The same EOA created the V2 order factory
+`0xc62cEF28ccDbaBE147eCD3Baf4492119aCf4c657` in block `25639639`;
+the factory's immutable `POOL()` points back to V2 and its runtime hash is
+`0x45ccf63419269cadbb49f4dc5b7496ddc5c2d813f71296e55a56dd522d1dab49`.
+
+Runtime selectors expose the familiar permissionless `pull`,
+`syncFwaResult`, `settle`, and `settleForcedEth` calls, but V2 replaces the
+single `ethPendingRound` pointer with `firstOpenRound`, `currentOpenRound`, and
+`pendingPullCount`, and expands `getRound` to 35 ABI words. The immutable FWA,
+FWA rewards, and FWA token addresses exactly match V1. The configured
+`0.005 ETH` ticket, `0.0015 ETH` bounty cap, `0.01 ETH` VRF allowance, and
+`2 gwei` bounty tip also match V1; three new trailing config fields are
+currently `1`, `1`, and `150` and must be named from canonical source rather
+than guessed.
+
+At block `25640704`, the pool was paused, not deprecated, and had
+`roundCount == 0`, `currentOpenRound == 0`, `pendingPullCount == 0`, and zero
+accounted ETH. The new factory had zero orders. `npm run
+inspect:pull-pool-v2` pins and verifies all seven deployed component hashes,
+both creation transactions, deployer ownership, the factory relationship,
+immutable FWA relationships, configuration, launch state, and any current
+round's raw ABI words. It fails closed on a relationship or bytecode mismatch.
+
 Next action:
 
-- monitor the known deployer/factory and the author's canonical channels for
-  verified V2 bytecode, source, deployment transactions, and addresses
-- diff V2 against the current pool, order/vault factories, FWA processor, and
-  reward accounting
+- monitor the identified pool/factory and the author's canonical channels for
+  unpause, first-round creation, order deployment, and verified source
+- name and decode the expanded round/config fields from verified source or
+  authoritative live event/state evidence
 - determine whether subscriptions migrate, whether V1 remains active, and how
   multiple concurrent pools are enumerated
 - refactor discovery/planning toward a verified pool registry or versioned
   adapters instead of blindly replacing the pinned V1 constants
-- create read-only V2 inspection and historical competition tooling before
-  enabling live execution
+- extend the existing read-only V2 inspector with live event/competition
+  history once the first round opens
 - add exact sequence simulation, independent V2 bid scopes, telemetry, and
   startup relationship checks
 
-Do not guess an address from social posts or deploy against unverified
-bytecode. Keep V1 live while V2 is researched unless authoritative on-chain
-state says otherwise.
+Do not infer the 35-word round semantics from field position alone or enable
+calls against an unopened pool. Keep V1 live while V2 is paused and until an
+exact-simulated, versioned V2 adapter is validated.
 
 ### P0 — Reduce acquisition lifecycle latency
 
