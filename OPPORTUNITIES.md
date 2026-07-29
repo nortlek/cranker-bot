@@ -725,6 +725,22 @@ and diff checks passed. The first subscribed production pass, block
 normally. PostgreSQL showed exactly one open keeper run and one granted
 advisory signer lock.
 
+The same path still contained a hidden duplicate block dependency:
+viem's `estimateFeesPerGas()` unconditionally fetched `"latest"` before
+reading the provider priority fee. Private submissions target only the
+immediate child of the subscribed head, so the parent header already contains
+everything required for a protocol-bounded fee envelope. The child base fee
+cannot exceed `parentBaseFee + max(parentBaseFee / 8, 1)`. Private planning now
+derives that envelope locally and does not invoke the provider estimator;
+public submission retains the provider path. Exact contract state, nonce,
+simulation, and receipt reads remain pinned to the authoritative HTTP RPC
+because the header does not contain contract storage. A read-only scan of 100
+recent parent/child pairs found zero envelope violations; the tightest observed
+headroom was `5,933 wei`. At block `25641474`, the local allowance was
+`124,321,540 wei`, versus viem's more expensive `132,609,643 wei` allowance,
+and the eliminated provider estimate took `133 ms`. Exact relay simulation and
+profitability gates are unchanged.
+
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five
 and six attempts, but the provider briefly returned RPC `-32602` with the

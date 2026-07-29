@@ -17,6 +17,8 @@ import {
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
+  privateNextBlockFeeEnvelope,
+  resolvePlanningFeeQuote,
   resolvePlanningHead,
 } from "../src/strategy.js";
 
@@ -167,6 +169,95 @@ describe("resolvePlanningHead", () => {
       "does not match planning block",
     );
     expect(readExactBlock).not.toHaveBeenCalled();
+  });
+});
+
+describe("privateNextBlockFeeEnvelope", () => {
+  it("covers the maximum EIP-1559 child base-fee increase", () => {
+    expect(
+      privateNextBlockFeeEnvelope({
+        parentBaseFeePerGas: 800n,
+        minimumPriorityFeePerGas: 25n,
+      }),
+    ).toEqual({
+      baseFeeAllowancePerGas: 900n,
+      maxPriorityFeePerGas: 25n,
+      maxFeePerGas: 925n,
+    });
+  });
+
+  it("uses the protocol one-wei minimum increase", () => {
+    expect(
+      privateNextBlockFeeEnvelope({
+        parentBaseFeePerGas: 7n,
+        minimumPriorityFeePerGas: 0n,
+      }),
+    ).toEqual({
+      baseFeeAllowancePerGas: 8n,
+      maxPriorityFeePerGas: 0n,
+      maxFeePerGas: 8n,
+    });
+  });
+
+  it("fails closed without a usable EIP-1559 parent fee", () => {
+    expect(() =>
+      privateNextBlockFeeEnvelope({
+        parentBaseFeePerGas: null,
+        minimumPriorityFeePerGas: 0n,
+      }),
+    ).toThrow("requires a positive parent base fee");
+    expect(() =>
+      privateNextBlockFeeEnvelope({
+        parentBaseFeePerGas: 1n,
+        minimumPriorityFeePerGas: -1n,
+      }),
+    ).toThrow("cannot be negative");
+  });
+});
+
+describe("resolvePlanningFeeQuote", () => {
+  it("does not read provider fees for a private next-block bundle", async () => {
+    const readProviderFeeQuote = vi.fn(async () => ({
+      maxFeePerGas: 10_000n,
+      maxPriorityFeePerGas: 5_000n,
+    }));
+
+    await expect(
+      resolvePlanningFeeQuote({
+        submissionMode: "flashbots",
+        parentBaseFeePerGas: 800n,
+        minimumPriorityFeePerGas: 25n,
+        readProviderFeeQuote,
+      }),
+    ).resolves.toEqual({
+      source: "subscribed_header_next_block_envelope",
+      baseFeeAllowancePerGas: 900n,
+      maxPriorityFeePerGas: 25n,
+      maxFeePerGas: 925n,
+    });
+    expect(readProviderFeeQuote).not.toHaveBeenCalled();
+  });
+
+  it("retains provider fee estimation for public submission", async () => {
+    const readProviderFeeQuote = vi.fn(async () => ({
+      maxFeePerGas: 1_000n,
+      maxPriorityFeePerGas: 10n,
+    }));
+
+    await expect(
+      resolvePlanningFeeQuote({
+        submissionMode: "public",
+        parentBaseFeePerGas: null,
+        minimumPriorityFeePerGas: 25n,
+        readProviderFeeQuote,
+      }),
+    ).resolves.toEqual({
+      source: "provider_estimate",
+      baseFeeAllowancePerGas: 990n,
+      maxPriorityFeePerGas: 25n,
+      maxFeePerGas: 1_015n,
+    });
+    expect(readProviderFeeQuote).toHaveBeenCalledOnce();
   });
 });
 

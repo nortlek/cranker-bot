@@ -100,6 +100,11 @@ requires `DATABASE_URL`. Telemetry after startup is fail-open.
 `WS_URL`, when configured, supplies the production `newHeads` wake-up.
 The keeper retains the subscribed block number, hash, timestamp, and base fee
 and starts planning from that header without fetching a duplicate HTTP block.
+For private bundles targeting the immediate child, derive the EIP-1559 fee
+envelope directly from the subscribed parent base fee; do not call a provider
+fee estimator that implicitly fetches another `"latest"` block. The immediate
+child base fee cannot exceed the parent base fee plus
+`max(parentBaseFee / 8, 1)`.
 `RPC_URL` remains authoritative for contract state, simulations, nonce and
 balance gates, and receipt accounting; every state read is pinned to the
 subscribed block number. Before the first subscribed head at process startup,
@@ -498,9 +503,11 @@ These constraints prevent expensive or unsafe regressions:
   account only the pull receipt, and never submit the public purchase alone.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
-  do not wait for a duplicate HTTP block object. Pin core pool, lifecycle,
-  order/vault, and prefilter state reads to that exact block number on the
-  authoritative HTTP RPC; never substitute a later `"latest"` response.
+  do not wait for a duplicate HTTP block object or provider fee estimate.
+  Derive a private immediate-child fee envelope from the subscribed parent
+  base fee. Pin core pool, lifecycle, order/vault, and prefilter state reads to
+  that exact block number on the authoritative HTTP RPC; never substitute a
+  later `"latest"` response.
   Discard the plan if the head changes before nonce gating, and never submit
   after its target block arrives. Exact-block planning and post-block
   competitor-state reads may retry only classified `BlockNotFound`, the

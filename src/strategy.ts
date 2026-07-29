@@ -197,6 +197,90 @@ export interface KeeperObservedHead {
   readonly baseFeePerGas: bigint | null;
 }
 
+export interface PrivateNextBlockFeeEnvelope {
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly maxFeePerGas: bigint;
+  readonly maxPriorityFeePerGas: bigint;
+}
+
+/**
+ * A private bundle targets only the immediate child of the subscribed head.
+ * EIP-1559 limits that child's base-fee increase to 12.5%, so a provider fee
+ * estimate (and its implicit `getBlock("latest")`) is unnecessary.
+ */
+export function privateNextBlockFeeEnvelope(parameters: {
+  readonly parentBaseFeePerGas: bigint | null;
+  readonly minimumPriorityFeePerGas: bigint;
+}): PrivateNextBlockFeeEnvelope {
+  if (
+    parameters.parentBaseFeePerGas === null ||
+    parameters.parentBaseFeePerGas <= 0n
+  ) {
+    throw new Error(
+      "private next-block planning requires a positive parent base fee",
+    );
+  }
+  if (parameters.minimumPriorityFeePerGas < 0n) {
+    throw new Error(
+      "minimum priority fee cannot be negative",
+    );
+  }
+  const maximumIncrease =
+    parameters.parentBaseFeePerGas / 8n > 0n
+      ? parameters.parentBaseFeePerGas / 8n
+      : 1n;
+  const baseFeeAllowancePerGas =
+    parameters.parentBaseFeePerGas + maximumIncrease;
+  return {
+    baseFeeAllowancePerGas,
+    maxPriorityFeePerGas:
+      parameters.minimumPriorityFeePerGas,
+    maxFeePerGas:
+      baseFeeAllowancePerGas +
+      parameters.minimumPriorityFeePerGas,
+  };
+}
+
+export async function resolvePlanningFeeQuote(parameters: {
+  readonly submissionMode: KeeperConfig["submissionMode"];
+  readonly parentBaseFeePerGas: bigint | null;
+  readonly minimumPriorityFeePerGas: bigint;
+  readonly readProviderFeeQuote: () => Promise<{
+    readonly maxFeePerGas: bigint;
+    readonly maxPriorityFeePerGas: bigint;
+  }>;
+}): Promise<
+  PrivateNextBlockFeeEnvelope & {
+    readonly source:
+      | "subscribed_header_next_block_envelope"
+      | "provider_estimate";
+  }
+> {
+  if (parameters.submissionMode === "flashbots") {
+    return {
+      ...privateNextBlockFeeEnvelope(parameters),
+      source: "subscribed_header_next_block_envelope",
+    };
+  }
+  const provider = await parameters.readProviderFeeQuote();
+  const maxPriorityFeePerGas =
+    provider.maxPriorityFeePerGas >
+    parameters.minimumPriorityFeePerGas
+      ? provider.maxPriorityFeePerGas
+      : parameters.minimumPriorityFeePerGas;
+  const maxFeePerGas =
+    provider.maxFeePerGas +
+    (maxPriorityFeePerGas -
+      provider.maxPriorityFeePerGas);
+  return {
+    source: "provider_estimate",
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+    baseFeeAllowancePerGas:
+      maxFeePerGas - maxPriorityFeePerGas,
+  };
+}
+
 export interface PoolPullBatchOutcome {
   readonly targetBlock: bigint;
   readonly attempts: readonly {
@@ -3517,33 +3601,48 @@ export async function runKeeperPass(
   context: StrategyContext,
 ): Promise<KeeperPassResult> {
   const headAndFeesStartedAt = performance.now();
-  const [feeQuote, planningBlockRead] = await Promise.all([
-    context.publicClient.estimateFeesPerGas({
-      type: "eip1559",
-    }),
-    resolvePlanningHead({
-      headBlockNumber: context.headBlockNumber,
-      ...(context.observedHead === undefined
-        ? {}
-        : { observedHead: context.observedHead }),
-      readExactBlock: async () => {
-        const block = await context.publicClient.getBlock({
-          blockNumber: context.headBlockNumber,
+  const providerFeeQuotePromise =
+    context.config.submissionMode === "flashbots"
+      ? undefined
+      : context.publicClient.estimateFeesPerGas({
+          type: "eip1559",
         });
-        return {
-          number: block.number,
-          hash: block.hash,
-          timestamp: block.timestamp,
-          baseFeePerGas: block.baseFeePerGas,
-        };
-      },
-    }),
-  ]);
+  const planningBlockRead = await resolvePlanningHead({
+    headBlockNumber: context.headBlockNumber,
+    ...(context.observedHead === undefined
+      ? {}
+      : { observedHead: context.observedHead }),
+    readExactBlock: async () => {
+      const block = await context.publicClient.getBlock({
+        blockNumber: context.headBlockNumber,
+      });
+      return {
+        number: block.number,
+        hash: block.hash,
+        timestamp: block.timestamp,
+        baseFeePerGas: block.baseFeePerGas,
+      };
+    },
+  });
   const latestBlock = planningBlockRead.value;
+  const feeQuote = await resolvePlanningFeeQuote({
+    submissionMode: context.config.submissionMode,
+    parentBaseFeePerGas: latestBlock.baseFeePerGas,
+    minimumPriorityFeePerGas:
+      context.config.minPriorityFeePerGas,
+    readProviderFeeQuote: async () =>
+      providerFeeQuotePromise!,
+  });
+  const maxPriorityFeePerGas =
+    feeQuote.maxPriorityFeePerGas;
+  const maxFeePerGas = feeQuote.maxFeePerGas;
+  const baseFeeAllowancePerGas =
+    feeQuote.baseFeeAllowancePerGas;
   log("info", "keeper_pass_stage_timing", {
     stage: "head_and_fees",
     durationMs: performance.now() - headAndFeesStartedAt,
     planningHeaderSource: planningBlockRead.source,
+    feeQuoteSource: feeQuote.source,
     blockReadAttempts: planningBlockRead.attempts,
     blockAvailabilityWaitMs: planningBlockRead.waitedMs,
     planningBlock: latestBlock.number.toString(),
@@ -3551,15 +3650,11 @@ export async function runKeeperPass(
     headTimestamp: latestBlock.timestamp.toString(),
     headAgeMs:
       Date.now() - Number(latestBlock.timestamp) * 1_000,
+    parentBaseFeePerGas:
+      latestBlock.baseFeePerGas?.toString() ?? "",
+    baseFeeAllowancePerGas:
+      baseFeeAllowancePerGas.toString(),
   });
-  const maxPriorityFeePerGas =
-    feeQuote.maxPriorityFeePerGas >
-    context.config.minPriorityFeePerGas
-      ? feeQuote.maxPriorityFeePerGas
-      : context.config.minPriorityFeePerGas;
-  const maxFeePerGas =
-    feeQuote.maxFeePerGas +
-    (maxPriorityFeePerGas - feeQuote.maxPriorityFeePerGas);
   if (maxFeePerGas > context.config.maxFeePerGas) {
     log("info", "gas_price_above_cap", {
       estimatedMaxFee: gwei(maxFeePerGas),
@@ -3590,8 +3685,7 @@ export async function runKeeperPass(
           context.config.submissionMode === "flashbots"
             ? feeQuote.maxFeePerGas
             : maxFeePerGas,
-        baseFeeAllowancePerGas:
-          maxFeePerGas - maxPriorityFeePerGas,
+        baseFeeAllowancePerGas,
         bountyBaseFeePerGas:
           latestBlock.baseFeePerGas ??
           (maxFeePerGas - maxPriorityFeePerGas),
@@ -3619,7 +3713,7 @@ export async function runKeeperPass(
     plannedJobs: plan.jobs.length,
     minimumViablePrefix: plan.minimumViablePrefix,
   });
-  const baseFeePerGas = maxFeePerGas - maxPriorityFeePerGas;
+  const baseFeePerGas = baseFeeAllowancePerGas;
   const bountyBaseFeePerGas =
     latestBlock.baseFeePerGas ?? baseFeePerGas;
   const estimatedComponents = plan.jobs.map((job) => {
