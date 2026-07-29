@@ -3,7 +3,7 @@ import {
   InvalidParamsRpcError,
   RpcRequestError,
 } from "viem";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   highestPositiveClaimableIndexes,
@@ -14,6 +14,7 @@ import {
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
+  resolvePlanningHead,
 } from "../src/strategy.js";
 
 const POOL =
@@ -81,6 +82,53 @@ describe("isFreshBlockStateUnavailable", () => {
         new Error("Missing or invalid parameters."),
       ),
     ).toBe(false);
+  });
+});
+
+describe("resolvePlanningHead", () => {
+  const subscribedHead = {
+    number: 25_640_617n,
+    hash:
+      "0x1111111111111111111111111111111111111111111111111111111111111111" as const,
+    timestamp: 1_754_000_000n,
+    baseFeePerGas: 100_000_000n,
+  };
+
+  it("uses the subscribed header without waiting for an HTTP block copy", async () => {
+    const readExactBlock = vi.fn<
+      () => Promise<typeof subscribedHead>
+    >();
+
+    await expect(
+      resolvePlanningHead({
+        headBlockNumber: subscribedHead.number,
+        observedHead: subscribedHead,
+        readExactBlock,
+      }),
+    ).resolves.toEqual({
+      value: subscribedHead,
+      attempts: 0,
+      waitedMs: 0,
+      source: "websocket_subscription",
+    });
+    expect(readExactBlock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the subscribed header does not match the planning block", async () => {
+    const readExactBlock = vi.fn<
+      () => Promise<typeof subscribedHead>
+    >();
+
+    await expect(
+      resolvePlanningHead({
+        headBlockNumber: subscribedHead.number + 1n,
+        observedHead: subscribedHead,
+        readExactBlock,
+      }),
+    ).rejects.toThrow(
+      "does not match planning block",
+    );
+    expect(readExactBlock).not.toHaveBeenCalled();
   });
 });
 

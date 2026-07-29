@@ -189,10 +189,18 @@ export interface KeeperPassResult {
   readonly confirmed: number;
 }
 
+export interface KeeperObservedHead {
+  readonly number: bigint;
+  readonly hash: Hash;
+  readonly timestamp: bigint;
+  readonly baseFeePerGas: bigint | null;
+}
+
 export interface StrategyContext {
   readonly publicClient: PublicClient<Transport, Chain>;
   readonly discoveryClient?: PublicClient<Transport, Chain>;
   readonly headBlockNumber: bigint;
+  readonly observedHead?: KeeperObservedHead;
   readonly account: Account | Address;
   readonly config: KeeperConfig;
   readonly sendTransaction:
@@ -530,6 +538,47 @@ export function isFreshBlockReadUnavailable(
     isBlockNotFound(error) ||
     isFreshBlockStateUnavailable(error)
   );
+}
+
+export async function resolvePlanningHead(parameters: {
+  readonly headBlockNumber: bigint;
+  readonly observedHead?: KeeperObservedHead;
+  readonly readExactBlock: () => Promise<KeeperObservedHead>;
+}): Promise<{
+  readonly value: KeeperObservedHead;
+  readonly attempts: number;
+  readonly waitedMs: number;
+  readonly source:
+    | "websocket_subscription"
+    | "http_exact_block";
+}> {
+  if (
+    parameters.observedHead !== undefined &&
+    parameters.observedHead.number !==
+      parameters.headBlockNumber
+  ) {
+    throw new Error(
+      `observed head ${parameters.observedHead.number} does not match planning block ${parameters.headBlockNumber}`,
+    );
+  }
+  if (parameters.observedHead !== undefined) {
+    return {
+      value: parameters.observedHead,
+      attempts: 0,
+      waitedMs: 0,
+      source: "websocket_subscription",
+    };
+  }
+  const read = await retryTransientRead({
+    read: parameters.readExactBlock,
+    shouldRetry: isFreshBlockReadUnavailable,
+    maxAttempts: 11,
+    retryDelayMs: 100,
+  });
+  return {
+    ...read,
+    source: "http_exact_block",
+  };
 }
 
 async function getOrderCandidates(
@@ -3468,20 +3517,29 @@ export async function runKeeperPass(
     context.publicClient.estimateFeesPerGas({
       type: "eip1559",
     }),
-    retryTransientRead({
-      read: () =>
-        context.publicClient.getBlock({
+    resolvePlanningHead({
+      headBlockNumber: context.headBlockNumber,
+      ...(context.observedHead === undefined
+        ? {}
+        : { observedHead: context.observedHead }),
+      readExactBlock: async () => {
+        const block = await context.publicClient.getBlock({
           blockNumber: context.headBlockNumber,
-        }),
-      shouldRetry: isFreshBlockReadUnavailable,
-      maxAttempts: 11,
-      retryDelayMs: 100,
+        });
+        return {
+          number: block.number,
+          hash: block.hash,
+          timestamp: block.timestamp,
+          baseFeePerGas: block.baseFeePerGas,
+        };
+      },
     }),
   ]);
   const latestBlock = planningBlockRead.value;
   log("info", "keeper_pass_stage_timing", {
     stage: "head_and_fees",
     durationMs: performance.now() - headAndFeesStartedAt,
+    planningHeaderSource: planningBlockRead.source,
     blockReadAttempts: planningBlockRead.attempts,
     blockAvailabilityWaitMs: planningBlockRead.waitedMs,
     planningBlock: latestBlock.number.toString(),
@@ -3536,7 +3594,7 @@ export async function runKeeperPass(
         headBlockNumber: latestBlock.number,
         headTimestamp: latestBlock.timestamp,
       }),
-    shouldRetry: isFreshBlockStateUnavailable,
+    shouldRetry: isFreshBlockReadUnavailable,
     maxAttempts: 11,
     retryDelayMs: 100,
   });

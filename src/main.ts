@@ -75,6 +75,7 @@ import {
   runKeeperPass,
   scheduleColdPlannerRefresh,
   type KeeperTransactionRequest,
+  type KeeperObservedHead,
   type StrategyContext,
 } from "./strategy.js";
 import {
@@ -265,6 +266,7 @@ async function main(): Promise<void> {
         });
   const signerCoordinator = new SignerSubmissionCoordinator();
   const headSignal = new LatestHeadSignal();
+  let latestSubscribedHead: KeeperObservedHead | undefined;
   let stopping = false;
   let requestStop: (() => void) | undefined;
   const stopRequested = new Promise<void>((resolve) => {
@@ -292,6 +294,12 @@ async function main(): Promise<void> {
     const unwatch = headClient.watchBlocks({
       poll: false,
       onBlock: (block) => {
+        latestSubscribedHead = {
+          number: block.number,
+          hash: block.hash,
+          timestamp: block.timestamp,
+          baseFeePerGas: block.baseFeePerGas,
+        };
         headSignal.observe(block.number);
         signerCoordinator.observeHead(block.number);
         log("debug", "head_subscription_observed", {
@@ -1783,6 +1791,11 @@ async function main(): Promise<void> {
       const block =
         subscribedBlock ??
         (await publicClient.getBlockNumber());
+      const observedHead =
+        subscribedBlock !== undefined &&
+        latestSubscribedHead?.number === subscribedBlock
+          ? latestSubscribedHead
+          : undefined;
       signerCoordinator.observeHead(block);
       const headSource =
         subscribedBlock !== undefined
@@ -1811,6 +1824,9 @@ async function main(): Promise<void> {
               publicClient,
               discoveryClient,
               headBlockNumber: block,
+              ...(observedHead === undefined
+                ? {}
+                : { observedHead }),
               account,
               config,
               sendTransaction,
