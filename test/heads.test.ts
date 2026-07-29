@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { LatestHeadSignal } from "../src/heads.js";
+import {
+  LatestHeadSignal,
+  retryTransientRead,
+} from "../src/heads.js";
 
 describe("LatestHeadSignal", () => {
   it("keeps only the newest observed head", () => {
@@ -40,5 +43,47 @@ describe("LatestHeadSignal", () => {
     signal.close();
 
     await expect(waiting).resolves.toBe(false);
+  });
+});
+
+describe("retryTransientRead", () => {
+  it("retries only classified transient failures", async () => {
+    vi.useFakeTimers();
+    const transient = new Error("not ready");
+    const read = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(transient)
+      .mockRejectedValueOnce(transient)
+      .mockResolvedValue("ready");
+    const result = retryTransientRead({
+      read,
+      shouldRetry: (error) => error === transient,
+      maxAttempts: 4,
+      retryDelayMs: 50,
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(result).resolves.toEqual({
+      value: "ready",
+      attempts: 3,
+      waitedMs: 100,
+    });
+    vi.useRealTimers();
+  });
+
+  it("does not retry an unclassified failure", async () => {
+    const terminal = new Error("terminal");
+    const read = vi.fn<() => Promise<string>>().mockRejectedValue(terminal);
+
+    await expect(
+      retryTransientRead({
+        read,
+        shouldRetry: () => false,
+        maxAttempts: 4,
+        retryDelayMs: 50,
+      }),
+    ).rejects.toBe(terminal);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });

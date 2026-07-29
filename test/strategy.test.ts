@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  highestPositiveClaimableIndexes,
   orderAlreadyBought,
   orderHasMinimumBalance,
 } from "../src/strategy.js";
+
+describe("highestPositiveClaimableIndexes", () => {
+  it("keeps the largest positive values with stable tie ordering", () => {
+    expect(
+      highestPositiveClaimableIndexes(
+        [0n, 5n, undefined, 9n, 5n, 12n],
+        3,
+      ),
+    ).toEqual([5, 3, 1]);
+  });
+
+  it("rejects invalid cache sizes", () => {
+    expect(() => highestPositiveClaimableIndexes([1n], 0)).toThrow(
+      "must be positive",
+    );
+  });
+});
 
 describe("orderHasMinimumBalance", () => {
   it("rejects an order that cannot pay even its caller fee", () => {

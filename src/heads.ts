@@ -69,3 +69,51 @@ export class LatestHeadSignal {
     waiter.resolve(observed);
   }
 }
+
+export async function retryTransientRead<Value>(parameters: {
+  readonly read: () => Promise<Value>;
+  readonly shouldRetry: (error: unknown) => boolean;
+  readonly maxAttempts: number;
+  readonly retryDelayMs: number;
+}): Promise<{
+  readonly value: Value;
+  readonly attempts: number;
+  readonly waitedMs: number;
+}> {
+  if (
+    !Number.isSafeInteger(parameters.maxAttempts) ||
+    parameters.maxAttempts < 1
+  ) {
+    throw new Error("transient read attempts must be positive");
+  }
+  if (
+    !Number.isSafeInteger(parameters.retryDelayMs) ||
+    parameters.retryDelayMs < 1
+  ) {
+    throw new Error("transient read delay must be positive");
+  }
+  for (
+    let attempt = 1;
+    attempt <= parameters.maxAttempts;
+    attempt += 1
+  ) {
+    try {
+      return {
+        value: await parameters.read(),
+        attempts: attempt,
+        waitedMs: (attempt - 1) * parameters.retryDelayMs,
+      };
+    } catch (error) {
+      if (
+        attempt === parameters.maxAttempts ||
+        !parameters.shouldRetry(error)
+      ) {
+        throw error;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, parameters.retryDelayMs);
+      });
+    }
+  }
+  throw new Error("unreachable transient read state");
+}

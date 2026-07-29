@@ -122,7 +122,10 @@ ordering. When `WS_URL` is configured, a `newHeads` subscription wakes the
 block loop immediately; the HTTP client then fetches and pins that exact block
 for authoritative planning. If an HTTP liveness assertion proves that the
 subscription missed a head, the process exits for a supervised restart rather
-than silently switching to a second head path.
+than silently switching to a second head path. Because the WebSocket provider
+can publish a head slightly before the authoritative HTTP provider serves that
+exact block, the fixed-block read retries only the classified
+`BlockNotFound` condition for up to one second.
 
 `lastRoundBought` and the pool's state remain the authoritative replay
 protection. A new batch starts only when the keeper account has no existing
@@ -318,8 +321,11 @@ successful `crank` fees are sent to that keeper address.
   fallback. `LIVE_BID_ADAPTER_ADDRESS` selects the verified adapter.
 - `ENABLE_LIQUITY_LIQUIDATIONS`: scans the three official Liquity V2 Ethereum
   collateral branches and enables exact-simulated private liquidations.
-- `ENABLE_CONVEX_EARMARKS`: caches Convex's active pool registry, checks pending
-  gauge CRV, and enables profitable exact-simulated `earmarkRewards` calls.
+- `ENABLE_CONVEX_EARMARKS`: refreshes the active pool registry and the 32
+  highest-claimable gauges on the separate discovery RPC after non-submitting
+  passes. Every head re-reads only that shortlist, current incentives, and
+  oracles at the exact planning block before gas estimation and profitability
+  checks. No cached reward, gas, or calldata enters final ranking.
 - `ENABLE_CONVEX_KICKS`: scans the bounded set of observed unlockable vlCVX
   accounts and enables profitable exact-simulated `kickExpiredLocks` calls.
   Economics count only one reward epoch and apply a 5% CVX price haircut.

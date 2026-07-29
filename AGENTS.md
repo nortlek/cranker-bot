@@ -102,7 +102,9 @@ requires `DATABASE_URL`. Telemetry after startup is fail-open.
 block over HTTP. HTTP also asserts subscription liveness after
 `HEAD_STALE_TIMEOUT_MS`; if the chain advanced without a subscribed head, the
 worker exits for a supervised restart instead of silently degrading to a
-second head path. Never print either endpoint.
+second head path. The exact fixed-block read tolerates up to one second of
+publication skew by retrying only `BlockNotFound`; all other errors remain
+immediate failures. Never print either endpoint.
 
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
@@ -177,9 +179,12 @@ railway logs \
   --json |
 jq -c 'select(
   .event == "keeper_pass_stage_timing" or
+  .event == "keeper_planner_timing" or
   .event == "keeper_pass_timing" or
   .event == "bundle_stage_timing" or
-  .event == "relay_submission_result"
+  .event == "relay_submission_result" or
+  .event == "convex_candidate_cache_refreshed" or
+  .event == "convex_candidate_cache_refresh_failed"
 )'
 ```
 
@@ -386,7 +391,8 @@ These constraints prevent expensive or unsafe regressions:
   authoritative HTTP RPC and pin core pool, lifecycle, order/vault, and
   prefilter reads to it; never substitute a later `"latest"` response. Discard
   the plan if the head changes before nonce gating, and never submit after its
-  target block arrives.
+  target block arrives. Retry only a classified exact-block `BlockNotFound`
+  during the bounded publication-skew window.
 - The exact signed bundle and every economically safe prefix are simulated
   before submission.
 - Private one-block bundles are the default. A missed bundle expires and must
@@ -462,6 +468,14 @@ The core control flow is:
 
 Tests live under `test/*.test.ts`. Add focused tests for economic,
 lifecycle, bidding, and relay-prefix behavior whenever practical.
+
+Convex earmark discovery is intentionally two-phase. After a non-submitting
+pass, the discovery RPC refreshes an atomic shortlist of the 32
+highest-claimable gauges every four blocks and its pool registry every 128
+blocks. The hot planner uses only the last complete shortlist, then re-reads
+claimable CRV, incentives, oracles, and gas at the exact planning block. A cold
+cache skips the lane immediately; a failed refresh retains the prior snapshot.
+Never cache a `KeeperJob`, reward valuation, gas estimate, or calldata.
 
 ## Research and one-off scripts
 

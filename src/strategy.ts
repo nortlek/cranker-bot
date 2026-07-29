@@ -1,5 +1,6 @@
 import {
   BaseError,
+  BlockNotFoundError,
   ContractFunctionRevertedError,
   decodeEventLog,
   encodeFunctionData,
@@ -68,6 +69,7 @@ import {
   type FirmReceiptAccounting,
 } from "./firm.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
+import { retryTransientRead } from "./heads.js";
 import {
   ACQUISITION_STATUS,
   ROUND_STATE,
@@ -242,41 +244,201 @@ interface ConvexPool {
   readonly gauge: Address;
 }
 
-let convexPoolsPromise: Promise<readonly ConvexPool[]> | undefined;
+interface ConvexCandidateSnapshot {
+  readonly requestedAtBlock: bigint;
+  readonly poolsScanned: number;
+  readonly pools: readonly ConvexPool[];
+}
 
-function getConvexPools(
+interface ConvexPoolRegistrySnapshot {
+  readonly requestedAtBlock: bigint;
+  readonly pools: readonly ConvexPool[];
+}
+
+let convexPoolRegistrySnapshot: ConvexPoolRegistrySnapshot | undefined;
+let convexCandidateSnapshot: ConvexCandidateSnapshot | undefined;
+let convexCandidateRefreshPromise: Promise<void> | undefined;
+const CONVEX_CANDIDATE_CACHE_SIZE = 32;
+const CONVEX_CANDIDATE_REFRESH_BLOCKS = 4n;
+const CONVEX_POOL_REGISTRY_REFRESH_BLOCKS = 128n;
+
+async function getConvexPools(
   client: PublicClient<Transport, Chain>,
+  blockNumber: bigint,
 ): Promise<readonly ConvexPool[]> {
-  if (convexPoolsPromise !== undefined) return convexPoolsPromise;
-  convexPoolsPromise = (async () => {
-    const count = await client.readContract({
+  const cached = convexPoolRegistrySnapshot;
+  if (
+    cached !== undefined &&
+    blockNumber >= cached.requestedAtBlock &&
+    blockNumber - cached.requestedAtBlock <
+      CONVEX_POOL_REGISTRY_REFRESH_BLOCKS
+  ) {
+    return cached.pools;
+  }
+  const count = await client.readContract({
+    address: CONVEX_BOOSTER_ADDRESS,
+    abi: convexBoosterAbi,
+    functionName: "poolLength",
+    blockNumber,
+  });
+  if (count > 2_000n) {
+    throw new Error(`Convex pool count ${count} exceeds safety limit`);
+  }
+  const results = await client.multicall({
+    allowFailure: true,
+    batchSize: 16_384,
+    blockNumber,
+    contracts: Array.from({ length: Number(count) }, (_, pid) => ({
       address: CONVEX_BOOSTER_ADDRESS,
       abi: convexBoosterAbi,
-      functionName: "poolLength",
-    });
-    if (count > 2_000n) {
-      throw new Error(`Convex pool count ${count} exceeds safety limit`);
-    }
-    const results = await client.multicall({
-      allowFailure: true,
-      batchSize: 16_384,
-      contracts: Array.from({ length: Number(count) }, (_, pid) => ({
-        address: CONVEX_BOOSTER_ADDRESS,
-        abi: convexBoosterAbi,
-        functionName: "poolInfo" as const,
-        args: [BigInt(pid)] as const,
-      })),
-    });
-    return results.flatMap((result, pid) =>
-      result.status === "success" && !result.result[5]
-        ? [{ pid: BigInt(pid), gauge: result.result[2] }]
-        : [],
-    );
-  })().catch((error: unknown) => {
-    convexPoolsPromise = undefined;
-    throw error;
+      functionName: "poolInfo" as const,
+      args: [BigInt(pid)] as const,
+    })),
   });
-  return convexPoolsPromise;
+  const pools = results.flatMap((result, pid) =>
+    result.status === "success" && !result.result[5]
+      ? [{ pid: BigInt(pid), gauge: result.result[2] }]
+      : [],
+  );
+  convexPoolRegistrySnapshot = {
+    requestedAtBlock: blockNumber,
+    pools,
+  };
+  return pools;
+}
+
+export function highestPositiveClaimableIndexes(
+  claimables: readonly (bigint | undefined)[],
+  limit: number,
+): readonly number[] {
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error("claimable candidate limit must be positive");
+  }
+  return claimables
+    .flatMap((claimable, index) =>
+      claimable !== undefined && claimable > 0n
+        ? [{ index, claimable }]
+        : [],
+    )
+    .sort((left, right) =>
+      left.claimable === right.claimable
+        ? left.index - right.index
+        : left.claimable > right.claimable
+          ? -1
+          : 1,
+    )
+    .slice(0, limit)
+    .map(({ index }) => index);
+}
+
+async function loadConvexCandidateSnapshot(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly requestedAtBlock: bigint;
+}): Promise<ConvexCandidateSnapshot> {
+  const pools = await getConvexPools(
+    parameters.client,
+    parameters.requestedAtBlock,
+  );
+  const staker = await parameters.client.readContract({
+    address: CONVEX_BOOSTER_ADDRESS,
+    abi: convexBoosterAbi,
+    functionName: "staker",
+    blockNumber: parameters.requestedAtBlock,
+  });
+  const claimableResults = await parameters.client.multicall({
+    allowFailure: true,
+    batchSize: 16_384,
+    blockNumber: parameters.requestedAtBlock,
+    contracts: pools.map((pool) => ({
+      address: pool.gauge,
+      abi: curveGaugeAbi,
+      functionName: "claimable_tokens" as const,
+      args: [staker] as const,
+    })),
+  });
+  const indexes = highestPositiveClaimableIndexes(
+    claimableResults.map((result) =>
+      result.status === "success" ? result.result : undefined,
+    ),
+    CONVEX_CANDIDATE_CACHE_SIZE,
+  );
+  return {
+    requestedAtBlock: parameters.requestedAtBlock,
+    poolsScanned: pools.length,
+    pools: indexes.flatMap((index) => {
+      const pool = pools[index];
+      return pool === undefined ? [] : [pool];
+    }),
+  };
+}
+
+function getConvexCandidatePools(parameters: {
+  readonly headBlockNumber: bigint;
+}): ConvexCandidateSnapshot | undefined {
+  const snapshot = convexCandidateSnapshot;
+  if (
+    snapshot === undefined ||
+    snapshot.requestedAtBlock > parameters.headBlockNumber
+  ) {
+    return undefined;
+  }
+  return snapshot;
+}
+
+export function scheduleColdPlannerRefresh(parameters: {
+  readonly discoveryClient: PublicClient<Transport, Chain>;
+  readonly config: KeeperConfig;
+  readonly headBlockNumber: bigint;
+}): void {
+  if (
+    !parameters.config.enableConvexEarmarks ||
+    convexCandidateRefreshPromise !== undefined
+  ) {
+    return;
+  }
+  const snapshot = convexCandidateSnapshot;
+  if (
+    snapshot !== undefined &&
+    parameters.headBlockNumber >= snapshot.requestedAtBlock &&
+    parameters.headBlockNumber - snapshot.requestedAtBlock <
+      CONVEX_CANDIDATE_REFRESH_BLOCKS
+  ) {
+    return;
+  }
+  const requestedAtBlock = parameters.headBlockNumber;
+  const startedAt = performance.now();
+  const refresh = loadConvexCandidateSnapshot({
+    client: parameters.discoveryClient,
+    requestedAtBlock,
+  })
+    .then((nextSnapshot) => {
+      if (
+        convexCandidateSnapshot === undefined ||
+        nextSnapshot.requestedAtBlock >=
+          convexCandidateSnapshot.requestedAtBlock
+      ) {
+        convexCandidateSnapshot = nextSnapshot;
+      }
+      log("info", "convex_candidate_cache_refreshed", {
+        requestedAtBlock: nextSnapshot.requestedAtBlock.toString(),
+        poolsScanned: nextSnapshot.poolsScanned,
+        candidates: nextSnapshot.pools.length,
+        durationMs: performance.now() - startedAt,
+      });
+    })
+    .catch((error: unknown) => {
+      log("warn", "convex_candidate_cache_refresh_failed", {
+        requestedAtBlock: requestedAtBlock.toString(),
+        durationMs: performance.now() - startedAt,
+        reason: errorMessage(error),
+      });
+    });
+  const tracked = refresh.finally(() => {
+    if (convexCandidateRefreshPromise === tracked) {
+      convexCandidateRefreshPromise = undefined;
+    }
+  });
+  convexCandidateRefreshPromise = tracked;
 }
 
 async function getRoundSnapshot(
@@ -312,6 +474,16 @@ function revertedErrorName(error: unknown): string | undefined {
   );
   if (!(reverted instanceof ContractFunctionRevertedError)) return undefined;
   return reverted.data?.errorName;
+}
+
+function isBlockNotFound(error: unknown): boolean {
+  if (error instanceof BlockNotFoundError) return true;
+  if (!(error instanceof BaseError)) return false;
+  return (
+    error.walk(
+      (candidate) => candidate instanceof BlockNotFoundError,
+    ) instanceof BlockNotFoundError
+  );
 }
 
 async function getOrderCandidates(
@@ -1593,32 +1765,57 @@ async function planConvexEarmark(parameters: {
   readonly account: Account | Address;
   readonly config: KeeperConfig;
   readonly maxFeePerGas: bigint;
+  readonly headBlockNumber: bigint;
   readonly skipped: Map<string, number>;
 }): Promise<KeeperJob | undefined> {
   if (!parameters.config.enableConvexEarmarks) return undefined;
   try {
-    const [pools, staker, incentiveBps, crvRound, ethRound] =
+    const candidateSnapshot = getConvexCandidatePools({
+      headBlockNumber: parameters.headBlockNumber,
+    });
+    if (candidateSnapshot === undefined) {
+      incrementReason(
+        parameters.skipped,
+        "convex_earmark_cache_cold",
+      );
+      return undefined;
+    }
+    const pools = candidateSnapshot.pools;
+    log("debug", "convex_candidate_cache_used", {
+      snapshotBlock:
+        candidateSnapshot.requestedAtBlock.toString(),
+      ageBlocks:
+        (
+          parameters.headBlockNumber -
+          candidateSnapshot.requestedAtBlock
+        ).toString(),
+      candidates: pools.length,
+    });
+    const [staker, incentiveBps, crvRound, ethRound] =
       await Promise.all([
-        getConvexPools(parameters.client),
         parameters.client.readContract({
           address: CONVEX_BOOSTER_ADDRESS,
           abi: convexBoosterAbi,
           functionName: "staker",
+          blockNumber: parameters.headBlockNumber,
         }),
         parameters.client.readContract({
           address: CONVEX_BOOSTER_ADDRESS,
           abi: convexBoosterAbi,
           functionName: "earmarkIncentive",
+          blockNumber: parameters.headBlockNumber,
         }),
         parameters.client.readContract({
           address: CRV_USD_FEED_ADDRESS,
           abi: chainlinkPriceFeedAbi,
           functionName: "latestRoundData",
+          blockNumber: parameters.headBlockNumber,
         }),
         parameters.client.readContract({
           address: ETH_USD_FEED_ADDRESS,
           abi: chainlinkPriceFeedAbi,
           functionName: "latestRoundData",
+          blockNumber: parameters.headBlockNumber,
         }),
       ]);
     const crvUsd = crvRound[1];
@@ -1633,6 +1830,7 @@ async function planConvexEarmark(parameters: {
     const claimableResults = await parameters.client.multicall({
       allowFailure: true,
       batchSize: 16_384,
+      blockNumber: parameters.headBlockNumber,
       contracts: pools.map((pool) => ({
         address: pool.gauge,
         abi: curveGaugeAbi,
@@ -1691,6 +1889,7 @@ async function planConvexEarmark(parameters: {
               abi: convexBoosterAbi,
               functionName: "earmarkRewards",
               args: [candidate.pool.pid],
+              blockNumber: parameters.headBlockNumber,
             });
           const decision = assessProfit({
             crankFee: candidate.rewardEthEquivalent,
@@ -2791,53 +2990,91 @@ async function planJobs(parameters: {
     }
   }
 
-  const candidatesPromise = getOrderCandidates(
-    parameters.client,
-    parameters.config.factoryAddress,
-    parameters.config.enableVaults
-      ? parameters.config.vaultFactoryAddress
-      : undefined,
-    parameters.headBlockNumber,
+  const plannerDurations: Record<string, number> = {};
+  const trackPlanner = async <Result>(
+    name: string,
+    task: () => Promise<Result>,
+  ): Promise<Result> => {
+    const startedAt = performance.now();
+    try {
+      return await task();
+    } finally {
+      plannerDurations[`${name}Ms`] =
+        performance.now() - startedAt;
+    }
+  };
+  const candidatesPromise = trackPlanner(
+    "orderCandidates",
+    () =>
+      getOrderCandidates(
+        parameters.client,
+        parameters.config.factoryAddress,
+        parameters.config.enableVaults
+          ? parameters.config.vaultFactoryAddress
+          : undefined,
+        parameters.headBlockNumber,
+      ),
   );
-  const liquityPromise = planLiquityLiquidation({
-    client: parameters.client,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.maxFeePerGas,
-    skipped,
-  });
-  const convexPromise = planConvexEarmark({
-    client: parameters.client,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.convexMaxFeePerGas,
-    skipped,
-  });
-  const convexKickPromise = planConvexKick({
-    client: parameters.client,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.convexMaxFeePerGas,
-    skipped,
-  });
-  const stakeDaoPromise = planStakeDaoCurveHarvest({
-    client: parameters.client,
-    discoveryClient: parameters.discoveryClient,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.stakeDaoMaxFeePerGas,
-    skipped,
-  });
-  const firmPromise = planFirmReplenishment({
-    client: parameters.client,
-    discoveryClient: parameters.discoveryClient,
-    account: parameters.account,
-    config: parameters.config,
-    maxFeePerGas: parameters.firmMaxFeePerGas,
-    headBlockNumber: parameters.headBlockNumber,
-    headTimestamp: parameters.headTimestamp,
-    skipped,
-  });
+  const liquityPromise = trackPlanner(
+    "liquity",
+    () =>
+      planLiquityLiquidation({
+        client: parameters.client,
+        account: parameters.account,
+        config: parameters.config,
+        maxFeePerGas: parameters.maxFeePerGas,
+        skipped,
+      }),
+  );
+  const convexPromise = trackPlanner(
+    "convexEarmark",
+    () =>
+      planConvexEarmark({
+        client: parameters.client,
+        account: parameters.account,
+        config: parameters.config,
+        maxFeePerGas: parameters.convexMaxFeePerGas,
+        headBlockNumber: parameters.headBlockNumber,
+        skipped,
+      }),
+  );
+  const convexKickPromise = trackPlanner(
+    "convexKick",
+    () =>
+      planConvexKick({
+        client: parameters.client,
+        account: parameters.account,
+        config: parameters.config,
+        maxFeePerGas: parameters.convexMaxFeePerGas,
+        skipped,
+      }),
+  );
+  const stakeDaoPromise = trackPlanner(
+    "stakeDao",
+    () =>
+      planStakeDaoCurveHarvest({
+        client: parameters.client,
+        discoveryClient: parameters.discoveryClient,
+        account: parameters.account,
+        config: parameters.config,
+        maxFeePerGas: parameters.stakeDaoMaxFeePerGas,
+        skipped,
+      }),
+  );
+  const firmPromise = trackPlanner(
+    "firm",
+    () =>
+      planFirmReplenishment({
+        client: parameters.client,
+        discoveryClient: parameters.discoveryClient,
+        account: parameters.account,
+        config: parameters.config,
+        maxFeePerGas: parameters.firmMaxFeePerGas,
+        headBlockNumber: parameters.headBlockNumber,
+        headTimestamp: parameters.headTimestamp,
+        skipped,
+      }),
+  );
   const [
     candidates,
     fundingRound,
@@ -2856,23 +3093,31 @@ async function planJobs(parameters: {
       convexKickPromise,
       stakeDaoPromise,
       firmPromise,
-      planBuyback({
-        client: parameters.client,
-        account: parameters.account,
-        config: parameters.config,
-        token: tokenAddress,
-        maxFeePerGas: parameters.maxFeePerGas,
-        skipped,
-      }),
-      planLiveBidSweep({
-        client: parameters.client,
-        account: parameters.account,
-        config: parameters.config,
-        baseFeeAllowancePerGas:
-          parameters.baseFeeAllowancePerGas,
-        skipped,
-      }),
+      trackPlanner("buyback", () =>
+        planBuyback({
+          client: parameters.client,
+          account: parameters.account,
+          config: parameters.config,
+          token: tokenAddress,
+          maxFeePerGas: parameters.maxFeePerGas,
+          skipped,
+        }),
+      ),
+      trackPlanner("liveBidSweep", () =>
+        planLiveBidSweep({
+          client: parameters.client,
+          account: parameters.account,
+          config: parameters.config,
+          baseFeeAllowancePerGas:
+            parameters.baseFeeAllowancePerGas,
+          skipped,
+        }),
+      ),
     ]);
+  log("info", "keeper_planner_timing", {
+    planningBlock: parameters.headBlockNumber.toString(),
+    ...plannerDurations,
+  });
   lastKnownOrderCount = candidates.length;
 
   let fundingPrimary:
@@ -3114,17 +3359,26 @@ export async function runKeeperPass(
   context: StrategyContext,
 ): Promise<KeeperPassResult> {
   const headAndFeesStartedAt = performance.now();
-  const [feeQuote, latestBlock] = await Promise.all([
+  const [feeQuote, planningBlockRead] = await Promise.all([
     context.publicClient.estimateFeesPerGas({
       type: "eip1559",
     }),
-    context.publicClient.getBlock({
-      blockNumber: context.headBlockNumber,
+    retryTransientRead({
+      read: () =>
+        context.publicClient.getBlock({
+          blockNumber: context.headBlockNumber,
+        }),
+      shouldRetry: isBlockNotFound,
+      maxAttempts: 11,
+      retryDelayMs: 100,
     }),
   ]);
+  const latestBlock = planningBlockRead.value;
   log("info", "keeper_pass_stage_timing", {
     stage: "head_and_fees",
     durationMs: performance.now() - headAndFeesStartedAt,
+    blockReadAttempts: planningBlockRead.attempts,
+    blockAvailabilityWaitMs: planningBlockRead.waitedMs,
     planningBlock: latestBlock.number.toString(),
     planningBlockHash: latestBlock.hash,
     headTimestamp: latestBlock.timestamp.toString(),

@@ -76,8 +76,8 @@ minimum expected profit of `0.00069927 ETH` and a median of
 
 ### P0 — Replace polling and synchronous full scans on the hot path
 
-Status: exact-head prefiltering, phase telemetry, and the strict WebSocket head
-path are implemented; event-maintained registries are next.
+Status: exact-head prefiltering, phase telemetry, the strict WebSocket head
+path, and the first background cold-planner cache are implemented.
 
 The worker is network-bound, not compute-bound:
 
@@ -131,12 +131,37 @@ three-head validation observed the subscribed heads and began their planning
 passes in the same millisecond; `RUN_ONCE` and explicit shutdown both closed
 the shared viem socket client without leaving a process behind.
 
+Per-planner timing then identified the next critical path rather than assuming
+it: in a representative full pass, Convex earmark discovery took `1,246 ms`,
+Liquity `585 ms`, and order enumeration `248 ms`. Convex now refreshes its
+active registry and 32 highest-claimable gauges atomically on the separate
+discovery RPC after a non-submitting pass. The hot path never waits for a cold
+cache: a cold lane skips immediately, refresh failure keeps the previous
+complete snapshot, and every shortlisted gauge's claimable CRV, current
+incentive, oracle values, and gas remain pinned to the exact head. Cached
+reward, gas, profitability, and calldata are prohibited.
+
+Local production-shaped validation measured the cold full Convex scan at
+`1,238 ms`, the background refresh at `662 ms` outside the pass, and the next
+head's exact shortlist validation at `414 ms`. A representative whole planning
+pass fell from `1,688 ms` to `1,045 ms` (about 38%). These timings are now
+emitted once per pass as `keeper_planner_timing`.
+
+The first live WebSocket window also exposed cross-provider publication skew:
+three subscribed heads reached Alchemy before the public HTTP endpoint could
+serve the same numbered block, causing a full two-second pass retry. The
+authoritative fixed-block read now retries only viem's classified
+`BlockNotFound` error at 100 ms intervals for up to one second and emits
+`blockReadAttempts` plus `blockAvailabilityWaitMs`. It does not substitute
+`latest`, switch providers, or retry unrelated RPC failures.
+
 Next actions, in order:
 
-1. Replace per-pass factory enumeration with an event-maintained order/vault
-   registry; retain the new exact-head balance/round prefilter.
-2. Refresh Convex, Liquity, and other cold scans on separate cadences and
-   revalidate only their best cached candidates at the exact head.
+1. Move Liquity discovery to a conservative near-MCR background watchlist,
+   while retaining exact-head price/status/ICR/gas validation.
+2. Replace per-pass factory enumeration with an event-maintained order/vault
+   registry; measured expected savings are about 75–80 ms normally, below the
+   Convex and Liquity work.
 3. Move receipt finalization, competitor tracing, and adaptive-bid persistence
    behind a bounded observer queue so the signer can process the next head.
 

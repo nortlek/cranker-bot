@@ -45,6 +45,7 @@ import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
   estimatedJobReward,
   runKeeperPass,
+  scheduleColdPlannerRefresh,
   type StrategyContext,
 } from "./strategy.js";
 import {
@@ -1044,7 +1045,7 @@ async function main(): Promise<void> {
             if (!config.dryRun) {
               await assertSignerLeaseHeld();
             }
-            await runKeeperPass({
+            const passResult = await runKeeperPass({
               publicClient,
               discoveryClient,
               headBlockNumber: block,
@@ -1054,6 +1055,13 @@ async function main(): Promise<void> {
               sendBatch,
               observePrivateBatch,
             });
+            if (passResult.sent === 0) {
+              scheduleColdPlannerRefresh({
+                discoveryClient,
+                config,
+                headBlockNumber: block,
+              });
+            }
             log("info", "keeper_pass_timing", {
               durationMs: performance.now() - passStartedAt,
               block: block.toString(),
