@@ -6,6 +6,8 @@ import {
   encodeFunctionData,
   formatUnits,
   getAddress,
+  InvalidParamsRpcError,
+  RpcRequestError,
   type Account,
   type Address,
   type Chain,
@@ -484,6 +486,24 @@ function isBlockNotFound(error: unknown): boolean {
     error.walk(
       (candidate) => candidate instanceof BlockNotFoundError,
     ) instanceof BlockNotFoundError
+  );
+}
+
+export function isFreshBlockStateUnavailable(
+  error: unknown,
+): boolean {
+  if (!(error instanceof BaseError)) return false;
+  const invalidParams = error.walk(
+    (candidate) =>
+      candidate instanceof InvalidParamsRpcError ||
+      (candidate instanceof RpcRequestError &&
+        candidate.code === InvalidParamsRpcError.code),
+  );
+  return (
+    invalidParams instanceof BaseError &&
+    /^Missing or invalid parameters\.?$/i.test(
+      invalidParams.details ?? "",
+    )
   );
 }
 
@@ -3413,37 +3433,53 @@ export async function runKeeperPass(
   }
 
   const planningStartedAt = performance.now();
-  const plan = await planJobs({
-    client: context.publicClient,
-    discoveryClient:
-      context.discoveryClient ?? context.publicClient,
-    account: context.account,
-    config: context.config,
-    maxFeePerGas,
-    convexMaxFeePerGas:
-      context.config.submissionMode === "flashbots"
-        ? feeQuote.maxFeePerGas
-        : maxFeePerGas,
-    stakeDaoMaxFeePerGas:
-      context.config.submissionMode === "flashbots"
-        ? feeQuote.maxFeePerGas
-        : maxFeePerGas,
-    firmMaxFeePerGas:
-      context.config.submissionMode === "flashbots"
-        ? feeQuote.maxFeePerGas
-        : maxFeePerGas,
-    baseFeeAllowancePerGas:
-      maxFeePerGas - maxPriorityFeePerGas,
-    bountyBaseFeePerGas:
-      latestBlock.baseFeePerGas ??
-      (maxFeePerGas - maxPriorityFeePerGas),
-    headBlockNumber: latestBlock.number,
-    headTimestamp: latestBlock.timestamp,
+  const planningRead = await retryTransientRead({
+    read: () =>
+      planJobs({
+        client: context.publicClient,
+        discoveryClient:
+          context.discoveryClient ?? context.publicClient,
+        account: context.account,
+        config: context.config,
+        maxFeePerGas,
+        convexMaxFeePerGas:
+          context.config.submissionMode === "flashbots"
+            ? feeQuote.maxFeePerGas
+            : maxFeePerGas,
+        stakeDaoMaxFeePerGas:
+          context.config.submissionMode === "flashbots"
+            ? feeQuote.maxFeePerGas
+            : maxFeePerGas,
+        firmMaxFeePerGas:
+          context.config.submissionMode === "flashbots"
+            ? feeQuote.maxFeePerGas
+            : maxFeePerGas,
+        baseFeeAllowancePerGas:
+          maxFeePerGas - maxPriorityFeePerGas,
+        bountyBaseFeePerGas:
+          latestBlock.baseFeePerGas ??
+          (maxFeePerGas - maxPriorityFeePerGas),
+        headBlockNumber: latestBlock.number,
+        headTimestamp: latestBlock.timestamp,
+      }),
+    shouldRetry: isFreshBlockStateUnavailable,
+    maxAttempts: 11,
+    retryDelayMs: 100,
   });
+  const plan = planningRead.value;
+  if (planningRead.attempts > 1) {
+    log("info", "planning_state_availability_waited", {
+      planningBlock: latestBlock.number.toString(),
+      planningReadAttempts: planningRead.attempts,
+      planningAvailabilityWaitMs: planningRead.waitedMs,
+    });
+  }
   log("info", "keeper_pass_stage_timing", {
     stage: "planning",
     durationMs: performance.now() - planningStartedAt,
     planningBlock: latestBlock.number.toString(),
+    planningReadAttempts: planningRead.attempts,
+    planningAvailabilityWaitMs: planningRead.waitedMs,
     plannedJobs: plan.jobs.length,
     minimumViablePrefix: plan.minimumViablePrefix,
   });

@@ -1,11 +1,63 @@
+import {
+  InvalidParamsRpcError,
+  RpcRequestError,
+} from "viem";
 import { describe, expect, it } from "vitest";
 
 import {
   highestPositiveClaimableIndexes,
+  isFreshBlockStateUnavailable,
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
 } from "../src/strategy.js";
+
+describe("isFreshBlockStateUnavailable", () => {
+  it("recognizes the provider race observed after a fresh header", () => {
+    const requestError = new RpcRequestError({
+      body: {
+        method: "eth_call",
+        params: [],
+      },
+      error: {
+        code: InvalidParamsRpcError.code,
+        message: "Missing or invalid parameters.",
+      },
+      url: "https://example.invalid",
+    });
+
+    expect(
+      isFreshBlockStateUnavailable(
+        new InvalidParamsRpcError(requestError),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not classify unrelated invalid parameters as state lag", () => {
+    const requestError = new RpcRequestError({
+      body: {
+        method: "eth_call",
+        params: [],
+      },
+      error: {
+        code: InvalidParamsRpcError.code,
+        message: "invalid argument 0",
+      },
+      url: "https://example.invalid",
+    });
+
+    expect(
+      isFreshBlockStateUnavailable(
+        new InvalidParamsRpcError(requestError),
+      ),
+    ).toBe(false);
+    expect(
+      isFreshBlockStateUnavailable(
+        new Error("Missing or invalid parameters."),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("highestPositiveClaimableIndexes", () => {
   it("keeps the largest positive values with stable tie ordering", () => {

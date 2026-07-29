@@ -18,18 +18,18 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 10:12 America/Denver, the
-verified snapshot was **$135.94624856 net**, or **54.37%** of the goal, with
-`latest == pending == 414` and net ETH equivalent of
-`0.072009268652492456`. An earlier full reconciliation through nonce 387 found
+2026-07-30 23:59 America/Denver**. At 2026-07-29 10:27 America/Denver, the
+verified snapshot was **$136.87995348 net**, or **54.75%** of the goal, with
+`latest == pending == 420` and net ETH equivalent of
+`0.072445520755321769`. An earlier full reconciliation through nonce 387 found
 172 successful receipts and matched them exactly to a
 `0.043126556881111625 ETH` wallet increase: 38 settles, 41 syncs, 41
 processors, 5 pulls, and 47 standing-order cranks. Those attempts had no fatal,
 keeper-pass, Discord, or telemetry failures; 99 private transactions expired
-without inclusion and did not leak into the public mempool. A later isolated
-provider “Missing or invalid parameters” pass error at block `25639595`
-recovered on the same block two seconds later without submission or nonce
-movement.
+without inclusion and did not leak into the public mempool. Two later
+ready-head provider publication races at blocks `25639595` and `25639659`
+each recovered on the same block two seconds later without submission or
+nonce movement.
 
 Any recorded snapshot is stale immediately after a transaction. Re-run:
 
@@ -202,6 +202,16 @@ authoritative fixed-block read now retries only viem's classified
 `BlockNotFound` error at 100 ms intervals for up to one second and emits
 `blockReadAttempts` plus `blockAvailabilityWaitMs`. It does not substitute
 `latest`, switch providers, or retry unrelated RPC failures.
+
+The header-read fix exposed a second phase of the same publication race. At
+blocks `25639595` and `25639659`, the exact header became available after five
+and six attempts, but the provider briefly returned RPC `-32602` with the
+specific detail `Missing or invalid parameters.` for pinned state calls.
+Reprocessing the identical block two seconds later succeeded. Planning now
+retries only that exact nested viem error against the same pinned block, for at
+most ten 100 ms waits. It never changes the block or provider, and unrelated or
+persistent invalid-parameter failures still fail closed. Successful waits emit
+`planning_state_availability_waited` and planning attempt/wait fields.
 
 Next actions, in order:
 
