@@ -642,6 +642,22 @@ three-head validation observed the subscribed heads and began their planning
 passes in the same millisecond; `RUN_ONCE` and explicit shutdown both closed
 the shared viem socket client without leaving a process behind.
 
+Railway deployment `77da1ec4-51e1-4719-9876-e1666ce9f738` from exact source
+`21f503baeb622f7dd2680e09b55fb81e8350c23e` validated the transport change
+across 34 production passes: exact-state reads succeeded without an
+availability retry, and planning measured `171.18 ms` minimum, `195.05 ms`
+p50, `254.08 ms` p95, and `345.02 ms` maximum. The replaced HTTP-state
+deployment's preceding 44 passes had a `979.67 ms` p50 and `1,369.66 ms` p95.
+No malformed header, subscription failure, keeper-pass failure, or fatal event
+occurred in the production sample.
+
+The follow-up 300-bps lifecycle policy is live in Railway deployment
+`b1239342-0e51-4439-866e-23e4f9b148e1` from exact source
+`adef2c4997bb3b6d89ab43379aa15fadd27572c5`. Startup reported both ready and
+fulfilled bids at 300 bps, foreground state on WebSocket, one open keeper run,
+and one granted advisory signer lock. Its first subscribed pass completed
+planning in `255.35 ms` on the first exact-state attempt.
+
 Per-planner timing then identified the next critical path rather than assuming
 it: in a representative full pass, Convex earmark discovery took `1,246 ms`,
 Liquity `585 ms`, and order enumeration `248 ms`. Convex now refreshes its
