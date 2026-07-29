@@ -838,6 +838,12 @@ async function main(): Promise<void> {
                   retryDelayMs:
                     config.competitorTraceRetryDelayMs,
                 },
+                {
+                  factoryAddress: config.factoryAddress,
+                  vaultFactoryAddress: config.enableVaults
+                    ? config.vaultFactoryAddress
+                    : undefined,
+                },
               );
               for (const observation of observations) {
                 log("info", "competitor_bid_observed", {

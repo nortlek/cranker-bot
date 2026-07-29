@@ -18,10 +18,10 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 10:27 America/Denver, the
-verified snapshot was **$136.87995348 net**, or **54.75%** of the goal, with
-`latest == pending == 420` and net ETH equivalent of
-`0.072445520755321769`. An earlier full reconciliation through nonce 387 found
+2026-07-30 23:59 America/Denver**. At 2026-07-29 10:49 America/Denver, the
+verified snapshot was **$138.51061485 net**, or **55.40%** of the goal, with
+`latest == pending == 426` and net ETH equivalent of
+`0.073308569792014963`. An earlier full reconciliation through nonce 387 found
 172 successful receipts and matched them exactly to a
 `0.043126556881111625 ETH` wallet increase: 38 settles, 41 syncs, 41
 processors, 5 pulls, and 47 standing-order cranks. Those attempts had no fatal,
@@ -73,6 +73,20 @@ gas-free when it misses.
 
 Measure retained profit, target-specific inclusion, and recovery speed before
 changing the hard minimum or the existing maximum.
+
+Competitor observations must use every known `Cranked` fee in the winning
+transaction, not only fees for orders that happened to be present in our
+losing batch. At block `25639742`, competitor transaction
+`0x127b5d66a90ab352be089a9ee55bdc0fe6386994dbc08e77ac56b15a2fb14bd8`
+cranked two known orders for `0.0006 ETH` total fees and paid
+`0.000460659240652228 ETH` to the builder. The old observer saw only the
+attempted order's `0.0003 ETH` fee, reported an impossible `15,356 bps`, and
+poisoned that target's learned bid at the `9,900 bps` maximum. The correct
+aggregate observation is `7,678 bps`; with the configured 25 bps margin its
+next bid is `7,703 bps`. The corrected observer enumerates the exact-block
+factory and vault registries, decodes all known crank logs from the full
+receipt, and rejects an empty denominator. A conditional migration repairs
+only the exact poisoned durable row.
 
 Deployment `3411c130-67e6-43c5-91a9-c7ae9f11d631` first missed a five-order
 private batch at an effective `6,342 bps`, then won consecutive five-order

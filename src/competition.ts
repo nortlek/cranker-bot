@@ -1,12 +1,19 @@
 import {
+  decodeEventLog,
   parseAbiItem,
   type Address,
   type Chain,
   type Hash,
+  type Hex,
   type PublicClient,
   type Transport,
 } from "viem";
 
+import {
+  factoryAbi,
+  standingOrderAbi,
+  vaultFactoryAbi,
+} from "./abi.js";
 import type { PrivateBatchOutcome } from "./keeper.js";
 
 const crankedEvent = parseAbiItem(
@@ -41,6 +48,47 @@ export interface CompetitionTraceConfig {
   readonly timeoutMs: number;
   readonly retries: number;
   readonly retryDelayMs: number;
+}
+
+export interface CompetitionRegistryConfig {
+  readonly factoryAddress: Address;
+  readonly vaultFactoryAddress: Address | undefined;
+}
+
+export function aggregateKnownCrankFees(
+  logs: readonly {
+    readonly address: Address;
+    readonly data: Hex;
+    readonly topics: readonly Hex[];
+  }[],
+  knownOrders: readonly Address[],
+): {
+  readonly orderCount: number;
+  readonly totalCrankFees: bigint;
+} {
+  const known = new Set(
+    knownOrders.map((address) => address.toLowerCase()),
+  );
+  let orderCount = 0;
+  let totalCrankFees = 0n;
+  for (const entry of logs) {
+    if (!known.has(entry.address.toLowerCase())) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: standingOrderAbi,
+        data: entry.data,
+        topics: entry.topics as
+          | []
+          | [Hex, ...Hex[]],
+      });
+      if (decoded.eventName !== "Cranked") continue;
+      orderCount += 1;
+      totalCrankFees += decoded.args.fee;
+    } catch {
+      // A known order may emit unrelated events in the same receipt.
+    }
+  }
+  return { orderCount, totalCrankFees };
 }
 
 function ceilDivide(numerator: bigint, denominator: bigint): bigint {
@@ -129,6 +177,7 @@ export async function observeWinningCrankBids(
   publicClient: PublicClient<Transport, Chain>,
   outcome: PrivateBatchOutcome,
   traceConfig: CompetitionTraceConfig,
+  registryConfig: CompetitionRegistryConfig,
 ): Promise<readonly WinningBidObservation[]> {
   const lostOrderAddresses = new Map(
     outcome.attempts
@@ -141,7 +190,7 @@ export async function observeWinningCrankBids(
   if (lostOrderAddresses.size === 0) return [];
   const lostOrders = new Set(lostOrderAddresses.keys());
 
-  const [block, logsByOrder] = await Promise.all([
+  const [block, logsByOrder, orders, vaults] = await Promise.all([
     publicClient.getBlock({ blockNumber: outcome.targetBlock }),
     Promise.all(
       [...lostOrderAddresses.values()].map((address) =>
@@ -154,7 +203,22 @@ export async function observeWinningCrankBids(
         }),
       ),
     ),
+    publicClient.readContract({
+      address: registryConfig.factoryAddress,
+      abi: factoryAbi,
+      functionName: "allOrders",
+      blockNumber: outcome.targetBlock,
+    }),
+    registryConfig.vaultFactoryAddress === undefined
+      ? Promise.resolve([])
+      : publicClient.readContract({
+          address: registryConfig.vaultFactoryAddress,
+          abi: vaultFactoryAbi,
+          functionName: "allVaults",
+          blockNumber: outcome.targetBlock,
+        }),
   ]);
+  const knownOrders = [...orders, ...vaults];
   const logs = logsByOrder.flat();
   const ourHashes = new Set(
     outcome.attempts.map((attempt) => attempt.hash.toLowerCase()),
@@ -190,10 +254,6 @@ export async function observeWinningCrankBids(
             .map((entry) => entry.address),
         ),
       ];
-      const totalCrankFees = transactionLogs.reduce(
-        (total, entry) => total + entry.args.fee,
-        0n,
-      );
       const [receipt, directPayment] = await Promise.all([
         publicClient.getTransactionReceipt({
           hash: transactionHash,
@@ -204,8 +264,17 @@ export async function observeWinningCrankBids(
           traceConfig,
         ),
       ]);
+      const aggregate = aggregateKnownCrankFees(
+        receipt.logs,
+        knownOrders,
+      );
+      if (aggregate.totalCrankFees <= 0n) {
+        throw new Error(
+          `competitor transaction ${transactionHash} emitted no known crank fees`,
+        );
+      }
       const calculated = calculateWinningBidBps({
-        totalCrankFees,
+        totalCrankFees: aggregate.totalCrankFees,
         gasUsed: receipt.gasUsed,
         effectiveGasPrice: receipt.effectiveGasPrice,
         baseFeePerGas,
@@ -213,9 +282,9 @@ export async function observeWinningCrankBids(
       });
       return {
         transactionHash,
-        orderCount: transactionLogs.length,
+        orderCount: aggregate.orderCount,
         relevantOrders,
-        totalCrankFees,
+        totalCrankFees: aggregate.totalCrankFees,
         priorityPayment: calculated.priorityPayment,
         directBeneficiaryPayment: directPayment,
         totalBuilderPayment: calculated.totalBuilderPayment,
