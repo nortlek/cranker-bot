@@ -17,6 +17,17 @@ snapshot was **$51.29412534 net**, or **102.58%** of the goal, with
 net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
+The active stretch goal is **$250 cumulative verified net realized profit by
+2026-07-30 23:59 America/Denver**. At 2026-07-29 07:03 America/Denver, the
+verified snapshot was **$133.37845037 net**, or **53.35%** of the goal, with
+`latest == pending == 378` and net ETH equivalent of
+`0.070079688812794191`. Since deployment `86b27aa2-ddc3-4ecf-96f4-22066e67e60e`,
+172 successful receipts reconciled exactly to a `0.043126556881111625 ETH`
+wallet increase: 38 settles, 41 syncs, 41 processors, 5 pulls, and 47
+standing-order cranks. No fatal, keeper-pass, Discord, or telemetry failures
+were recorded; 99 private transactions expired without inclusion and did not
+leak into the public mempool.
+
 Any recorded snapshot is stale immediately after a transaction. Re-run:
 
 ```bash

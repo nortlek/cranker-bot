@@ -23,7 +23,7 @@ import {
 } from "../src/firm.js";
 
 const BASELINE_ETH = 11_476_458_190_761_693n;
-const GOAL_USD = process.env.PROFIT_GOAL_USD ?? "50";
+const GOAL_USD = process.env.PROFIT_GOAL_USD ?? "250";
 const GOAL_DEADLINE =
   process.env.PROFIT_GOAL_DEADLINE ??
   "2026-07-30T23:59:00-06:00";
