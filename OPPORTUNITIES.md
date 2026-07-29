@@ -76,20 +76,40 @@ minimum expected profit of `0.00069927 ETH` and a median of
 
 ### P0 — Replace polling and synchronous full scans on the hot path
 
-Status: measured; stage changes behind new telemetry.
+Status: first hot-path reduction and phase telemetry implemented; deploy and
+measure before the head-loop refactor.
 
 The worker is network-bound, not compute-bound:
 
 - Railway usage averaged about `0.019 vCPU` and `0.276 GB` RAM.
 - Head-to-submission was p50 `2.01 seconds` and p90 `3.10 seconds`.
-- An 80-block sample detected block timestamps p50 `4.77 seconds` and p90
-  `6.37 seconds` late.
-- Production polls every `2,000 ms`, and primary and discovery traffic use the
-  same public RPC endpoint.
+- Production polls every `2,000 ms`. Block timestamp age is not publication
+  latency: a controlled 12-sample comparison found the public and authenticated
+  endpoints on the same head in every sample. The authenticated endpoint had a
+  faster standalone `getBlock` p50 (`80 ms` versus `125 ms`) but was slower in
+  three full planning passes (`2.56 seconds` versus `2.36 seconds`), so the
+  public endpoint remains primary.
+- Production discovery traffic is now separated onto the authenticated
+  endpoint instead of sharing the latency-sensitive primary endpoint.
 - A read-only pass took `2.61 seconds` with every lane, `1.81 seconds` without
   Convex, and `1.42 seconds` with only pool/orders.
-- The minimal pass still simulated 61 orders even though 52 reverted
-  `InsufficientBalance` and nine `AlreadyBought`.
+- The minimal pass still simulated 61 orders even though almost all reverted
+  `InsufficientBalance` or `AlreadyBought`.
+
+The first bounded reduction batches authoritative standing-order native
+balances and compatible `lastRoundBought` values through Multicall3 at the
+exact planning block. For an open round, a standing order is simulated only if
+its balance can cover at least one ticket plus the caller fee and a compatible
+order/vault has not already bought. Vaults are never rejected from native
+balance because they may fund through their underlying asset. Exact
+simulation, gas estimation, and economic checks remain mandatory for every
+retained candidate. At round 257 this reduced 61 standing-order candidates to
+one and reduced three-pass average planning time from `2,111 ms` to `1,526 ms`
+(about 28%).
+
+The bundle sender now retains the successful preliminary prefix simulation
+instead of repeating the same relay call only to recover gas. The final
+competitively priced signed bundle still undergoes exact simulation.
 
 Next actions, in order:
 
@@ -97,32 +117,35 @@ Next actions, in order:
    fallback and a separate discovery endpoint.
 2. Record head hash/timestamp and reject or re-plan if the head changes before
    signing.
-3. Build an event-maintained order/vault registry, bulk pre-filter state, and
-   exact-simulate only plausible candidates.
+3. Replace per-pass factory enumeration with an event-maintained order/vault
+   registry; retain the new exact-head balance/round prefilter.
 4. Refresh Convex, Liquity, and other cold scans on separate cadences and
    revalidate only their best cached candidates at the exact head.
 5. Move receipt finalization, competitor tracing, and adaptive-bid persistence
    behind a bounded observer queue so the signer can process the next head.
-6. Preserve the first preliminary bundle simulation result instead of making
-   the same relay round trip twice; retain the mandatory final signed
-   simulation after repricing.
 
 Do not lower `BLOCK_POLL_MS` in isolation until RPC request volume and
 publication lag are measured from the production region.
 
 ### P1 — Add correlated, typed attempt and outcome telemetry
 
-Status: designed; schema and instrumentation pending.
+Status: pass/relay instrumentation implemented; typed schema and normalized
+economics pending.
 
 The append-only JSON event stream is a useful audit log, but it cannot cleanly
 attribute latency, relay delivery, or sequence-level realized economics.
 `keeper_runs.git_sha` is also null for current CLI deployments.
 
-Add `pass_id`, `plan_id`, `job_id`, `variant_id`, and
-`relay_submission_id`; monotonic timings for head detection, planners, RPCs,
-both simulations, pricing, first relay acceptance, and every relay response;
-and endpoint/relay aliases that never contain credentials. Persist raw wei and
-gas in typed `numeric(78,0)` columns. Add `keeper_passes`,
+Every pass now carries an asynchronous `passId` and observed block through all
+structured events. Monotonic events report head/fee fetch, planning, account
+gate, preliminary and competitive signing/simulation, first relay acceptance,
+every relay-prefix result by numeric alias, full relay wait, and total pass
+duration. Relay errors are categorized without logging credential-bearing
+URLs.
+
+Next add `plan_id`, `job_id`, `variant_id`, and `relay_submission_id`; endpoint
+aliases and per-RPC-method instrumentation; and raw wei/gas in typed
+`numeric(78,0)` columns. Add `keeper_passes`,
 `keeper_attempts`, `keeper_bundle_variants`, `keeper_relay_submissions`, and
 `keeper_outcomes` fact tables while retaining `keeper_events` as the audit
 stream.

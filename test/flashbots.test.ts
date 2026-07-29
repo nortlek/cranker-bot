@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   FlashbotsRelay,
+  simulateLongestValidBundlePrefix,
   simulatedGasUsed,
   submitBundlePrefixLadder,
   successfulPrefixLength,
@@ -55,6 +56,69 @@ describe("simulatedGasUsed", () => {
         2,
       ),
     ).toEqual([348_298n, 191_959n]);
+  });
+});
+
+describe("simulateLongestValidBundlePrefix", () => {
+  it("returns the successful full simulation without calling the relay twice", async () => {
+    let calls = 0;
+    const simulation = {
+      results: [{ gasUsed: 100_000 }, { gasUsed: 200_000 }],
+    };
+    const relay = {
+      callBundle: async () => {
+        calls += 1;
+        return simulation;
+      },
+    } as unknown as FlashbotsRelay;
+
+    const result = await simulateLongestValidBundlePrefix(
+      relay,
+      ["0x01", "0x02"],
+      42n,
+    );
+
+    expect(calls).toBe(1);
+    expect(result).toEqual({
+      prefixLength: 2,
+      simulation,
+    });
+  });
+
+  it("confirms and returns the longest successful prefix", async () => {
+    const transactionCounts: number[] = [];
+    const relay = {
+      callBundle: async (transactions: readonly string[]) => {
+        transactionCounts.push(transactions.length);
+        return transactions.length === 3
+          ? {
+              results: [
+                { gasUsed: 100_000 },
+                { gasUsed: 200_000 },
+                { revert: "stale suffix" },
+              ],
+            }
+          : {
+              results: [
+                { gasUsed: 100_000 },
+                { gasUsed: 200_000 },
+              ],
+            };
+      },
+    } as unknown as FlashbotsRelay;
+
+    const result = await simulateLongestValidBundlePrefix(
+      relay,
+      ["0x01", "0x02", "0x03"],
+      42n,
+    );
+
+    expect(transactionCounts).toEqual([3, 2]);
+    expect(result.prefixLength).toBe(2);
+    expect(simulatedGasUsed(result.simulation!, 2)).toEqual([
+      100_000n,
+      200_000n,
+    ]);
   });
 });
 
@@ -233,6 +297,54 @@ describe("submitBundlePrefixLadder", () => {
     );
     expect(recorded.every((bundle) => bundle[1] === "0x02")).toBe(
       true,
+    );
+  });
+
+  it("reports every relay-prefix attempt without affecting delivery", async () => {
+    const attempts: Array<{
+      relayIndex: number;
+      transactionCount: number;
+      status: string;
+    }> = [];
+    const acceptedRelay = {
+      url: "https://accepted.example",
+      sendBundle: async (transactions: readonly string[]) => ({
+        bundleHash: `0x${transactions.length
+          .toString(16)
+          .padStart(64, "0")}`,
+        smart: true,
+      }),
+    } as unknown as FlashbotsRelay;
+    const rejectedRelay = {
+      url: "https://rejected.example",
+      sendBundle: async () => {
+        throw new Error("relay rejected");
+      },
+    } as unknown as FlashbotsRelay;
+
+    const submissions = await submitBundlePrefixLadder(
+      [acceptedRelay, rejectedRelay],
+      ["0x01", "0x02"],
+      42n,
+      [],
+      1,
+      (attempt) => {
+        attempts.push({
+          relayIndex: attempt.relayIndex,
+          transactionCount: attempt.transactionCount,
+          status: attempt.status,
+        });
+      },
+    );
+
+    expect(submissions).toHaveLength(2);
+    expect(attempts).toEqual(
+      expect.arrayContaining([
+        { relayIndex: 0, transactionCount: 1, status: "accepted" },
+        { relayIndex: 0, transactionCount: 2, status: "accepted" },
+        { relayIndex: 1, transactionCount: 1, status: "rejected" },
+        { relayIndex: 1, transactionCount: 2, status: "rejected" },
+      ]),
     );
   });
 });

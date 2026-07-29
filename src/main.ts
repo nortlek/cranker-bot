@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   createPublicClient,
   createWalletClient,
@@ -25,6 +27,7 @@ import { requiredProfit } from "./economics.js";
 import {
   FlashbotsRelay,
   longestValidBundlePrefix,
+  simulateLongestValidBundlePrefix,
   simulatedGasUsed,
   submitBundlePrefixLadder,
 } from "./flashbots.js";
@@ -34,6 +37,7 @@ import {
   gwei,
   log,
   setLogSink,
+  withLogContext,
 } from "./format.js";
 import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
@@ -52,6 +56,16 @@ import {
 
 async function sleep(milliseconds: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function relayFailureClass(reason: string | undefined): string {
+  if (reason === undefined) return "";
+  if (/timeout|timed out|aborted/i.test(reason)) return "timeout";
+  const httpStatus = /HTTP ([1-5][0-9]{2})/.exec(reason)?.[1];
+  if (httpStatus !== undefined) return `http_${httpStatus}`;
+  const rpcCode = /failed \((-?[0-9]+)\)/.exec(reason)?.[1];
+  if (rpcCode !== undefined) return `rpc_${rpcCode}`;
+  return "relay_error";
 }
 
 let discordNotifier: DiscordWebhookNotifier | undefined;
@@ -269,7 +283,9 @@ async function main(): Promise<void> {
         minimumViablePrefix,
         bountyBaseFeePerGas,
       }) => {
+        const batchStartedAt = performance.now();
         const limitedRequests = requests.slice(0, 100);
+        const preliminarySignStartedAt = performance.now();
         const preliminaryTransactions = await Promise.all(
           limitedRequests.map((request) =>
             signer.signTransaction({
@@ -285,23 +301,44 @@ async function main(): Promise<void> {
             }),
           ),
         );
-        const prefixLength = await longestValidBundlePrefix(
-          relays[0]!,
-          preliminaryTransactions,
-          targetBlock,
-        );
+        log("info", "bundle_stage_timing", {
+          stage: "preliminary_sign",
+          durationMs:
+            performance.now() - preliminarySignStartedAt,
+          jobs: limitedRequests.length,
+          targetBlock: targetBlock.toString(),
+        });
+        const preliminarySimulationStartedAt = performance.now();
+        const prefixSimulation =
+          await simulateLongestValidBundlePrefix(
+            relays[0]!,
+            preliminaryTransactions,
+            targetBlock,
+          );
+        const prefixLength = prefixSimulation.prefixLength;
+        log("info", "bundle_stage_timing", {
+          stage: "preliminary_simulation",
+          durationMs:
+            performance.now() - preliminarySimulationStartedAt,
+          plannedJobs: limitedRequests.length,
+          validJobs: prefixLength,
+          droppedKinds: JSON.stringify(
+            limitedRequests
+              .slice(prefixLength)
+              .map((request) => request.kind),
+          ),
+          targetBlock: targetBlock.toString(),
+        });
         if (prefixLength < minimumViablePrefix) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
-        const preliminaryPrefix = preliminaryTransactions.slice(
-          0,
-          prefixLength,
-        );
         const prefixRequests = limitedRequests.slice(0, prefixLength);
-        const simulation = await relays[0]!.callBundle(
-          preliminaryPrefix,
-          targetBlock,
-        );
+        const simulation = prefixSimulation.simulation;
+        if (simulation === undefined) {
+          throw new Error(
+            "valid bundle prefix did not include its simulation result",
+          );
+        }
         const gasUsed = simulatedGasUsed(simulation, prefixLength);
         const firstRequest = prefixRequests[0];
         if (firstRequest === undefined) {
@@ -526,6 +563,7 @@ async function main(): Promise<void> {
             maxFeePerGas: quote.maxFeePerGas,
             maxPriorityFeePerGas: quote.maxPriorityFeePerGas,
           }));
+        const competitiveSignStartedAt = performance.now();
         const competitiveTransactions = await Promise.all(
           competitivelyPriced.map((request) =>
             signer.signTransaction({
@@ -541,12 +579,28 @@ async function main(): Promise<void> {
             }),
           ),
         );
+        log("info", "bundle_stage_timing", {
+          stage: "competitive_sign",
+          durationMs:
+            performance.now() - competitiveSignStartedAt,
+          jobs: competitiveTransactions.length,
+          targetBlock: targetBlock.toString(),
+        });
+        const competitiveSimulationStartedAt = performance.now();
         const competitivePrefixLength =
           await longestValidBundlePrefix(
             relays[0]!,
             competitiveTransactions,
             targetBlock,
           );
+        log("info", "bundle_stage_timing", {
+          stage: "competitive_simulation",
+          durationMs:
+            performance.now() - competitiveSimulationStartedAt,
+          plannedJobs: competitiveTransactions.length,
+          validJobs: competitivePrefixLength,
+          targetBlock: targetBlock.toString(),
+        });
         if (competitivePrefixLength < minimumViablePrefix) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
@@ -590,13 +644,51 @@ async function main(): Promise<void> {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
         await assertSignerLeaseHeld();
+        const relaySubmissionStartedAt = performance.now();
+        let firstAcceptedMs: number | undefined;
         const submissions = await submitBundlePrefixLadder(
           relays,
           selected,
           targetBlock,
           config.flashbotsBuilders,
           minimumEconomicPrefix,
+          (attempt) => {
+            if (
+              attempt.status === "accepted" &&
+              firstAcceptedMs === undefined
+            ) {
+              firstAcceptedMs =
+                performance.now() - relaySubmissionStartedAt;
+            }
+            log(
+              attempt.status === "accepted" ? "info" : "warn",
+              "relay_submission_result",
+              {
+                relayIndex: attempt.relayIndex,
+                transactionCount: attempt.transactionCount,
+                durationMs: attempt.durationMs,
+                status: attempt.status,
+                bundleHash: attempt.bundleHash ?? "",
+                errorClass: relayFailureClass(attempt.reason),
+                targetBlock: targetBlock.toString(),
+              },
+            );
+          },
         );
+        log("info", "bundle_stage_timing", {
+          stage: "relay_submission",
+          durationMs:
+            performance.now() - relaySubmissionStartedAt,
+          firstAcceptedMs: firstAcceptedMs ?? -1,
+          acceptedVariants: submissions.length,
+          targetBlock: targetBlock.toString(),
+        });
+        log("info", "bundle_stage_timing", {
+          stage: "batch_total",
+          durationMs: performance.now() - batchStartedAt,
+          submittedJobs: selected.length,
+          targetBlock: targetBlock.toString(),
+        });
         const acceptedTransactionCount = Math.max(
           ...submissions.map(
             (submission) => submission.transactionCount,
@@ -832,19 +924,33 @@ async function main(): Promise<void> {
       const block = await publicClient.getBlockNumber();
       if (block !== lastProcessedBlock) {
         lastProcessedBlock = block;
-        log("debug", "new_block", { block: block.toString() });
-        if (!config.dryRun) {
-          await assertSignerLeaseHeld();
-        }
-        await runKeeperPass({
-          publicClient,
-          discoveryClient,
-          account,
-          config,
-          sendTransaction,
-          sendBatch,
-          observePrivateBatch,
-        });
+        const passId = randomUUID();
+        const passStartedAt = performance.now();
+        await withLogContext(
+          {
+            passId,
+            observedBlock: block.toString(),
+          },
+          async () => {
+            log("debug", "new_block", { block: block.toString() });
+            if (!config.dryRun) {
+              await assertSignerLeaseHeld();
+            }
+            await runKeeperPass({
+              publicClient,
+              discoveryClient,
+              account,
+              config,
+              sendTransaction,
+              sendBatch,
+              observePrivateBatch,
+            });
+            log("info", "keeper_pass_timing", {
+              durationMs: performance.now() - passStartedAt,
+              block: block.toString(),
+            });
+          },
+        );
         if (signerLeaseFailure !== undefined) {
           throw signerLeaseFailure;
         }

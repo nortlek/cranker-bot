@@ -56,14 +56,18 @@ export interface BatchedEventSinkOptions {
 
 const IMPORTANT_EVENTS = new Set([
   "adaptive_builder_bid_updated",
+  "bundle_stage_timing",
   "competitor_bid_observed",
   "fatal",
   "firm_replenish_accounting_failed",
   "firm_replenish_opportunity",
   "firm_replenish_scan_failed",
   "keeper_receipt",
+  "keeper_pass_stage_timing",
+  "keeper_pass_timing",
   "keeper_transaction_expired",
   "keeper_transaction_sent",
+  "relay_submission_result",
   "signer_lease_acquired",
   "signer_lease_waiting",
   "stakedao_curve_opportunity",

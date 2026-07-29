@@ -160,6 +160,26 @@ jq -c 'select(
 tail -n 100
 ```
 
+Correlated latency and relay delivery:
+
+```bash
+railway logs \
+  --service b7254641-a937-4399-ae2d-75fc95c08049 \
+  --environment production \
+  --since 30m \
+  --json |
+jq -c 'select(
+  .event == "keeper_pass_stage_timing" or
+  .event == "keeper_pass_timing" or
+  .event == "bundle_stage_timing" or
+  .event == "relay_submission_result"
+)'
+```
+
+Every event emitted inside a keeper pass includes the same `passId` and
+`observedBlock`. Relay events use a numeric alias and categorized error, never
+the potentially credential-bearing URL.
+
 Named acquisition events have the form
 `acquisition_status_<status-name>`. The general `acquisition_status` event also
 contains the numeric status, named label, lifecycle round, and relevant FWA
@@ -335,6 +355,12 @@ These constraints prevent expensive or unsafe regressions:
 - There are no unconditional raw `crank()` calls. Every standing order and
   vault must pass exact contract simulation, gas estimation, and economic
   checks.
+- Before exact order simulation, authoritative exact-block Multicall3 reads may
+  reject only impossible candidates: standing-order native balances below one
+  open-round ticket plus the caller fee, or a compatible candidate with
+  `lastRoundBought >= roundCount`. Never native-balance-filter a vault. A
+  failed prefilter read must fall through to exact simulation rather than
+  reject the candidate.
 - `roundCount` identifies the funding round. `ethPendingRound` is the
   authoritative acquisition lifecycle pointer. Never collapse the two.
 - A ready acquisition is built as

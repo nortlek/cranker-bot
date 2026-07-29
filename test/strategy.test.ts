@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  orderAlreadyBought,
+  orderHasMinimumBalance,
+} from "../src/strategy.js";
+
+describe("orderHasMinimumBalance", () => {
+  it("rejects an order that cannot pay even its caller fee", () => {
+    expect(orderHasMinimumBalance(299n, 300n)).toBe(false);
+    expect(orderHasMinimumBalance(300n, 300n)).toBe(true);
+  });
+
+  it("includes the minimum ticket cost for an open funding round", () => {
+    expect(orderHasMinimumBalance(5_299n, 300n, 5_000n)).toBe(false);
+    expect(orderHasMinimumBalance(5_300n, 300n, 5_000n)).toBe(true);
+  });
+
+  it("allows zero-fee orders to continue to exact simulation", () => {
+    expect(orderHasMinimumBalance(0n, 0n)).toBe(true);
+  });
+
+  it("rejects invalid negative accounting inputs", () => {
+    expect(() => orderHasMinimumBalance(-1n, 0n)).toThrow(
+      "cannot be negative",
+    );
+  });
+});
+
+describe("orderAlreadyBought", () => {
+  it("filters an order bought in the current open round", () => {
+    expect(orderAlreadyBought(256n, 257n)).toBe(false);
+    expect(orderAlreadyBought(257n, 257n)).toBe(true);
+  });
+
+  it("rejects invalid negative round identifiers", () => {
+    expect(() => orderAlreadyBought(-1n, 1n)).toThrow(
+      "cannot be negative",
+    );
+  });
+});

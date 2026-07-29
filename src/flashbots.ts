@@ -43,6 +43,21 @@ export interface FlashbotsSubmission {
   readonly transactionCount: number;
 }
 
+export interface BundlePrefixSimulation {
+  readonly prefixLength: number;
+  readonly simulation: CallBundleResult | undefined;
+}
+
+export interface RelaySubmissionAttempt {
+  readonly relayIndex: number;
+  readonly transactionCount: number;
+  readonly durationMs: number;
+  readonly status: "accepted" | "rejected";
+  readonly bundleHash?: Hash;
+  readonly smart?: boolean;
+  readonly reason?: string;
+}
+
 export class FlashbotsRelay {
   readonly #url: string;
   readonly #authAccount: PrivateKeyAccount;
@@ -181,26 +196,45 @@ export function simulatedGasUsed(
   });
 }
 
-export async function longestValidBundlePrefix(
+export async function simulateLongestValidBundlePrefix(
   relay: FlashbotsRelay,
   transactions: readonly Hex[],
   targetBlock: bigint,
-): Promise<number> {
-  if (transactions.length === 0) return 0;
+): Promise<BundlePrefixSimulation> {
+  if (transactions.length === 0) {
+    return { prefixLength: 0, simulation: undefined };
+  }
 
-  try {
-    const result = await relay.callBundle(transactions, targetBlock);
-    const prefixLength = successfulPrefixLength(result, transactions.length);
-    if (prefixLength === 0 || prefixLength === transactions.length) {
-      return prefixLength;
+  const confirmResult = async (
+    result: CallBundleResult,
+    transactionCount: number,
+  ): Promise<BundlePrefixSimulation> => {
+    const prefixLength = successfulPrefixLength(
+      result,
+      transactionCount,
+    );
+    if (prefixLength === 0) {
+      return { prefixLength, simulation: undefined };
+    }
+    if (prefixLength === transactionCount) {
+      return { prefixLength, simulation: result };
     }
     const confirmation = await relay.callBundle(
       transactions.slice(0, prefixLength),
       targetBlock,
     );
-    return successfulPrefixLength(confirmation, prefixLength);
+    return confirmResult(confirmation, prefixLength);
+  };
+
+  try {
+    const result = await relay.callBundle(transactions, targetBlock);
+    return confirmResult(
+      result,
+      transactions.length,
+    );
   } catch (fullBundleError) {
     let prefixLength = 0;
+    let simulation: CallBundleResult | undefined;
     for (let length = 1; length <= transactions.length; length += 1) {
       try {
         const result = await relay.callBundle(
@@ -209,13 +243,28 @@ export async function longestValidBundlePrefix(
         );
         if (successfulPrefixLength(result, length) !== length) break;
         prefixLength = length;
+        simulation = result;
       } catch {
         break;
       }
     }
     if (prefixLength === 0) throw fullBundleError;
-    return prefixLength;
+    return { prefixLength, simulation };
   }
+}
+
+export async function longestValidBundlePrefix(
+  relay: FlashbotsRelay,
+  transactions: readonly Hex[],
+  targetBlock: bigint,
+): Promise<number> {
+  return (
+    await simulateLongestValidBundlePrefix(
+      relay,
+      transactions,
+      targetBlock,
+    )
+  ).prefixLength;
 }
 
 export async function submitBundleToRelays(
@@ -269,6 +318,7 @@ export async function submitBundlePrefixLadder(
   targetBlock: bigint,
   builders: readonly string[],
   minimumTransactionCount = 1,
+  onAttempt?: (attempt: RelaySubmissionAttempt) => void,
 ): Promise<readonly FlashbotsSubmission[]> {
   if (transactions.length === 0) return [];
   if (
@@ -281,17 +331,53 @@ export async function submitBundlePrefixLadder(
     );
   }
 
-  const attempts = relays.flatMap((relay) =>
+  const attempts = relays.flatMap((relay, relayIndex) =>
     transactions.slice(minimumTransactionCount - 1).map((_, index) => {
       const transactionCount =
         minimumTransactionCount + index;
+      const startedAt = performance.now();
       return {
         relay,
+        relayIndex,
         transactionCount,
         promise: relay.sendBundle(
           transactions.slice(0, transactionCount),
           targetBlock,
           builders,
+        ).then(
+          (result) => {
+            try {
+              onAttempt?.({
+                relayIndex,
+                transactionCount,
+                durationMs: performance.now() - startedAt,
+                status: "accepted",
+                bundleHash: result.bundleHash,
+                smart:
+                  result.smart === true || result.smart === "true",
+              });
+            } catch {
+              // Telemetry must never change relay delivery.
+            }
+            return result;
+          },
+          (error: unknown) => {
+            try {
+              onAttempt?.({
+                relayIndex,
+                transactionCount,
+                durationMs: performance.now() - startedAt,
+                status: "rejected",
+                reason:
+                  error instanceof Error
+                    ? error.message
+                    : String(error),
+              });
+            } catch {
+              // Telemetry must never change relay delivery.
+            }
+            throw error;
+          },
         ),
       };
     }),

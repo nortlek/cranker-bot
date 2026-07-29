@@ -28,6 +28,7 @@ import {
   liquityPriceFeedAbi,
   liquityTroveManagerAbi,
   liveBidAdapterAbi,
+  multicall3BalanceAbi,
   poolAbi,
   stakeDaoAccountantAbi,
   standingOrderAbi,
@@ -48,6 +49,7 @@ import {
   FIRM_DOLA_USD_FEED_ADDRESS,
   LIQUITY_BRANCHES,
   LIQUITY_ETH_GAS_COMPENSATION,
+  MULTICALL3_ADDRESS,
   STAKE_DAO_ACCOUNTANT_ADDRESS,
   STAKE_DAO_CURVE_LOCKER_ADDRESS,
 } from "./constants.js";
@@ -199,6 +201,7 @@ interface OrderCandidate {
   readonly address: Address;
   readonly crankFee: bigint;
   readonly ticketsPerRound: bigint;
+  readonly requiresNativeBalance: boolean;
 }
 
 interface EligibleOrder extends OrderCandidate {
@@ -226,6 +229,7 @@ interface SubmittedJob {
 }
 
 interface PoolRoundSnapshot {
+  readonly ticketPrice: bigint;
   readonly crankBountyCap: bigint;
   readonly bountyTipWei: bigint;
   readonly fwaRequestId: bigint;
@@ -288,6 +292,7 @@ async function getRoundSnapshot(
     ...(blockNumber === undefined ? {} : { blockNumber }),
   });
   return {
+    ticketPrice: round.ticketPrice,
     crankBountyCap: round.crankBountyCap,
     bountyTipWei: round.bountyTipWei,
     fwaRequestId: round.fwaRequestId,
@@ -328,6 +333,9 @@ async function getOrderCandidates(
         }),
   ]);
   const subscriptions = [...new Set([...orders, ...vaults])];
+  const standingOrders = new Set(
+    orders.map((address) => address.toLowerCase()),
+  );
   const [feeResults, ticketResults] = await Promise.all([
     client.multicall({
       allowFailure: true,
@@ -361,6 +369,9 @@ async function getOrderCandidates(
         address,
         crankFee: fee.result,
         ticketsPerRound: BigInt(tickets.result),
+        requiresNativeBalance: standingOrders.has(
+          address.toLowerCase(),
+        ),
       });
     }
   }
@@ -409,6 +420,8 @@ async function refreshCachedOrderCandidates(parameters: {
             address: candidate.address,
             crankFee: fee.result,
             ticketsPerRound: BigInt(tickets.result),
+            requiresNativeBalance:
+              candidate.requiresNativeBalance,
           },
         ]
       : [];
@@ -423,9 +436,68 @@ async function getEligibleOrders(parameters: {
   readonly maxFeePerGas: bigint;
   readonly skipped: Map<string, number>;
   readonly blockNumber?: bigint;
+  readonly roundId?: bigint;
+  readonly minimumTicketCost?: bigint;
 }): Promise<EligibleOrder[]> {
+  const candidateCount = parameters.candidates.length;
+  const prefilterResults = await parameters.client.multicall({
+    allowFailure: true,
+    contracts: [
+      ...parameters.candidates.map((candidate) => ({
+        address: MULTICALL3_ADDRESS,
+        abi: multicall3BalanceAbi,
+        functionName: "getEthBalance" as const,
+        args: [candidate.address] as const,
+      })),
+      ...(parameters.roundId === undefined
+        ? []
+        : parameters.candidates.map((candidate) => ({
+            address: candidate.address,
+            abi: standingOrderAbi,
+            functionName: "lastRoundBought" as const,
+          }))),
+    ],
+    ...(parameters.blockNumber === undefined
+      ? {}
+      : { blockNumber: parameters.blockNumber }),
+  });
+  const balanceResults = prefilterResults.slice(0, candidateCount);
+  const lastRoundResults =
+    parameters.roundId === undefined
+      ? undefined
+      : prefilterResults.slice(candidateCount);
+  const candidates = parameters.candidates.filter((candidate, index) => {
+    const balance = balanceResults[index];
+    if (
+      balance?.status === "success" &&
+      candidate.requiresNativeBalance &&
+      !orderHasMinimumBalance(
+        balance.result,
+        candidate.crankFee,
+        parameters.minimumTicketCost ?? 0n,
+      )
+    ) {
+      incrementReason(parameters.skipped, "InsufficientBalance");
+      return false;
+    }
+    const lastRound = lastRoundResults?.[index];
+    if (
+      lastRound?.status === "success" &&
+      parameters.roundId !== undefined &&
+      orderAlreadyBought(lastRound.result, parameters.roundId)
+    ) {
+      incrementReason(parameters.skipped, "AlreadyBought");
+      return false;
+    }
+    return true;
+  });
+  log("debug", "order_balance_prefilter", {
+    candidates: parameters.candidates.length,
+    retained: candidates.length,
+    filtered: parameters.candidates.length - candidates.length,
+  });
   const evaluations = await mapConcurrent(
-    parameters.candidates,
+    candidates,
     parameters.config.simulationConcurrency,
     async (candidate): Promise<
       | { readonly candidate: OrderCandidate; readonly gas: bigint }
@@ -473,6 +545,27 @@ async function getEligibleOrders(parameters: {
     });
   }
   return eligible;
+}
+
+export function orderHasMinimumBalance(
+  balance: bigint,
+  crankFee: bigint,
+  minimumTicketCost = 0n,
+): boolean {
+  if (balance < 0n || crankFee < 0n || minimumTicketCost < 0n) {
+    throw new Error("order balance and costs cannot be negative");
+  }
+  return balance >= crankFee + minimumTicketCost;
+}
+
+export function orderAlreadyBought(
+  lastRoundBought: bigint,
+  roundId: bigint,
+): boolean {
+  if (lastRoundBought < 0n || roundId < 0n) {
+    throw new Error("order round identifiers cannot be negative");
+  }
+  return lastRoundBought >= roundId;
 }
 
 function orderJob(order: EligibleOrder): KeeperJob {
@@ -957,6 +1050,8 @@ async function planPrimaryJobs(parameters: {
       config,
       maxFeePerGas,
       skipped,
+      roundId: roundCount,
+      minimumTicketCost: round.ticketPrice,
       ...(parameters.blockNumber === undefined
         ? {}
         : { blockNumber: parameters.blockNumber }),
@@ -2974,12 +3069,21 @@ function actualJobReward(
 export async function runKeeperPass(
   context: StrategyContext,
 ): Promise<KeeperPassResult> {
+  const headAndFeesStartedAt = performance.now();
   const [feeQuote, latestBlock] = await Promise.all([
     context.publicClient.estimateFeesPerGas({
       type: "eip1559",
     }),
     context.publicClient.getBlock({ blockTag: "latest" }),
   ]);
+  log("info", "keeper_pass_stage_timing", {
+    stage: "head_and_fees",
+    durationMs: performance.now() - headAndFeesStartedAt,
+    planningBlock: latestBlock.number.toString(),
+    headTimestamp: latestBlock.timestamp.toString(),
+    headAgeMs:
+      Date.now() - Number(latestBlock.timestamp) * 1_000,
+  });
   const maxPriorityFeePerGas =
     feeQuote.maxPriorityFeePerGas >
     context.config.minPriorityFeePerGas
@@ -2996,6 +3100,7 @@ export async function runKeeperPass(
     return { orders: 0, viable: 0, sent: 0, confirmed: 0 };
   }
 
+  const planningStartedAt = performance.now();
   const plan = await planJobs({
     client: context.publicClient,
     discoveryClient:
@@ -3022,6 +3127,13 @@ export async function runKeeperPass(
       (maxFeePerGas - maxPriorityFeePerGas),
     headBlockNumber: latestBlock.number,
     headTimestamp: latestBlock.timestamp,
+  });
+  log("info", "keeper_pass_stage_timing", {
+    stage: "planning",
+    durationMs: performance.now() - planningStartedAt,
+    planningBlock: latestBlock.number.toString(),
+    plannedJobs: plan.jobs.length,
+    minimumViablePrefix: plan.minimumViablePrefix,
   });
   const baseFeePerGas = maxFeePerGas - maxPriorityFeePerGas;
   const bountyBaseFeePerGas =
@@ -3116,6 +3228,7 @@ export async function runKeeperPass(
     typeof context.account === "string"
       ? context.account
       : context.account.address;
+  const accountGateStartedAt = performance.now();
   const [latestNonce, pendingNonce, accountBalance] = await Promise.all([
     context.publicClient.getTransactionCount({
       address: accountAddress,
@@ -3127,6 +3240,12 @@ export async function runKeeperPass(
     }),
     context.publicClient.getBalance({ address: accountAddress }),
   ]);
+  log("info", "keeper_pass_stage_timing", {
+    stage: "account_gate",
+    durationMs: performance.now() - accountGateStartedAt,
+    latestNonce,
+    pendingNonce,
+  });
   const noncePlan = buildNoncePlan(
     { latest: latestNonce, pending: pendingNonce },
     plan.jobs.length,

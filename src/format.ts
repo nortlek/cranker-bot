@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { formatEther, formatGwei } from "viem";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -13,9 +15,24 @@ export interface LogEntry {
 export type LogSink = (entry: LogEntry) => void;
 
 let logSink: LogSink | undefined;
+const logContext =
+  new AsyncLocalStorage<Record<string, LogFieldValue>>();
 
 export function setLogSink(sink: LogSink | undefined): void {
   logSink = sink;
+}
+
+export function withLogContext<T>(
+  fields: Record<string, LogFieldValue>,
+  callback: () => T,
+): T {
+  return logContext.run(
+    {
+      ...(logContext.getStore() ?? {}),
+      ...fields,
+    },
+    callback,
+  );
 }
 
 export function eth(value: bigint): string {
@@ -40,6 +57,7 @@ export function log(
     time: new Date().toISOString(),
     level,
     event,
+    ...(logContext.getStore() ?? {}),
     ...fields,
   };
   const line = JSON.stringify(payload);

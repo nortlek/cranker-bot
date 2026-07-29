@@ -19,6 +19,9 @@ export const VAULT_FACTORY_ADDRESS = getAddress(
 export const CREATED_ORDER_ADDRESS = getAddress(
   "0x9e957185F108F535BAEFcaF6A4A8bDEa4813557A",
 );
+export const MULTICALL3_ADDRESS = getAddress(
+  "0xca11bde05977b3631167028862be2a173976ca11",
+);
 export const LIQUITY_BRANCHES = [
   {
     symbol: "WETH",

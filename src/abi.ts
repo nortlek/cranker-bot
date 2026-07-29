@@ -150,6 +150,10 @@ export const erc20Abi = parseAbi([
   "event Transfer(address indexed from,address indexed to,uint256 value)",
 ]);
 
+export const multicall3BalanceAbi = parseAbi([
+  "function getEthBalance(address account) view returns(uint256)",
+]);
+
 export const firmAddMarketEvent = parseAbiItem(
   "event AddMarket(address indexed market)",
 );
