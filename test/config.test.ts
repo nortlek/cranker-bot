@@ -25,6 +25,8 @@ const originalPoolPullBountyEstimateBps =
   process.env.POOL_PULL_BOUNTY_ESTIMATE_BPS;
 const originalWsUrl = process.env.WS_URL;
 const originalSubmissionMode = process.env.SUBMISSION_MODE;
+const originalFlashbotsBuilders =
+  process.env.FLASHBOTS_BUILDERS;
 
 afterEach(() => {
   if (originalFwaProcessGasLimit === undefined) {
@@ -81,6 +83,12 @@ afterEach(() => {
     delete process.env.SUBMISSION_MODE;
   } else {
     process.env.SUBMISSION_MODE = originalSubmissionMode;
+  }
+  if (originalFlashbotsBuilders === undefined) {
+    delete process.env.FLASHBOTS_BUILDERS;
+  } else {
+    process.env.FLASHBOTS_BUILDERS =
+      originalFlashbotsBuilders;
   }
 });
 
@@ -196,5 +204,15 @@ describe("pool pull economics", () => {
     const config = loadConfig();
     expect(config.poolPullBuilderBidBps).toBe(1_000n);
     expect(config.poolPullBountyEstimateBps).toBe(10_000n);
+  });
+});
+
+describe("private builder coverage", () => {
+  it("multiplexes to the observed Bob builder by default", () => {
+    delete process.env.FLASHBOTS_BUILDERS;
+
+    expect(loadConfig().flashbotsBuilders).toContain(
+      "bobthebuilder",
+    );
   });
 });

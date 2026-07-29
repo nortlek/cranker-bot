@@ -18,10 +18,17 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 17:32 America/Denver, the
-verified snapshot was **$168.70401067 net**, or **67.48%** of the goal, with
-`latest == pending == 560` and net ETH equivalent of
-`0.088646950067080998`. The 14 newest receipts increased the wallet by exactly
+2026-07-30 23:59 America/Denver**. At 2026-07-29 17:53 America/Denver, the
+verified snapshot was **$169.95452745 net**, or **67.98%** of the goal, with
+`latest == pending == 569`, net ETH equivalent of
+`0.089304044692971767`, and a fresh `$1,903.10` ETH/USD oracle. Since the
+nonce-560 snapshot, nine successful receipts increased the wallet by exactly
+`0.000657094625890769 ETH`. Round 305's processor/sync prefix retained
+`0.000114463792007881 ETH`, five standing orders retained
+`0.000298811712187825 ETH`, and round 306's processor/sync prefix retained
+`0.000243819121695063 ETH`. PostgreSQL receipt aggregation and the observed
+wallet delta agree exactly. The preceding 14 receipts increased the wallet by
+exactly
 `0.001178101655471192 ETH`: an 11-order batch earned `0.0022 ETH`, spent
 `0.001605888512157402 ETH`, and retained `0.000594111487842598 ETH`;
 round 304's `processAcquisitions(18) -> syncFwaResult -> settle` chain earned
@@ -82,12 +89,42 @@ before reporting progress or deploying.
 
 ### P0 — Backrun a final direct ticket purchase with `pull`
 
-Status: live in Railway deployment
+Status: live. The original deployment
 `fb1ce0b3-c656-4987-bd77-7d36ab77e5f6` from exact source
-`1f066085ff22f3781ad1acea5f9467ea4b3f54aa`. Startup verified one signer
-lease and a hash-only filtered pending subscription covering 69 canonical
-targets, including the PullPool. Awaiting the first live final-ticket
-candidate, exact simulation, submission, and reconciled receipt.
+`1f066085ff22f3781ad1acea5f9467ea4b3f54aa` verified one signer lease and a
+hash-only filtered pending subscription covering 69 canonical targets,
+including the PullPool. The current deployment retains that lane. Its first
+two live pool candidates each bought one ticket for round 305 and resolved
+from pending hash to validated signed transaction in `62 ms` and `33 ms`.
+Seven and then six tickets were still required at their respective confirmed
+heads, so exact `[purchase, pull]` simulation rejected both non-final
+purchases and sent nothing. Both prerequisites succeeded in their intended
+blocks, `25641803` and `25641815`, reducing the round to five tickets needed.
+
+The eventual four-ticket final purchase in transaction
+`0xf4cae59d5d107454b4fb1ac4180b556e0c231fc40eaa58a765f605dde38c661`
+never appeared in the Alchemy pending feed. It landed at transaction index 4
+of Bob-built block `25641820`; the established competitor wrapper pulled at
+index 5. The same purchaser, wrapper, and adjacent ordering occurred in rounds
+302 and 303 after the pending lane was live, and neither prerequisite has a
+durable pending observation. None of those three transaction hashes appears
+in Flashbots' MEV-Share event history. This is consistent with private or
+exclusive order flow rather than a decoder/simulation defect.
+
+A new read-only 20,000-block inspector reconstructed the most recent 50 pulls.
+Thirty-one followed a ticket purchase in the same block, and every one used
+exactly one purchase transaction; no sampled pull required accumulating
+multiple pending prerequisites. This rejects a speculative multi-prerequisite
+implementation. It also found round 305 was built by the registered
+`bobthebuilder`, which was absent from the Flashbots multiplex list. Bob is now
+included in the default builder set so any future prerequisite that is
+actually observable can be delivered to that builder without changing bids,
+simulation, or private-expiry safeguards.
+
+Awaiting the first observable live final-ticket candidate, submission, and
+reconciled receipt. Additional public pending providers are useful only if
+they demonstrate broader propagation; they cannot recover exclusive order
+flow, and MEV-Share is not justified by these three absent history entries.
 
 Block `25641238` proved a confirmed-head blind spot. Transaction
 `0xa4a0ed080276524cf88662a7bab29a7efc13e9ebd322a988043cc5f5d3971a4c`
@@ -1182,6 +1219,28 @@ used `7,028,773` gas; the complete chain used `7,577,134` gas, paid
 about `0.000020486646392058 ETH` more than the former 500-bps quote would have
 on the simulated gross reward. One miss followed by one inclusion is evidence
 to hold the new quote and collect more samples, not to lower it again.
+
+Rounds 305 and 306 exposed a submission-variant defect rather than a bid
+failure. For each ready lifecycle, the exact-simulated three-call bundle was
+profitable, but the sender simultaneously offered builders both
+`process -> sync` and `process -> sync -> settle` with the same starting
+nonce. Titan selected only the two-call variant for round 305; Quasar selected
+only the two-call variant for round 306. Those prefixes still retained
+`0.000114463792007881 ETH` and `0.000243819121695063 ETH`, respectively, but
+both discarded an additional profitable settlement and forced a slower
+standalone race. The round-306 competitor settled in the next Quasar block
+with zero priority fee and no direct beneficiary payment, proving that our
+standalone 301-bps miss was delivery/latency rather than a higher clearing
+price.
+
+When an exact-simulated selected prefix contains `settle` or
+`settleForcedEth`, the submission floor now rises through that settlement.
+Optional work after it retains the same-nonce ladder, so
+`process -> sync -> settle -> crank -> pull` may still offer the settled
+three-call core and every longer safe prefix. A selected two-call
+`process -> sync` plan remains valid when settlement was absent or did not
+survive exact simulation. This changes neither the planner's dependency floor,
+the 300-bps bid, nor any exact-simulation or profit gate.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the

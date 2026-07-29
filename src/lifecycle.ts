@@ -62,6 +62,46 @@ export interface LifecycleFundingJob {
   readonly roundId?: bigint;
 }
 
+/**
+ * Once an exact-simulated lifecycle prefix includes settlement, do not offer
+ * builders an alternative that stops before settlement. Those alternatives
+ * share nonces, so a builder can otherwise select a profitable process/sync
+ * prefix and discard the also-profitable settlement transaction.
+ *
+ * Optional work after settlement still keeps its prefix ladder: a lifecycle
+ * bundle enriched with standing orders or a covered pull may submit the
+ * settled core and every longer prefix.
+ */
+export function minimumLifecycleSubmissionPrefix(
+  jobs: readonly LifecycleFundingJob[],
+  minimumEconomicPrefix: number,
+): number {
+  if (
+    !Number.isSafeInteger(minimumEconomicPrefix) ||
+    minimumEconomicPrefix < 1 ||
+    minimumEconomicPrefix > jobs.length
+  ) {
+    throw new Error(
+      "minimum economic prefix must select a non-empty job prefix",
+    );
+  }
+
+  let minimumSubmissionPrefix = minimumEconomicPrefix;
+  for (let index = 0; index < jobs.length; index += 1) {
+    const kind = jobs[index]?.kind;
+    if (
+      kind === "pool_settle" ||
+      kind === "pool_settle_forced_eth"
+    ) {
+      minimumSubmissionPrefix = Math.max(
+        minimumSubmissionPrefix,
+        index + 1,
+      );
+    }
+  }
+  return minimumSubmissionPrefix;
+}
+
 export interface LifecycleFundingSuffix<TJob extends LifecycleFundingJob> {
   readonly source: "cache";
   readonly headBlockNumber: bigint;

@@ -64,6 +64,7 @@ import {
   parseNewHeadsPayload,
   retryTransientRead,
 } from "./heads.js";
+import { minimumLifecycleSubmissionPrefix } from "./lifecycle.js";
 import { executePendingFundingBackrun } from "./pending-funding-backrun.js";
 import { executePendingPoolPullBackrun } from "./pending-pool-pull-backrun.js";
 import {
@@ -1217,6 +1218,20 @@ async function main(): Promise<void> {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
         await assertSignerLeaseHeld();
+        const minimumSubmissionPrefix =
+          minimumLifecycleSubmissionPrefix(
+            selectedRequests,
+            minimumEconomicPrefix,
+          );
+        if (minimumSubmissionPrefix > minimumEconomicPrefix) {
+          log("info", "bundle_submission_floor", {
+            targetBlock: targetBlock.toString(),
+            minimumViablePrefix,
+            minimumEconomicPrefix,
+            minimumSubmissionPrefix,
+            reason: "settlement_in_exact_simulated_core",
+          });
+        }
         const relaySubmissionStartedAt = performance.now();
         let firstAcceptedMs: number | undefined;
         const submissions = await submitBundlePrefixLadder(
@@ -1224,7 +1239,7 @@ async function main(): Promise<void> {
           selected,
           targetBlock,
           config.flashbotsBuilders,
-          minimumEconomicPrefix,
+          minimumSubmissionPrefix,
           (attempt) => {
             if (
               attempt.status === "accepted" &&

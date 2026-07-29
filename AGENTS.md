@@ -155,7 +155,8 @@ deploy the exact local committed source with the Railway CLI.
 
 Production submits private bundles through four paths: Flashbots, Quasar,
 direct Titan, and direct Beaver. Flashbots also multiplexes to the configured
-builder list. Do not remove the direct Titan/Beaver paths without evidence:
+builder list, including the registered `bobthebuilder` route. Do not remove the
+direct Titan/Beaver paths without evidence:
 after they were added, the keeper won consecutive round-171 and round-172
 ready-cycle bundles in Titan-built blocks.
 
@@ -470,6 +471,11 @@ These constraints prevent expensive or unsafe regressions:
 - The ready chain requires at least the processor plus sync prefix. Economic
   accounting may require the full processor/sync/settle prefix when earlier
   calls are not independently profitable.
+- If the exact-simulated selected lifecycle contains `settle` or
+  `settleForcedEth`, the relay submission floor must include that settlement.
+  Do not let a builder choose a same-nonce processor/sync alternative and
+  discard a profitable settlement. Optional jobs after settlement may still
+  use the prefix ladder beginning at the settled lifecycle core.
 - The ready processor uses `FWA_PROCESS_GAS_LIMIT` only as a protocol signing
   envelope. Do not charge that ceiling as consumed gas or add duplicate local
   processor simulation/estimation to the hot path. Mandatory private prefix

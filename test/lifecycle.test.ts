@@ -8,6 +8,7 @@ import {
   estimatePoolBounty,
   lifecycleFundingSuperset,
   liveBidSweepRewardFromSimulation,
+  minimumLifecycleSubmissionPrefix,
   quoteLiveBidSweep,
   routeRoundIds,
   selectOrdersForCoverage,
@@ -218,6 +219,82 @@ describe("routeRoundIds", () => {
         ethPendingRound: 0n,
       }),
     ).toEqual({ fundingRoundId: 140n });
+  });
+});
+
+describe("minimumLifecycleSubmissionPrefix", () => {
+  const jobs = (...kinds: string[]) =>
+    kinds.map((kind) => ({ kind }));
+
+  it("requires the full ready lifecycle core when settlement simulated", () => {
+    expect(
+      minimumLifecycleSubmissionPrefix(
+        jobs("fwa_process", "pool_sync", "pool_settle"),
+        2,
+      ),
+    ).toBe(3);
+  });
+
+  it("requires sync and settlement for a fulfilled lifecycle", () => {
+    expect(
+      minimumLifecycleSubmissionPrefix(
+        jobs("pool_sync", "pool_settle"),
+        1,
+      ),
+    ).toBe(2);
+  });
+
+  it("preserves longer optional prefixes after the settled core", () => {
+    expect(
+      minimumLifecycleSubmissionPrefix(
+        jobs(
+          "fwa_process",
+          "pool_sync",
+          "pool_settle",
+          "standing_order",
+          "pool_pull",
+        ),
+        2,
+      ),
+    ).toBe(3);
+  });
+
+  it("does not change batches without a simulated settlement", () => {
+    expect(
+      minimumLifecycleSubmissionPrefix(
+        jobs("fwa_process", "pool_sync"),
+        2,
+      ),
+    ).toBe(2);
+    expect(
+      minimumLifecycleSubmissionPrefix(
+        jobs("standing_order", "standing_order"),
+        1,
+      ),
+    ).toBe(1);
+  });
+
+  it("never lowers an existing economic or payment floor", () => {
+    expect(
+      minimumLifecycleSubmissionPrefix(
+        jobs(
+          "fwa_process",
+          "pool_sync",
+          "pool_settle",
+          "builder_payment",
+        ),
+        4,
+      ),
+    ).toBe(4);
+  });
+
+  it("treats forced-ETH settlement as a lifecycle boundary", () => {
+    expect(
+      minimumLifecycleSubmissionPrefix(
+        jobs("pool_sync", "pool_settle_forced_eth"),
+        1,
+      ),
+    ).toBe(2);
   });
 });
 

@@ -256,7 +256,10 @@ successful `crank` fees are sent to that keeper address.
   directly to Quasar because it has recently built competing pool cycles.
   A bundle is submitted concurrently to every configured endpoint.
 - `FLASHBOTS_BUILDERS`: registered builder names for relay multiplexing. The
-  defaults cover several builders and can be replaced as the registry changes.
+  defaults cover Flashbots, builder0x69, Beaver, Titan, rsync, and
+  `bobthebuilder`. Bob was added after a recurring final-ticket/pull pair landed
+  in a Bob-built block outside the Alchemy pending feed. Builder names must
+  remain entries from the canonical Flashbots builder registry.
 - `FLASHBOTS_AUTH_PRIVATE_KEY`: optional relay reputation key. It signs only
   relay authentication messages; when omitted, `PRIVATE_KEY` is used.
 - `RELAY_TIMEOUT_MS`: timeout for relay simulation and submission calls.
@@ -452,22 +455,24 @@ DBR event, exact DOLA transfer, and exact signer DOLA balance delta.
 The private alternatives contain nonce `N`, then `N+1`, and so on. Each
 alternative is atomic, and the shortest alternative is raised when a plan has
 dependencies. For example, a three-order coverage plan followed by `pull`
-offers only the four-transaction bundle; `sync → settle` may safely offer both
-the sync prefix and the full sequence. A ready acquisition never offers its
-unpaid processor alone: the minimum dependency prefix is
-`processAcquisitions(1) → syncFwaResult`, and the economic prefix rises to
-include `settle` if necessary. No losing transaction leaks into the public
+offers only the four-transaction bundle. A ready acquisition never offers its
+unpaid processor alone: the minimum planning dependency is
+`processAcquisitions(1) → syncFwaResult`. When an exact-simulated selected
+lifecycle includes `settle` or `settleForcedEth`, settlement is also part of
+the submission floor; builders are not offered a same-nonce alternative that
+stops before it. A selected lifecycle without settlement retains its existing
+dependency/economic floor. No losing transaction leaks into the public
 mempool. Public mode deliberately disables cross-subsidized coverage and sends
 only the first currently estimable paid step of a state transition.
 
 When an older acquisition and a newer funding round coexist, the lifecycle
 prefix may be extended as
 `process → sync → settle(previous) → exact crank(s) → pull(current)`.
-The prefix ladder still offers the unchanged lifecycle-safe prefixes alongside
-the longer same-nonce alternatives. `pull(current)` is never offered unless
-the preceding lifecycle settles and the exact crank prefix supplies sufficient
-coverage. Each job retains its own bid policy, so the relay prices the bundle
-with the existing reward-weighted lifecycle, order, and pull bids.
+The prefix ladder starts at the complete settled lifecycle core and still
+offers every longer same-nonce alternative. `pull(current)` is never offered
+unless the preceding lifecycle settles and the exact crank prefix supplies
+sufficient coverage. Each job retains its own bid policy, so the relay prices
+the bundle with the existing reward-weighted lifecycle, order, and pull bids.
 
 ### Profit controls
 

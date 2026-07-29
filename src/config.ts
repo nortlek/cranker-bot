@@ -153,7 +153,7 @@ function relayUrlsEnv(): readonly string[] {
 function flashbotsBuildersEnv(): readonly string[] {
   return (
     process.env.FLASHBOTS_BUILDERS ||
-    "flashbots,builder0x69,beaverbuild.org,Titan,rsync"
+    "flashbots,builder0x69,beaverbuild.org,Titan,rsync,bobthebuilder"
   )
     .split(",")
     .map((value) => value.trim())
