@@ -62,6 +62,7 @@ export const poolAbi = parseAbi([
 export const fwaAbi = parseAbi([
   "function acquisitions(uint256 requestId) view returns (address purchaser, uint256 requestBlock, uint256 priceEscrowed, uint256 listingId, uint8 status)",
   "function nextSequenceToProcess() view returns (uint64)",
+  "function lastIssuedSequence() view returns (uint64)",
   "function requestIdAtSequence(uint64 sequence) view returns (uint256)",
   "function processAcquisitions(uint256 maxCount) returns (uint256 processed)",
   "event AcquisitionProcessed(uint256 indexed requestId, uint64 indexed sequence, uint8 status, address indexed processor)",

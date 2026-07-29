@@ -50,6 +50,7 @@ import { errorMessage, eth, gwei, log } from "./format.js";
 import {
   ACQUISITION_STATUS,
   ROUND_STATE,
+  acquisitionProcessCount,
   acquisitionStatusName,
   buybackCallerReward,
   estimatePoolBounty,
@@ -74,6 +75,11 @@ export type KeeperJobKind =
   | "convex_earmark"
   | "convex_kick";
 
+export type PoolBuilderBidPolicy =
+  | "pool_pull"
+  | "pool_ready"
+  | "pool_fulfilled";
+
 export type JobReward =
   | {
       readonly kind: "fixed";
@@ -91,6 +97,7 @@ export interface KeeperJob {
   readonly data: Hex;
   readonly gas: bigint;
   readonly reward: JobReward;
+  readonly poolBuilderBidPolicy?: PoolBuilderBidPolicy;
   readonly order?: Address;
   readonly roundId?: bigint;
 }
@@ -393,6 +400,7 @@ function poolJob(parameters: {
   readonly roundId: bigint;
   readonly gas: bigint;
   readonly terms: PoolBountyTerms;
+  readonly bidPolicy: PoolBuilderBidPolicy;
 }): KeeperJob {
   const functionName = {
     pool_pull: "pull",
@@ -418,6 +426,7 @@ function poolJob(parameters: {
       kind: "pool_bounty",
       terms: parameters.terms,
     },
+    poolBuilderBidPolicy: parameters.bidPolicy,
     roundId: parameters.roundId,
   };
 }
@@ -425,18 +434,20 @@ function poolJob(parameters: {
 function fwaProcessJob(parameters: {
   readonly fwa: Address;
   readonly gas: bigint;
+  readonly count: bigint;
 }): KeeperJob {
   return {
     kind: "fwa_process",
-    label: "fwa_process:1",
+    label: `fwa_process:${parameters.count}`,
     target: parameters.fwa,
     data: encodeFunctionData({
       abi: fwaAbi,
       functionName: "processAcquisitions",
-      args: [1n],
+      args: [parameters.count],
     }),
     gas: parameters.gas,
     reward: { kind: "fixed", amountWei: 0n },
+    poolBuilderBidPolicy: "pool_ready",
   };
 }
 
@@ -550,21 +561,63 @@ async function planPrimaryJobs(parameters: {
         return { jobs: [], minimumViablePrefix: 0 };
       }
       try {
-        const nextSequence = await client.readContract({
-          address: fwa,
-          abi: fwaAbi,
-          functionName: "nextSequenceToProcess",
+        const [nextSequence, lastIssuedSequence] =
+          await Promise.all([
+            client.readContract({
+              address: fwa,
+              abi: fwaAbi,
+              functionName: "nextSequenceToProcess",
+            }),
+            client.readContract({
+              address: fwa,
+              abi: fwaAbi,
+              functionName: "lastIssuedSequence",
+            }),
+          ]);
+        const availableSequenceCount =
+          lastIssuedSequence < nextSequence
+            ? 0
+            : Number(
+                lastIssuedSequence - nextSequence + 1n <
+                  BigInt(config.fwaProcessMaxCount)
+                  ? lastIssuedSequence - nextSequence + 1n
+                  : BigInt(config.fwaProcessMaxCount),
+              );
+        const processSequences = Array.from(
+          { length: availableSequenceCount },
+          (_, index) => nextSequence + BigInt(index),
+        );
+        const queuedRequestIds = await client.multicall({
+          allowFailure: false,
+          contracts: processSequences.map((sequence) => ({
+            address: fwa,
+            abi: fwaAbi,
+            functionName: "requestIdAtSequence" as const,
+            args: [sequence] as const,
+          })),
         });
-        const nextRequestId = await client.readContract({
-          address: fwa,
-          abi: fwaAbi,
-          functionName: "requestIdAtSequence",
-          args: [nextSequence],
-        });
-        if (nextRequestId !== requestId) {
+        const processCount = acquisitionProcessCount(
+          requestId,
+          queuedRequestIds,
+        );
+        if (processCount === undefined) {
           incrementReason(
             skipped,
-            "acquisition_ready_not_next",
+            "acquisition_ready_outside_process_window",
+          );
+          return { jobs: [], minimumViablePrefix: 0 };
+        }
+        const processSimulation = await client.simulateContract({
+          account,
+          address: fwa,
+          abi: fwaAbi,
+          functionName: "processAcquisitions",
+          args: [processCount],
+        });
+        if (processSimulation.result < processCount) {
+          incrementReason(
+            skipped,
+            "fwa_process_incomplete_window",
           );
           return { jobs: [], minimumViablePrefix: 0 };
         }
@@ -573,7 +626,7 @@ async function planPrimaryJobs(parameters: {
           address: fwa,
           abi: fwaAbi,
           functionName: "processAcquisitions",
-          args: [1n],
+          args: [processCount],
         });
         const processGas = bufferedGas(
           processEstimate,
@@ -587,13 +640,18 @@ async function planPrimaryJobs(parameters: {
           return { jobs: [], minimumViablePrefix: 0 };
         }
         const jobs = [
-          fwaProcessJob({ fwa, gas: processGas }),
+          fwaProcessJob({
+            fwa,
+            gas: processGas,
+            count: processCount,
+          }),
           poolJob({
             kind: "pool_sync",
             pool,
             roundId: roundCount,
             gas: config.poolSyncGasLimit,
             terms,
+            bidPolicy: "pool_ready",
           }),
         ];
         if (jobs.length < limit) {
@@ -604,6 +662,7 @@ async function planPrimaryJobs(parameters: {
               roundId: roundCount,
               gas: config.poolSettleGasLimit,
               terms,
+              bidPolicy: "pool_ready",
             }),
           );
         }
@@ -640,6 +699,7 @@ async function planPrimaryJobs(parameters: {
           roundId: roundCount,
           gas: syncGas,
           terms,
+          bidPolicy: "pool_fulfilled",
         }),
       ];
       if (
@@ -653,6 +713,7 @@ async function planPrimaryJobs(parameters: {
             roundId: roundCount,
             gas: config.poolSettleGasLimit,
             terms,
+            bidPolicy: "pool_fulfilled",
           }),
         );
       }
@@ -693,6 +754,7 @@ async function planPrimaryJobs(parameters: {
               roundId: roundCount,
               gas,
               terms,
+              bidPolicy: "pool_fulfilled",
             }),
           ],
           minimumViablePrefix: 1,
@@ -746,6 +808,7 @@ async function planPrimaryJobs(parameters: {
               roundId: roundCount,
               gas,
               terms,
+              bidPolicy: "pool_pull",
             }),
           ],
           minimumViablePrefix: 1,
@@ -793,6 +856,7 @@ async function planPrimaryJobs(parameters: {
             roundId: roundCount,
             gas: config.poolPullGasLimit,
             terms,
+            bidPolicy: "pool_pull",
           }),
         );
         const grossReward = jobs.reduce(

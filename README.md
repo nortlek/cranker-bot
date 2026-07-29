@@ -228,9 +228,14 @@ successful `crank` fees are sent to that keeper address.
 - `RELAY_TIMEOUT_MS`: timeout for relay simulation and submission calls.
 - `BUILDER_BID_BPS`: starting bid and lower bound for every order. The default
   is `8100` (81%).
-- `POOL_BUILDER_BID_BPS`: builder share applied only to pool lifecycle
-  bounties. The default is `1000` (10%); mixed order/pool bundles weight each
-  component by its own reward and bid policy.
+- `POOL_BUILDER_BID_BPS`: builder share for a ready
+  `processAcquisitions → sync → settle` chain. The default is `1000` (10%).
+- `POOL_PULL_BUILDER_BID_BPS`: independent builder share for `pull`. The
+  default floor is `850` (8.5%); production can start higher when recent
+  specialist bids warrant it.
+- `POOL_FULFILLED_BUILDER_BID_BPS`: builder share for ordinary fulfilled
+  `sync → settle` and settle-only work. The default is `300` (3%).
+  Mixed order/pool bundles weight every component by its own policy.
 - `LIVE_BID_SWEEP_BUILDER_BID_BPS`: builder share applied only to an adapter
   sweep. The default is `100` (1%); historical winning calls paid zero
   priority fee, so it does not inherit the standing-order bid.
@@ -296,6 +301,10 @@ successful `crank` fees are sent to that keeper address.
   permissionless acquisition processor. The 3M default accommodates complex
   result paths; private relay simulation and whole-prefix economics still
   gate submission.
+- `FWA_PROCESS_MAX_COUNT`: maximum ready acquisition sequence prefix the
+  keeper may clear to reach its pool request. The default is `5`; the call must
+  report that the full prefix processed before it can be bundled with
+  `syncFwaResult`.
 - `BUYBACK_GAS_LIMIT`: safety ceiling for the separately estimated buyback.
 - `LIVE_BID_SWEEP_GAS_LIMIT`: adapter safety ceiling; the default 250k is well
   above its observed roughly 83k–96k gas usage.
@@ -344,8 +353,9 @@ bundleProfit =
 Before private submission, the bot runs an ordered signed simulation and
 re-prices the whole viable sequence. Each reward contributes its own desired
 builder payment: standing orders use their learned target, while pool
-lifecycle bounties use `POOL_BUILDER_BID_BPS`. The combined target is capped at
-the priority fee that still clears the bundle profit floor and
+jobs use the ready-chain, pull, or fulfilled-chain policy matching their
+competition family. The combined target is capped at the priority fee that
+still clears the bundle profit floor and
 `MAX_FEE_PER_GAS_GWEI`:
 
 ```text

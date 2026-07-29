@@ -25,6 +25,8 @@ export interface KeeperConfig {
   readonly relayTimeoutMs: number;
   readonly builderBidBps: bigint;
   readonly poolBuilderBidBps: bigint;
+  readonly poolPullBuilderBidBps: bigint;
+  readonly poolFulfilledBuilderBidBps: bigint;
   readonly liveBidSweepBuilderBidBps: bigint;
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
@@ -61,6 +63,7 @@ export interface KeeperConfig {
   readonly poolSyncGasLimit: bigint;
   readonly poolSettleGasLimit: bigint;
   readonly fwaProcessGasLimit: bigint;
+  readonly fwaProcessMaxCount: number;
   readonly buybackGasLimit: bigint;
   readonly liveBidSweepGasLimit: bigint;
   readonly liquityGasLimit: bigint;
@@ -213,6 +216,22 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const poolPullBuilderBidBps = integerEnv(
+    "POOL_PULL_BUILDER_BID_BPS",
+    850,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
+  const poolFulfilledBuilderBidBps = integerEnv(
+    "POOL_FULFILLED_BUILDER_BID_BPS",
+    300,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const liveBidSweepBuilderBidBps = integerEnv(
     "LIVE_BID_SWEEP_BUILDER_BID_BPS",
     100,
@@ -283,6 +302,9 @@ export function loadConfig(): KeeperConfig {
     }),
     builderBidBps: BigInt(builderBidBps),
     poolBuilderBidBps: BigInt(poolBuilderBidBps),
+    poolPullBuilderBidBps: BigInt(poolPullBuilderBidBps),
+    poolFulfilledBuilderBidBps:
+      BigInt(poolFulfilledBuilderBidBps),
     liveBidSweepBuilderBidBps:
       BigInt(liveBidSweepBuilderBidBps),
     liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
@@ -402,6 +424,11 @@ export function loadConfig(): KeeperConfig {
         min: 21_000,
         max: 5_000_000,
       }),
+    ),
+    fwaProcessMaxCount: integerEnv(
+      "FWA_PROCESS_MAX_COUNT",
+      5,
+      { min: 1, max: 50 },
     ),
     buybackGasLimit: BigInt(
       integerEnv("BUYBACK_GAS_LIMIT", 700_000, {

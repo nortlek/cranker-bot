@@ -129,8 +129,16 @@ export function buildDiscordEmbed(
         field("Submission", entry.submissionMode),
         field("Order bid floor", `${compact(entry.configuredBuilderBidBps)} bps`),
         field(
-          "Pool bid",
+          "Ready-chain bid",
           `${compact(entry.configuredPoolBuilderBidBps)} bps`,
+        ),
+        field(
+          "Pool pull bid",
+          `${compact(entry.configuredPoolPullBuilderBidBps)} bps`,
+        ),
+        field(
+          "Fulfilled-chain bid",
+          `${compact(entry.configuredPoolFulfilledBuilderBidBps)} bps`,
         ),
         field(
           "Sweep bid",

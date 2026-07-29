@@ -2,6 +2,7 @@ import { getAddress, parseEther, parseGwei } from "viem";
 import { describe, expect, it } from "vitest";
 
 import {
+  acquisitionProcessCount,
   acquisitionStatusName,
   buybackCallerReward,
   estimatePoolBounty,
@@ -22,6 +23,18 @@ describe("acquisitionStatusName", () => {
 
   it("preserves unknown status codes for diagnosis", () => {
     expect(acquisitionStatusName(99)).toBe("unknown_99");
+  });
+});
+
+describe("acquisitionProcessCount", () => {
+  it("returns the prefix length needed to reach a request", () => {
+    expect(
+      acquisitionProcessCount(33n, [11n, 22n, 33n, 44n]),
+    ).toBe(3n);
+  });
+
+  it("returns undefined outside the bounded window", () => {
+    expect(acquisitionProcessCount(55n, [11n, 22n])).toBeUndefined();
   });
 });
 

@@ -38,7 +38,6 @@ import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
   estimatedJobReward,
   runKeeperPass,
-  type KeeperJobKind,
   type StrategyContext,
 } from "./strategy.js";
 import {
@@ -49,16 +48,6 @@ import {
   createPostgresEventSink,
   type BatchedEventSink,
 } from "./telemetry.js";
-
-function usesPoolBid(kind: KeeperJobKind): boolean {
-  return (
-    kind === "fwa_process" ||
-    kind === "pool_pull" ||
-    kind === "pool_sync" ||
-    kind === "pool_settle" ||
-    kind === "pool_settle_forced_eth"
-  );
-}
 
 async function sleep(milliseconds: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -282,7 +271,9 @@ async function main(): Promise<void> {
           firstRequest.maxPriorityFeePerGas;
         let grossReward = 0n;
         let totalGasUsed = 0n;
-        let hasPoolBid = false;
+        let hasPoolPullBid = false;
+        let hasPoolReadyBid = false;
+        let hasPoolFulfilledBid = false;
         let hasDefaultBid = false;
         let hasLiveBidSweepBid = false;
         let hasLiquityBid = false;
@@ -320,9 +311,24 @@ async function main(): Promise<void> {
               minimumPriorityFeePerGas =
                 config.minPriorityFeePerGas;
             }
-          } else if (usesPoolBid(request.kind)) {
-            requestBidBps = config.poolBuilderBidBps;
-            hasPoolBid = true;
+          } else if (
+            request.poolBuilderBidPolicy !== undefined
+          ) {
+            switch (request.poolBuilderBidPolicy) {
+              case "pool_pull":
+                requestBidBps = config.poolPullBuilderBidBps;
+                hasPoolPullBid = true;
+                break;
+              case "pool_ready":
+                requestBidBps = config.poolBuilderBidBps;
+                hasPoolReadyBid = true;
+                break;
+              case "pool_fulfilled":
+                requestBidBps =
+                  config.poolFulfilledBuilderBidBps;
+                hasPoolFulfilledBid = true;
+                break;
+            }
             if (
               config.poolMinPriorityFeePerGas >
               minimumPriorityFeePerGas
@@ -377,7 +383,9 @@ async function main(): Promise<void> {
           aggregateBuilderBidBps(bidComponents);
         const bidPolicies = [
           ...(hasDefaultBid ? ["default"] : []),
-          ...(hasPoolBid ? ["pool"] : []),
+          ...(hasPoolPullBid ? ["pool_pull"] : []),
+          ...(hasPoolReadyBid ? ["pool_ready"] : []),
+          ...(hasPoolFulfilledBid ? ["pool_fulfilled"] : []),
           ...(hasLiveBidSweepBid ? ["live_bid_sweep"] : []),
           ...(hasLiquityBid ? ["liquity"] : []),
           ...(hasConvexBid ? ["convex"] : []),
@@ -407,6 +415,10 @@ async function main(): Promise<void> {
           builderBidBps: builderBidBps.toString(),
           configuredPoolBuilderBidBps:
             config.poolBuilderBidBps.toString(),
+          configuredPoolPullBuilderBidBps:
+            config.poolPullBuilderBidBps.toString(),
+          configuredPoolFulfilledBuilderBidBps:
+            config.poolFulfilledBuilderBidBps.toString(),
           configuredLiveBidSweepBuilderBidBps:
             config.liveBidSweepBuilderBidBps.toString(),
           configuredLiquityBuilderBidBps:
@@ -685,6 +697,10 @@ async function main(): Promise<void> {
     configuredBuilderBidBps: config.builderBidBps.toString(),
     configuredPoolBuilderBidBps:
       config.poolBuilderBidBps.toString(),
+    configuredPoolPullBuilderBidBps:
+      config.poolPullBuilderBidBps.toString(),
+    configuredPoolFulfilledBuilderBidBps:
+      config.poolFulfilledBuilderBidBps.toString(),
     configuredLiveBidSweepBuilderBidBps:
       config.liveBidSweepBuilderBidBps.toString(),
     configuredLiquityBuilderBidBps:

@@ -42,6 +42,16 @@ export function acquisitionStatusName(status: number): string {
   }
 }
 
+export function acquisitionProcessCount(
+  targetRequestId: bigint,
+  queuedRequestIds: readonly bigint[],
+): bigint | undefined {
+  const index = queuedRequestIds.findIndex(
+    (requestId) => requestId === targetRequestId,
+  );
+  return index < 0 ? undefined : BigInt(index + 1);
+}
+
 export interface RoundRouting {
   readonly fundingRoundId?: bigint;
   readonly lifecycleRoundId?: bigint;
