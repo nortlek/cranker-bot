@@ -739,7 +739,14 @@ recent parent/child pairs found zero envelope violations; the tightest observed
 headroom was `5,933 wei`. At block `25641474`, the local allowance was
 `124,321,540 wei`, versus viem's more expensive `132,609,643 wei` allowance,
 and the eliminated provider estimate took `133 ms`. Exact relay simulation and
-profitability gates are unchanged.
+profitability gates are unchanged. All 232 tests, typecheck, build, and diff
+checks passed. This is live in Railway deployment
+`e604bf75-e56e-44bf-a6ff-80fe42a451a3` from exact source
+`20cb8853a6377279b3854ba89892007193d46674`. The first subscribed production
+pass, block `25641493`, reported the header-derived fee source, zero block-read
+attempts, and `0.03 ms` for `head_and_fees`, versus roughly `170–500 ms` in the
+preceding window. PostgreSQL showed exactly one open run and one granted signer
+lock; nonce remained `532/532`.
 
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five
