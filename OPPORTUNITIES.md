@@ -68,9 +68,9 @@ before reporting progress or deploying.
 ### P0 — Backrun a final direct ticket purchase with `pull`
 
 Status: live in Railway deployment
-`5d4c1eba-6e59-4830-84ea-caa4932b762f` from exact source
-`09ea222ff21dff1b1cfbbf2a1676516a4b2f9d09`. Startup verified one signer
-lease and a hash-only filtered pending subscription covering 68 canonical
+`fb1ce0b3-c656-4987-bd77-7d36ab77e5f6` from exact source
+`1f066085ff22f3781ad1acea5f9467ea4b3f54aa`. Startup verified one signer
+lease and a hash-only filtered pending subscription covering 69 canonical
 targets, including the PullPool. Awaiting the first live final-ticket
 candidate, exact simulation, submission, and reconciled receipt.
 
@@ -89,16 +89,20 @@ new lane deliberately inherits the existing independent pool-pull policy of
 The implementation extends the already-live raw-prerequisite pipeline. It
 accepts only legacy/EIP-2930/EIP-1559 Ethereum-mainnet transactions whose raw
 hash, recovered sender, nonce, RPC representation, pool target, positive
-value, and exact `buyTickets(uint256,uint32,address)` calldata all match. It
-rejects every other pool call. Before submission it requires the referenced
-round to remain the current open funding round with no older lifecycle active,
-then exact-simulates `[raw purchase, preliminary pull]`. Non-final purchases
-fail `NotCovered` and are not submitted. The keeper pull is reward-priced from
-its simulated gas, the round's pinned bounty terms, a conservative
-next-block-base-fee floor, and the lane-specific pool bid. The competitively
-signed pair is exact-simulated again, the raw purchase and pending nonce are
-revalidated, and only the atomic pair is sent privately. The user purchase is
-never sent alone and is excluded from keeper gas/P&L accounting.
+value, and exact `buyTickets(uint256,uint32,address)` or
+`buyIntoCurrentRound(uint32,address)` calldata all match. The latter canonical
+entry point was observed in block `25641296`; its real signed transaction was
+replayed through the validator before rollout. It binds to the authoritative
+current funding round at execution. Every other pool call is rejected. Before
+submission the lane requires the referenced round to remain open with no older
+lifecycle active, then exact-simulates
+`[raw purchase, preliminary pull]`. Non-final purchases fail `NotCovered` and
+are not submitted. The keeper pull is reward-priced from its simulated gas,
+the round's pinned bounty terms, a conservative next-block-base-fee floor, and
+the lane-specific pool bid. The competitively signed pair is exact-simulated
+again, the raw purchase and pending nonce are revalidated, and only the atomic
+pair is sent privately. The user purchase is never sent alone and is excluded
+from keeper gas/P&L accounting.
 
 Acceptance:
 

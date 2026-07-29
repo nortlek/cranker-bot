@@ -479,12 +479,13 @@ These constraints prevent expensive or unsafe regressions:
 - A pending final-ticket backrun is always the exact two-transaction bundle
   `[public buyTickets, keeper pull]`. In addition to the raw-transaction gates
   above, prove the canonical pool target and exact
-  `buyTickets(uint256,uint32,address)` calldata, require the referenced round
-  to remain the current open funding round with no older lifecycle active,
-  and let complete-pair simulation reject purchases that do not finish
-  coverage. Revalidate the prerequisite immediately before private
-  submission, price only the pull under the independent pool-pull bid, account
-  only the pull receipt, and never submit the public purchase alone.
+  `buyTickets(uint256,uint32,address)` or
+  `buyIntoCurrentRound(uint32,address)` calldata, bind an implicit purchase to
+  the authoritative current round, require that round to remain open with no
+  older lifecycle active, and let complete-pair simulation reject purchases
+  that do not finish coverage. Revalidate the prerequisite immediately before
+  private submission, price only the pull under the independent pool-pull bid,
+  account only the pull receipt, and never submit the public purchase alone.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
   do not wait for a duplicate HTTP block object. Pin core pool, lifecycle,
@@ -565,8 +566,9 @@ Production currently evaluates:
 - optional exact-pair backruns of public ETH funding transfers to canonical
   orders/vaults; private-only and default-off unless production enables
   `ENABLE_PENDING_FUNDING_BACKRUNS`
-- exact-pair backruns of a final public PullPool `buyTickets` transaction with
-  the permissionless `pull`; private-only under the same pending subscription
+- exact-pair backruns of a final public PullPool `buyTickets` or
+  `buyIntoCurrentRound` transaction with the permissionless `pull`;
+  private-only under the same pending subscription
 - PullPool funding and acquisition lifecycle
 - public FWA acquisition processing
 - FWAToken `buyback()`
