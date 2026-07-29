@@ -14,7 +14,13 @@ import { loadConfig } from "../src/config.js";
 import {
   CVX_ADDRESS,
   CVX_USD_FEED_ADDRESS,
+  FIRM_DOLA_ADDRESS,
+  FIRM_DOLA_USD_FEED_ADDRESS,
 } from "../src/constants.js";
+import {
+  conservativeDolaToUsd,
+  firmOracleRoundStatus,
+} from "../src/firm.js";
 
 const BASELINE_ETH = 11_476_458_190_761_693n;
 const GOAL_USD = process.env.PROFIT_GOAL_USD ?? "50";
@@ -22,6 +28,7 @@ const GOAL_DEADLINE =
   process.env.PROFIT_GOAL_DEADLINE ??
   "2026-07-30T23:59:00-06:00";
 const GOAL_USD_8 = parseUnits(GOAL_USD, 8);
+const TOKEN_ORACLE_MAX_AGE_SECONDS = 90_000n;
 const WETH = getAddress("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
 const DAI = getAddress("0x6B175474E89094C44Da98b954EedeAC495271d0F");
 const CRV = getAddress("0xD533a949740bb3306d119CC777fa900bA034cd52");
@@ -39,6 +46,7 @@ const erc20Abi = parseAbi([
   "function balanceOf(address) view returns(uint256)",
 ]);
 const chainlinkAbi = parseAbi([
+  "function decimals() view returns(uint8)",
   "function latestRoundData() view returns(uint80,int256,uint256,uint256,uint80)",
 ]);
 
@@ -63,14 +71,18 @@ async function main(): Promise<void> {
     eth,
     weth,
     dai,
+    dola,
     crv,
     cvx,
     ethRound,
     daiRound,
+    dolaRound,
+    dolaUsdDecimals,
     crvRound,
     cvxRound,
     latestNonce,
     pendingNonce,
+    latestBlock,
   ] = await Promise.all([
       client.getBalance({ address: account.address }),
       client.readContract({
@@ -81,6 +93,12 @@ async function main(): Promise<void> {
       }),
       client.readContract({
         address: DAI,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [account.address],
+      }),
+      client.readContract({
+        address: FIRM_DOLA_ADDRESS,
         abi: erc20Abi,
         functionName: "balanceOf",
         args: [account.address],
@@ -108,6 +126,16 @@ async function main(): Promise<void> {
         functionName: "latestRoundData",
       }),
       client.readContract({
+        address: FIRM_DOLA_USD_FEED_ADDRESS,
+        abi: chainlinkAbi,
+        functionName: "latestRoundData",
+      }),
+      client.readContract({
+        address: FIRM_DOLA_USD_FEED_ADDRESS,
+        abi: chainlinkAbi,
+        functionName: "decimals",
+      }),
+      client.readContract({
         address: CRV_USD_FEED,
         abi: chainlinkAbi,
         functionName: "latestRoundData",
@@ -125,25 +153,90 @@ async function main(): Promise<void> {
         address: account.address,
         blockTag: "pending",
       }),
+      client.getBlock({ blockTag: "latest" }),
     ]);
-  if (
-    ethRound[1] <= 0n ||
-    daiRound[1] <= 0n ||
-    crvRound[1] <= 0n ||
-    cvxRound[1] <= 0n
-  ) {
-    throw new Error("Chainlink returned a non-positive price");
+  const roundStatus = (
+    round: readonly [bigint, bigint, bigint, bigint, bigint],
+    maximumAgeSeconds: bigint,
+  ) =>
+    firmOracleRoundStatus({
+      round: {
+        roundId: round[0],
+        answer: round[1],
+        updatedAt: round[3],
+        answeredInRound: round[4],
+      },
+      nowSeconds: latestBlock.timestamp,
+      maximumAgeSeconds,
+    });
+  const ethOracleStatus = roundStatus(
+    ethRound,
+    BigInt(config.firmEthOracleMaxAgeSeconds),
+  );
+  if (ethOracleStatus !== "fresh") {
+    throw new Error(`ETH/USD oracle is ${ethOracleStatus}`);
   }
+  const daiOracleStatus = roundStatus(
+    daiRound,
+    TOKEN_ORACLE_MAX_AGE_SECONDS,
+  );
+  const crvOracleStatus = roundStatus(
+    crvRound,
+    TOKEN_ORACLE_MAX_AGE_SECONDS,
+  );
+  const cvxOracleStatus = roundStatus(
+    cvxRound,
+    TOKEN_ORACLE_MAX_AGE_SECONDS,
+  );
 
   const ethAssetDelta = eth + weth - BASELINE_ETH;
   const ethDeltaUsd8 = (ethAssetDelta * ethRound[1]) / 10n ** 18n;
-  const daiUsd8 = (dai * daiRound[1]) / 10n ** 18n;
-  const crvUsd8 = (crv * crvRound[1]) / 10n ** 18n;
-  const cvxUsd8 = (cvx * cvxRound[1]) / 10n ** 18n;
-  const netUsd8 = ethDeltaUsd8 + daiUsd8 + crvUsd8 + cvxUsd8;
+  const daiUsd8 =
+    daiOracleStatus === "fresh"
+      ? (dai * daiRound[1]) / 10n ** 18n
+      : 0n;
+  const dolaOracleStatus = firmOracleRoundStatus({
+    round: {
+      roundId: dolaRound[0],
+      answer: dolaRound[1],
+      updatedAt: dolaRound[3],
+      answeredInRound: dolaRound[4],
+    },
+    nowSeconds: latestBlock.timestamp,
+    maximumAgeSeconds: BigInt(
+      config.firmDolaOracleMaxAgeSeconds,
+    ),
+  });
+  const dolaUsdScale = 10n ** BigInt(dolaUsdDecimals);
+  const cappedDolaUsd =
+    dolaRound[1] <= 0n
+      ? 0n
+      : dolaRound[1] < dolaUsdScale
+        ? dolaRound[1]
+        : dolaUsdScale;
+  const dolaUsd8 =
+    dolaOracleStatus === "fresh"
+      ? conservativeDolaToUsd({
+          dolaAmount: dola,
+          dolaUsd: dolaRound[1],
+          dolaUsdDecimals,
+          outputUsdDecimals: 8,
+          haircutBps: config.firmRewardHaircutBps,
+        })
+      : 0n;
+  const crvUsd8 =
+    crvOracleStatus === "fresh"
+      ? (crv * crvRound[1]) / 10n ** 18n
+      : 0n;
+  const cvxUsd8 =
+    cvxOracleStatus === "fresh"
+      ? (cvx * cvxRound[1]) / 10n ** 18n
+      : 0n;
+  const netUsd8 =
+    ethDeltaUsd8 + daiUsd8 + dolaUsd8 + crvUsd8 + cvxUsd8;
   const netEthEquivalent =
     ethAssetDelta +
-    ((daiUsd8 + crvUsd8 + cvxUsd8) * 10n ** 18n) /
+    ((daiUsd8 + dolaUsd8 + crvUsd8 + cvxUsd8) * 10n ** 18n) /
       ethRound[1];
 
   console.log(
@@ -153,14 +246,28 @@ async function main(): Promise<void> {
       eth: formatEther(eth),
       weth: formatEther(weth),
       dai: formatEther(dai),
+      dola: formatEther(dola),
       crv: formatEther(crv),
       cvx: formatEther(cvx),
       baselineEth: formatEther(BASELINE_ETH),
       netEthEquivalent: formatEther(netEthEquivalent),
       ethUsd: formatUnits(ethRound[1], 8),
+      ethOracleStatus,
       daiUsd: formatUnits(daiRound[1], 8),
+      daiOracleStatus,
+      dolaUsd: formatUnits(dolaRound[1], dolaUsdDecimals),
+      dolaUsdCapped: formatUnits(
+        cappedDolaUsd,
+        dolaUsdDecimals,
+      ),
+      dolaOracleStatus,
+      dolaValuationHaircutBps:
+        config.firmRewardHaircutBps.toString(),
+      dolaValuationUsd: formatUnits(dolaUsd8, 8),
       crvUsd: formatUnits(crvRound[1], 8),
+      crvOracleStatus,
       cvxUsd: formatUnits(cvxRound[1], 8),
+      cvxOracleStatus,
       netUsd: formatUnits(netUsd8, 8),
       goalUsd: formatUnits(GOAL_USD_8, 8),
       goalDeadline: GOAL_DEADLINE,

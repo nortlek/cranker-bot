@@ -152,7 +152,8 @@ project. Keep the existing dedicated `cranker-bot` project.
 
 ### P2 — Inverse FiRM forced replenishments
 
-Status: validated live and capital-free; default-off because the lane is
+Status: implemented and mainnet dry-run validated in the working tree, but not
+committed, deployed, or enabled. It remains default-off because the lane is
 extremely competitive and worth only small cumulative revenue.
 
 The verified Inverse FiRM wBTC market at
@@ -180,14 +181,35 @@ At validation time:
   tail; total theoretical retained value was only about `$0.21/day` even if
   every opportunity were captured
 
-Implementation should discover DBR markets and borrowers from canonical
-events, snapshot a positive fixed deficit, re-read live price/incentive and
-market relationships, exact-simulate and estimate gas from the signer, value
-DOLA conservatively, and submit only a private next-block single-transaction
-bundle. Receipt accounting must require the matching `ForceReplenish` event,
-exact input/reward fields, DOLA balance delta, and gas cost. Keep this default
-off until the higher-value FWA streak ends; it is a useful background lane,
-not a material path to the active goal.
+The current implementation reconstructs the canonical market and recent
+borrower registry from bounded, incrementally cached DBR events. It re-reads a
+positive deficit, market relationships, price, and incentive; encodes only the
+fixed observed amount; exact-simulates and estimates gas from the signer; and
+uses an independent builder bid for a private single-transaction plan. DOLA is
+valued through separately fresh DOLA/USD and ETH/USD rounds, capped at one USD,
+and haircutted. Receipt accounting requires matching DBR event fields, the
+exact DOLA transfer, DOLA balance delta, and gas cost. Goal reconciliation now
+uses the same cap, freshness rule, and haircut for any DOLA balance. Repeated
+planning opportunities stay in structured telemetry but do not generate
+Discord embeds; submissions, receipts, and failures still do.
+
+The enabled mainnet dry run at block `25,636,263` reconstructed 45 unique
+markets and three recent borrower/market pairs. Two positive-deficit candidates
+passed exact signer simulation but were rejected as unprofitable; the third had
+zero deficit. No transaction was signed or sent.
+
+Pre-enable blockers:
+
+- Move the initial multi-million-block DBR market scan off the
+  latency-sensitive per-head planning path, or persist/warm its canonical
+  registry before FiRM participates in live selection.
+- Make cross-lane ranking compare final bid-aware retained profit consistently
+  across FiRM and existing alternatives; the current pre-bid ranking is not a
+  sufficient basis for enabling this extremely thin-margin lane.
+
+Keep this default-off until those blockers are resolved and the higher-value
+FWA streak ends. It is a useful background lane, not a material path to the
+active goal.
 
 ### P2 — Aladdin permissionless harvest monitoring
 

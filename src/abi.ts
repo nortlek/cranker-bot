@@ -126,8 +126,37 @@ export const curveGaugeAbi = parseAbi([
 ]);
 
 export const chainlinkPriceFeedAbi = parseAbi([
+  "function decimals() view returns(uint8)",
   "function latestRoundData() view returns(uint80,int256,uint256,uint256,uint80)",
 ]);
+
+export const firmDbrAbi = parseAbi([
+  "function deficitOf(address user) view returns(uint256)",
+  "function markets(address market) view returns(bool)",
+  "function replenishmentPriceBps() view returns(uint256)",
+  "event AddMarket(address indexed market)",
+  "event ForceReplenish(address indexed account,address indexed replenisher,address indexed market,uint256 deficit,uint256 replenishmentCost,uint256 replenisherReward)",
+]);
+
+export const firmMarketAbi = parseAbi([
+  "function dbr() view returns(address)",
+  "function dola() view returns(address)",
+  "function replenishmentIncentiveBps() view returns(uint256)",
+  "function forceReplenish(address user,uint256 amount)",
+]);
+
+export const erc20Abi = parseAbi([
+  "function balanceOf(address account) view returns(uint256)",
+  "event Transfer(address indexed from,address indexed to,uint256 value)",
+]);
+
+export const firmAddMarketEvent = parseAbiItem(
+  "event AddMarket(address indexed market)",
+);
+
+export const firmForceReplenishEvent = parseAbiItem(
+  "event ForceReplenish(address indexed account,address indexed replenisher,address indexed market,uint256 deficit,uint256 replenishmentCost,uint256 replenisherReward)",
+);
 
 export const stakeDaoProtocolControllerAbi = parseAbi([
   "function vault(address gauge) view returns(address)",

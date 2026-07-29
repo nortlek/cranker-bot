@@ -19,7 +19,10 @@ import {
   convexBoosterAbi,
   convexLockerAbi,
   curveGaugeAbi,
+  erc20Abi,
   factoryAbi,
+  firmDbrAbi,
+  firmMarketAbi,
   fwaAbi,
   fwaTokenAbi,
   liquityPriceFeedAbi,
@@ -40,6 +43,9 @@ import {
   CRV_USD_FEED_ADDRESS,
   CVX_USD_FEED_ADDRESS,
   ETH_USD_FEED_ADDRESS,
+  FIRM_DBR_ADDRESS,
+  FIRM_DOLA_ADDRESS,
+  FIRM_DOLA_USD_FEED_ADDRESS,
   LIQUITY_BRANCHES,
   LIQUITY_ETH_GAS_COMPENSATION,
   STAKE_DAO_ACCOUNTANT_ADDRESS,
@@ -50,6 +56,15 @@ import {
   bufferedGas,
   requiredProfit,
 } from "./economics.js";
+import {
+  accountFirmReceipt,
+  conservativeDolaToEthWei,
+  discoverFirmCandidates,
+  firmForceReplenishCalldata,
+  firmOracleRoundsAreFresh,
+  firmReplenishmentAmounts,
+  type FirmReceiptAccounting,
+} from "./firm.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
 import {
   ACQUISITION_STATUS,
@@ -85,7 +100,8 @@ export type KeeperJobKind =
   | "liquity_liquidation"
   | "convex_earmark"
   | "convex_kick"
-  | "stakedao_curve_harvest";
+  | "stakedao_curve_harvest"
+  | "firm_replenish";
 
 export type PoolBuilderBidPolicy =
   | "pool_pull"
@@ -116,6 +132,17 @@ export interface KeeperJob {
   readonly stakeDaoCrvUsd?: bigint;
   readonly stakeDaoEthUsd?: bigint;
   readonly stakeDaoRewardHaircutBps?: bigint;
+  readonly firmAccount?: Address;
+  readonly firmReplenisher?: Address;
+  readonly firmFixedDeficit?: bigint;
+  readonly firmReplenishmentCostDola?: bigint;
+  readonly firmDolaReward?: bigint;
+  readonly firmDolaBalanceBefore?: bigint;
+  readonly firmDolaUsd?: bigint;
+  readonly firmDolaUsdDecimals?: number;
+  readonly firmEthUsd?: bigint;
+  readonly firmEthUsdDecimals?: number;
+  readonly firmRewardHaircutBps?: bigint;
 }
 
 export interface KeeperTransactionRequest extends KeeperJob {
@@ -1984,6 +2011,335 @@ async function planStakeDaoCurveHarvest(parameters: {
   }
 }
 
+export async function planFirmReplenishment(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly discoveryClient: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly config: KeeperConfig;
+  readonly maxFeePerGas: bigint;
+  readonly headBlockNumber: bigint;
+  readonly headTimestamp: bigint;
+  readonly skipped: Map<string, number>;
+}): Promise<KeeperJob | undefined> {
+  if (!parameters.config.enableFirmReplenishments) return undefined;
+  if (parameters.config.submissionMode !== "flashbots") {
+    incrementReason(parameters.skipped, "firm_replenish_private_only");
+    return undefined;
+  }
+  const replenisher =
+    typeof parameters.account === "string"
+      ? parameters.account
+      : parameters.account.address;
+  try {
+    const discovery = await discoverFirmCandidates({
+      client: parameters.discoveryClient,
+      latestBlock: parameters.headBlockNumber,
+      borrowerLookbackBlocks: BigInt(
+        parameters.config.firmBorrowerLookbackBlocks,
+      ),
+      maximumBlockRange: BigInt(
+        parameters.config.firmDiscoveryBlockRange,
+      ),
+      concurrency: parameters.config.simulationConcurrency,
+    });
+    const candidates = discovery.candidates.slice(
+      0,
+      parameters.config.firmMaxCandidates,
+    );
+    const [
+      replenishmentPriceBps,
+      dolaRound,
+      ethRound,
+      dolaUsdDecimals,
+      ethUsdDecimals,
+      dolaBalanceBefore,
+    ] = await Promise.all([
+      parameters.client.readContract({
+        address: FIRM_DBR_ADDRESS,
+        abi: firmDbrAbi,
+        functionName: "replenishmentPriceBps",
+        blockNumber: parameters.headBlockNumber,
+      }),
+      parameters.client.readContract({
+        address: FIRM_DOLA_USD_FEED_ADDRESS,
+        abi: chainlinkPriceFeedAbi,
+        functionName: "latestRoundData",
+        blockNumber: parameters.headBlockNumber,
+      }),
+      parameters.client.readContract({
+        address: ETH_USD_FEED_ADDRESS,
+        abi: chainlinkPriceFeedAbi,
+        functionName: "latestRoundData",
+        blockNumber: parameters.headBlockNumber,
+      }),
+      parameters.client.readContract({
+        address: FIRM_DOLA_USD_FEED_ADDRESS,
+        abi: chainlinkPriceFeedAbi,
+        functionName: "decimals",
+        blockNumber: parameters.headBlockNumber,
+      }),
+      parameters.client.readContract({
+        address: ETH_USD_FEED_ADDRESS,
+        abi: chainlinkPriceFeedAbi,
+        functionName: "decimals",
+        blockNumber: parameters.headBlockNumber,
+      }),
+      parameters.client.readContract({
+        address: FIRM_DOLA_ADDRESS,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [replenisher],
+        blockNumber: parameters.headBlockNumber,
+      }),
+    ]);
+    if (
+      !firmOracleRoundsAreFresh({
+        dolaRound: {
+          roundId: dolaRound[0],
+          answer: dolaRound[1],
+          updatedAt: dolaRound[3],
+          answeredInRound: dolaRound[4],
+        },
+        ethRound: {
+          roundId: ethRound[0],
+          answer: ethRound[1],
+          updatedAt: ethRound[3],
+          answeredInRound: ethRound[4],
+        },
+        nowSeconds: parameters.headTimestamp,
+        dolaMaximumAgeSeconds: BigInt(
+          parameters.config.firmDolaOracleMaxAgeSeconds,
+        ),
+        ethMaximumAgeSeconds: BigInt(
+          parameters.config.firmEthOracleMaxAgeSeconds,
+        ),
+      })
+    ) {
+      incrementReason(
+        parameters.skipped,
+        "firm_replenish_stale_oracle",
+      );
+      return undefined;
+    }
+
+    type Evaluation =
+      | {
+          readonly job: KeeperJob;
+          readonly deficit: bigint;
+          readonly rewardDola: bigint;
+          readonly rewardEth: bigint;
+          readonly estimatedGas: bigint;
+        }
+      | { readonly reason: string };
+    const evaluations = await mapConcurrent(
+      candidates,
+      parameters.config.simulationConcurrency,
+      async (candidate): Promise<Evaluation> => {
+        try {
+          const [
+            marketDbr,
+            marketDola,
+            activeMarket,
+            replenishmentIncentiveBps,
+            deficit,
+          ] = await Promise.all([
+            parameters.client.readContract({
+              address: candidate.market,
+              abi: firmMarketAbi,
+              functionName: "dbr",
+              blockNumber: parameters.headBlockNumber,
+            }),
+            parameters.client.readContract({
+              address: candidate.market,
+              abi: firmMarketAbi,
+              functionName: "dola",
+              blockNumber: parameters.headBlockNumber,
+            }),
+            parameters.client.readContract({
+              address: FIRM_DBR_ADDRESS,
+              abi: firmDbrAbi,
+              functionName: "markets",
+              args: [candidate.market],
+              blockNumber: parameters.headBlockNumber,
+            }),
+            parameters.client.readContract({
+              address: candidate.market,
+              abi: firmMarketAbi,
+              functionName: "replenishmentIncentiveBps",
+              blockNumber: parameters.headBlockNumber,
+            }),
+            parameters.client.readContract({
+              address: FIRM_DBR_ADDRESS,
+              abi: firmDbrAbi,
+              functionName: "deficitOf",
+              args: [candidate.account],
+              blockNumber: parameters.headBlockNumber,
+            }),
+          ]);
+          if (
+            getAddress(marketDbr) !== FIRM_DBR_ADDRESS ||
+            getAddress(marketDola) !== FIRM_DOLA_ADDRESS ||
+            !activeMarket
+          ) {
+            return { reason: "firm_replenish_relationship_mismatch" };
+          }
+          if (deficit === 0n) {
+            return { reason: "firm_replenish_zero_deficit" };
+          }
+          const { replenishmentCostDola, replenisherRewardDola } =
+            firmReplenishmentAmounts({
+              deficit,
+              replenishmentPriceBps,
+              replenishmentIncentiveBps,
+            });
+          if (replenisherRewardDola === 0n) {
+            return { reason: "firm_replenish_zero_reward" };
+          }
+          const rewardEth = conservativeDolaToEthWei({
+            dolaAmount: replenisherRewardDola,
+            dolaUsd: dolaRound[1],
+            dolaUsdDecimals,
+            ethUsd: ethRound[1],
+            ethUsdDecimals,
+            haircutBps: parameters.config.firmRewardHaircutBps,
+          });
+          if (rewardEth === 0n) {
+            return { reason: "firm_replenish_zero_reward_value" };
+          }
+          const data = firmForceReplenishCalldata({
+            account: candidate.account,
+            fixedObservedDeficit: deficit,
+          });
+          const [, estimatedGas] = await Promise.all([
+            parameters.client.simulateContract({
+              account: parameters.account,
+              address: candidate.market,
+              abi: firmMarketAbi,
+              functionName: "forceReplenish",
+              args: [candidate.account, deficit],
+            }),
+            parameters.client.estimateContractGas({
+              account: parameters.account,
+              address: candidate.market,
+              abi: firmMarketAbi,
+              functionName: "forceReplenish",
+              args: [candidate.account, deficit],
+            }),
+          ]);
+          const decision = assessProfit({
+            crankFee: rewardEth,
+            estimatedGas,
+            maxFeePerGas: parameters.maxFeePerGas,
+            gasLimitMultiplierBps:
+              parameters.config.gasLimitMultiplierBps,
+            minProfitWei: parameters.config.minProfitWei,
+          });
+          if (!decision.profitable) {
+            return { reason: "firm_replenish_unprofitable" };
+          }
+          if (
+            decision.gasLimit >
+            parameters.config.firmReplenishGasLimit
+          ) {
+            return { reason: "firm_replenish_gas_above_limit" };
+          }
+          return {
+            deficit,
+            rewardDola: replenisherRewardDola,
+            rewardEth,
+            estimatedGas,
+            job: {
+              kind: "firm_replenish",
+              label:
+                `firm_replenish:${candidate.market}:` +
+                candidate.account,
+              target: candidate.market,
+              data,
+              gas: decision.gasLimit,
+              reward: { kind: "fixed", amountWei: rewardEth },
+              firmAccount: candidate.account,
+              firmReplenisher: replenisher,
+              firmFixedDeficit: deficit,
+              firmReplenishmentCostDola: replenishmentCostDola,
+              firmDolaReward: replenisherRewardDola,
+              firmDolaBalanceBefore: dolaBalanceBefore,
+              firmDolaUsd: dolaRound[1],
+              firmDolaUsdDecimals: dolaUsdDecimals,
+              firmEthUsd: ethRound[1],
+              firmEthUsdDecimals: ethUsdDecimals,
+              firmRewardHaircutBps:
+                parameters.config.firmRewardHaircutBps,
+            },
+          };
+        } catch (error) {
+          return {
+            reason:
+              revertedErrorName(error) ??
+              "firm_replenish_simulation_failed",
+          };
+        }
+      },
+    );
+    const viable = evaluations.flatMap((evaluation) => {
+      if ("reason" in evaluation) {
+        incrementReason(parameters.skipped, evaluation.reason);
+        return [];
+      }
+      return [evaluation];
+    });
+    viable.sort((left, right) => {
+      const leftProfit =
+        left.rewardEth - left.job.gas * parameters.maxFeePerGas;
+      const rightProfit =
+        right.rewardEth - right.job.gas * parameters.maxFeePerGas;
+      return leftProfit === rightProfit
+        ? left.job.label.localeCompare(right.job.label)
+        : leftProfit > rightProfit
+          ? -1
+          : 1;
+    });
+    const selected = viable[0];
+    log(selected === undefined ? "debug" : "info", "firm_replenish_scan", {
+      registeredMarkets: discovery.registeredMarkets,
+      recentPairs: discovery.candidates.length,
+      evaluatedPairs: candidates.length,
+      viable: viable.length,
+      selected: selected !== undefined,
+      scannedThrough: discovery.scannedThrough.toString(),
+    });
+    if (selected === undefined) return undefined;
+    log("info", "firm_replenish_opportunity", {
+      label: selected.job.label,
+      market: selected.job.target,
+      account: selected.job.firmAccount ?? "",
+      replenisher: selected.job.firmReplenisher ?? "",
+      fixedObservedDeficit:
+        `${formatUnits(selected.deficit, 18)} DBR`,
+      replenishmentCost:
+        `${formatUnits(
+          selected.job.firmReplenishmentCostDola ?? 0n,
+          18,
+        )} DOLA`,
+      deterministicReward:
+        `${formatUnits(selected.rewardDola, 18)} DOLA`,
+      conservativeReward: eth(selected.rewardEth),
+      estimatedGas: selected.estimatedGas.toString(),
+      gasLimit: selected.job.gas.toString(),
+      privateOnly: true,
+    });
+    return selected.job;
+  } catch (error) {
+    incrementReason(
+      parameters.skipped,
+      revertedErrorName(error) ?? "firm_replenish_scan_failed",
+    );
+    log("warn", "firm_replenish_scan_failed", {
+      reason: errorMessage(error),
+    });
+    return undefined;
+  }
+}
+
 async function planJobs(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly discoveryClient: PublicClient<Transport, Chain>;
@@ -1992,8 +2348,11 @@ async function planJobs(parameters: {
   readonly maxFeePerGas: bigint;
   readonly convexMaxFeePerGas: bigint;
   readonly stakeDaoMaxFeePerGas: bigint;
+  readonly firmMaxFeePerGas: bigint;
   readonly baseFeeAllowancePerGas: bigint;
   readonly bountyBaseFeePerGas: bigint;
+  readonly headBlockNumber: bigint;
+  readonly headTimestamp: bigint;
 }): Promise<PlannedJobs> {
   const skipped = new Map<string, number>();
   const [roundCount, ethPendingRound, fwa, token] = await Promise.all([
@@ -2139,6 +2498,16 @@ async function planJobs(parameters: {
     maxFeePerGas: parameters.stakeDaoMaxFeePerGas,
     skipped,
   });
+  const firmPromise = planFirmReplenishment({
+    client: parameters.client,
+    discoveryClient: parameters.discoveryClient,
+    account: parameters.account,
+    config: parameters.config,
+    maxFeePerGas: parameters.firmMaxFeePerGas,
+    headBlockNumber: parameters.headBlockNumber,
+    headTimestamp: parameters.headTimestamp,
+    skipped,
+  });
   const [
     candidates,
     fundingRound,
@@ -2146,6 +2515,7 @@ async function planJobs(parameters: {
     convex,
     convexKick,
     stakeDao,
+    firm,
     buyback,
     liveBidSweep,
   ] = await Promise.all([
@@ -2155,6 +2525,7 @@ async function planJobs(parameters: {
       convexPromise,
       convexKickPromise,
       stakeDaoPromise,
+      firmPromise,
       planBuyback({
         client: parameters.client,
         account: parameters.account,
@@ -2225,6 +2596,7 @@ async function planJobs(parameters: {
     convex,
     convexKick,
     stakeDao,
+    firm,
     buyback,
     liveBidSweep,
   ]) {
@@ -2234,6 +2606,8 @@ async function planJobs(parameters: {
         ? parameters.convexMaxFeePerGas
         : job.kind === "stakedao_curve_harvest"
           ? parameters.stakeDaoMaxFeePerGas
+          : job.kind === "firm_replenish"
+            ? parameters.firmMaxFeePerGas
         : parameters.maxFeePerGas;
     alternatives.push({
       jobs: [job],
@@ -2311,6 +2685,7 @@ function actualStakeDaoCrvReward(
 function actualJobReward(
   request: KeeperTransactionRequest,
   logs: readonly ReceiptLog[],
+  firmAccounting?: FirmReceiptAccounting,
 ): bigint {
   if (
     (request.kind === "liquity_liquidation" ||
@@ -2333,6 +2708,26 @@ function actualJobReward(
       crvUsd: request.stakeDaoCrvUsd,
       ethUsd: request.stakeDaoEthUsd,
       haircutBps: request.stakeDaoRewardHaircutBps,
+    });
+  }
+  if (request.kind === "firm_replenish") {
+    if (
+      firmAccounting?.valid !== true ||
+      request.firmDolaUsd === undefined ||
+      request.firmDolaUsdDecimals === undefined ||
+      request.firmEthUsd === undefined ||
+      request.firmEthUsdDecimals === undefined ||
+      request.firmRewardHaircutBps === undefined
+    ) {
+      return 0n;
+    }
+    return conservativeDolaToEthWei({
+      dolaAmount: firmAccounting.replenisherRewardDola,
+      dolaUsd: request.firmDolaUsd,
+      dolaUsdDecimals: request.firmDolaUsdDecimals,
+      ethUsd: request.firmEthUsd,
+      ethUsdDecimals: request.firmEthUsdDecimals,
+      haircutBps: request.firmRewardHaircutBps,
     });
   }
   for (const entry of logs) {
@@ -2425,11 +2820,17 @@ export async function runKeeperPass(
       context.config.submissionMode === "flashbots"
         ? feeQuote.maxFeePerGas
         : maxFeePerGas,
+    firmMaxFeePerGas:
+      context.config.submissionMode === "flashbots"
+        ? feeQuote.maxFeePerGas
+        : maxFeePerGas,
     baseFeeAllowancePerGas:
       maxFeePerGas - maxPriorityFeePerGas,
     bountyBaseFeePerGas:
       latestBlock.baseFeePerGas ??
       (maxFeePerGas - maxPriorityFeePerGas),
+    headBlockNumber: latestBlock.number,
+    headTimestamp: latestBlock.timestamp,
   });
   const baseFeePerGas = maxFeePerGas - maxPriorityFeePerGas;
   const bountyBaseFeePerGas =
@@ -2453,7 +2854,8 @@ export async function runKeeperPass(
         (context.config.submissionMode === "flashbots" &&
         (job.kind === "convex_earmark" ||
           job.kind === "convex_kick" ||
-          job.kind === "stakedao_curve_harvest")
+          job.kind === "stakedao_curve_harvest" ||
+          job.kind === "firm_replenish")
           ? feeQuote.maxFeePerGas
           : maxFeePerGas),
     0n,
@@ -2683,8 +3085,91 @@ export async function runKeeperPass(
                 hash: submission.hash,
               });
         const successful = receipt.status === "success";
+        let firmAccounting: FirmReceiptAccounting | undefined;
+        if (
+          successful &&
+          submission.request.kind === "firm_replenish"
+        ) {
+          const request = submission.request;
+          const metadataComplete =
+            request.firmAccount !== undefined &&
+            request.firmReplenisher !== undefined &&
+            request.firmFixedDeficit !== undefined &&
+            request.firmReplenishmentCostDola !== undefined &&
+            request.firmDolaReward !== undefined &&
+            request.firmDolaBalanceBefore !== undefined;
+          if (!metadataComplete) {
+            firmAccounting = {
+              valid: false,
+              reason: "receipt_metadata_missing",
+              fixedDeficit: request.firmFixedDeficit ?? 0n,
+              replenishmentCostDola:
+                request.firmReplenishmentCostDola ?? 0n,
+              replenisherRewardDola:
+                request.firmDolaReward ?? 0n,
+              dolaBalanceDelta: 0n,
+            };
+          } else {
+            try {
+              const dolaBalanceAfter =
+                await context.publicClient.readContract({
+                  address: FIRM_DOLA_ADDRESS,
+                  abi: erc20Abi,
+                  functionName: "balanceOf",
+                  args: [request.firmReplenisher!],
+                  blockNumber: receipt.blockNumber,
+                });
+              firmAccounting = accountFirmReceipt({
+                logs: receipt.logs,
+                market: request.target,
+                account: request.firmAccount!,
+                replenisher: request.firmReplenisher!,
+                fixedDeficit: request.firmFixedDeficit!,
+                expectedReplenishmentCostDola:
+                  request.firmReplenishmentCostDola!,
+                expectedReplenisherRewardDola:
+                  request.firmDolaReward!,
+                dolaBalanceBefore: request.firmDolaBalanceBefore!,
+                dolaBalanceAfter,
+              });
+            } catch (error) {
+              firmAccounting = {
+                valid: false,
+                reason: `balance_read_failed:${errorMessage(error)}`,
+                fixedDeficit: request.firmFixedDeficit!,
+                replenishmentCostDola:
+                  request.firmReplenishmentCostDola!,
+                replenisherRewardDola: request.firmDolaReward!,
+                dolaBalanceDelta: 0n,
+              };
+            }
+          }
+          if (!firmAccounting.valid) {
+            log("warn", "firm_replenish_accounting_failed", {
+              kind: request.kind,
+              label: request.label,
+              hash: submission.hash,
+              market: request.target,
+              account: request.firmAccount ?? "",
+              replenisher: request.firmReplenisher ?? "",
+              expectedFixedDeficit:
+                request.firmFixedDeficit?.toString() ?? "",
+              expectedReplenishmentCostDola:
+                request.firmReplenishmentCostDola?.toString() ?? "",
+              expectedDolaReward:
+                request.firmDolaReward?.toString() ?? "",
+              dolaBalanceDelta:
+                firmAccounting.dolaBalanceDelta.toString(),
+              reason: firmAccounting.reason ?? "unknown",
+            });
+          }
+        }
         const paidReward = successful
-          ? actualJobReward(submission.request, receipt.logs)
+          ? actualJobReward(
+              submission.request,
+              receipt.logs,
+              firmAccounting,
+            )
           : 0n;
         const paidStakeDaoCrv = successful
           ? actualStakeDaoCrvReward(
@@ -2708,6 +3193,35 @@ export async function runKeeperPass(
             ? {
                 paidTokenReward:
                   `${formatUnits(paidStakeDaoCrv, 18)} CRV`,
+              }
+            : {}),
+          ...(submission.request.kind === "firm_replenish"
+            ? {
+                paidTokenReward:
+                  `${formatUnits(
+                    firmAccounting?.valid === true
+                      ? firmAccounting.replenisherRewardDola
+                      : 0n,
+                    18,
+                  )} DOLA`,
+                fixedObservedDeficit:
+                  submission.request.firmFixedDeficit?.toString() ??
+                  "",
+                firmMarket: submission.request.target,
+                firmAccount:
+                  submission.request.firmAccount ?? "",
+                firmReplenisher:
+                  submission.request.firmReplenisher ?? "",
+                firmReplenishmentCostDola:
+                  submission.request.firmReplenishmentCostDola?.toString() ??
+                  "",
+                firmDolaReward:
+                  submission.request.firmDolaReward?.toString() ??
+                  "",
+                firmAccountingValid:
+                  firmAccounting?.valid ?? false,
+                dolaBalanceDelta:
+                  firmAccounting?.dolaBalanceDelta.toString() ?? "0",
               }
             : {}),
           gasCost: eth(gasCost),

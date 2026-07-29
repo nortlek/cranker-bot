@@ -11,7 +11,9 @@ permissionless liquidations. It also prices Convex pool `earmarkRewards`
 caller incentives and expired vlCVX lock `kickExpiredLocks` rewards. Every
 candidate or dependent sequence is simulated and priced before private
 submission. An optional private-only lane also batches profitable Stake DAO v4
-Curve Accountant harvests for their CRV caller fee.
+Curve Accountant harvests for their CRV caller fee. A second default-off,
+private-only lane watches canonical Inverse FiRM markets for capital-free,
+DOLA-paid forced DBR replenishments.
 
 ## Examined transaction
 
@@ -93,9 +95,9 @@ Each new block, the keeper:
    per trove, and ignores variable collateral compensation when deciding
    profitability.
 7. Compares the conservative net value of the PullPool/order plan, Liquity
-   liquidation, Convex `earmarkRewards`, Stake DAO Curve harvest, FWAToken
-   `buyback()`, and LiveBidAdapter `sweep()`, then selects the best currently
-   executable plan.
+   liquidation, Convex `earmarkRewards`, Stake DAO Curve harvest, FiRM forced
+   replenishment, FWAToken `buyback()`, and LiveBidAdapter `sweep()`, then
+   selects the best currently executable plan.
 8. In live mode, reads the account's `latest` and `pending` transaction counts
    and assigns an explicit contiguous nonce range.
 9. Signs the generic call sequence locally, simulates it in nonce order, and
@@ -254,6 +256,9 @@ successful `crank` fees are sent to that keeper address.
 - `STAKEDAO_BUILDER_BID_BPS`: independent builder share for Stake DAO Curve
   harvests. It defaults to `1000` (10%) and never inherits the standing-order
   bid.
+- `FIRM_BUILDER_BID_BPS`: independent builder share for FiRM forced
+  replenishments. It defaults to `1000` (10%) and remains subject to exact
+  positive-profit caps.
 - `ADAPTIVE_BIDDING`: enables post-block per-order bid learning.
 - `ADAPTIVE_BID_STEP_BPS`: margin added above a measured winning bid after a
   loss. The default is `25` (0.25 percentage points).
@@ -306,6 +311,9 @@ successful `crank` fees are sent to that keeper address.
 - `ENABLE_STAKEDAO_CURVE_HARVESTS`: enables the canonical Stake DAO v4 Curve
   Accountant watcher. It defaults to `false` and configuration fails closed
   unless `SUBMISSION_MODE=flashbots`.
+- `ENABLE_FIRM_REPLENISHMENTS`: enables the canonical Inverse FiRM
+  forced-replenishment watcher. It defaults to `false` and configuration fails
+  closed unless `SUBMISSION_MODE=flashbots`.
 - `POOL_BOUNTY_ESTIMATE_BPS`: conservative haircut on simulated gas when
   estimating PullPool's internal gas-indexed reimbursement.
 - `POOL_PULL_GAS_LIMIT`, `POOL_SYNC_GAS_LIMIT`, and
@@ -338,6 +346,16 @@ successful `crank` fees are sent to that keeper address.
   rounds.
 - `STAKEDAO_DISCOVERY_BLOCK_RANGE`: bounds each controller event-log request;
   the process caches the complete registry and incrementally scans new blocks.
+- `FIRM_REPLENISH_GAS_LIMIT` and `FIRM_MAX_CANDIDATES`: cap buffered gas and
+  exact signer simulations for one pass.
+- `FIRM_REWARD_HAIRCUT_BPS`,
+  `FIRM_DOLA_ORACLE_MAX_AGE_SECONDS`, and
+  `FIRM_ETH_ORACLE_MAX_AGE_SECONDS`: value the exact DOLA reward through
+  independently fresh DOLA/USD and ETH/USD Chainlink rounds, cap DOLA at one
+  USD, and apply an exit-risk haircut. The defaults allow DOLA's long
+  heartbeat while limiting ETH/USD to two hours.
+- `FIRM_DISCOVERY_BLOCK_RANGE` and `FIRM_BORROWER_LOOKBACK_BLOCKS`: bound the
+  cached canonical DBR `AddMarket` and recent `ForceReplenish` event scans.
 
 The Stake DAO watcher starts at the canonical ProtocolController's first
 `VaultRegistered` block, filters the `CURVE` protocol id, and re-reads every
@@ -348,6 +366,17 @@ exact-simulates each single gauge plus bounded reward-ranked prefixes with
 empty `harvestData`. One reverting or raced gauge invalidates only its atomic
 candidate; the selected call is re-simulated as a next-block private bundle.
 The bot grants no token approvals and performs no reward swaps.
+
+The FiRM watcher reconstructs the immutable market registry from the canonical
+DBR contract's `AddMarket` events and caches recent borrower/market pairs from
+its `ForceReplenish` events. On every head it re-reads the positive DBR deficit,
+DBR replenishment price, market incentive, and the market's pinned DBR/DOLA
+relationships. It only builds `forceReplenish(account, observedDeficit)` with
+the exact positive observed amount—never `forceReplenishAll`. If a competitor
+reduces the deficit before inclusion, the fixed call reverts atomically rather
+than accepting a smaller reward. Final planning requires exact signer
+simulation and gas estimation, and receipt accounting requires the matching
+DBR event, exact DOLA transfer, and exact signer DOLA balance delta.
 
 The private alternatives contain nonce `N`, then `N+1`, and so on. Each
 alternative is atomic, and the shortest alternative is raised when a plan has

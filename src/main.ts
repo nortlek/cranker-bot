@@ -353,6 +353,9 @@ async function main(): Promise<void> {
           ) {
             requestBidBps = config.stakeDaoBuilderBidBps;
             requestBidPolicy = "stakedao_curve";
+          } else if (request.kind === "firm_replenish") {
+            requestBidBps = config.firmBuilderBidBps;
+            requestBidPolicy = "firm_replenish";
           } else {
             requestBidBps = config.builderBidBps;
             requestBidPolicy = "default";
@@ -469,6 +472,8 @@ async function main(): Promise<void> {
             config.convexBuilderBidBps.toString(),
           configuredStakeDaoBuilderBidBps:
             config.stakeDaoBuilderBidBps.toString(),
+          configuredFirmBuilderBidBps:
+            config.firmBuilderBidBps.toString(),
           effectiveBuilderBidBps:
             quote.effectiveBuilderBidBps.toString(),
           builderPayment: eth(quote.builderPayment),
@@ -754,6 +759,8 @@ async function main(): Promise<void> {
       config.convexBuilderBidBps.toString(),
     configuredStakeDaoBuilderBidBps:
       config.stakeDaoBuilderBidBps.toString(),
+    configuredFirmBuilderBidBps:
+      config.firmBuilderBidBps.toString(),
     poolMinPriorityFeePerGas: gwei(
       config.poolMinPriorityFeePerGas,
     ),
@@ -773,6 +780,8 @@ async function main(): Promise<void> {
     convexKicks: config.enableConvexKicks,
     stakeDaoCurveHarvests:
       config.enableStakeDaoCurveHarvests,
+    firmReplenishments:
+      config.enableFirmReplenishments,
     liveBidAdapter: config.liveBidAdapterAddress,
     poolBountyEstimateBps:
       config.poolBountyEstimateBps.toString(),

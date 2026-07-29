@@ -59,6 +59,25 @@ describe("buildDiscordEmbed", () => {
         ?.value,
     ).toBe("1.5 CRV");
   });
+
+  it("does not spam Discord for repeated FiRM planning opportunities", () => {
+    const embed = buildDiscordEmbed(
+      {
+        time: "2026-07-28T00:00:00.000Z",
+        level: "info",
+        event: "firm_replenish_opportunity",
+        market: "0xmarket",
+        account: "0xborrower",
+        fixedObservedDeficit: "0.5 DBR",
+        deterministicReward: "0.027 DOLA",
+        conservativeReward: "0.00001 ETH",
+        estimatedGas: "215919",
+      },
+      0n,
+    );
+
+    expect(embed).toBeUndefined();
+  });
 });
 
 describe("DiscordWebhookNotifier", () => {

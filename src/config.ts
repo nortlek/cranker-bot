@@ -32,6 +32,7 @@ export interface KeeperConfig {
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
   readonly stakeDaoBuilderBidBps: bigint;
+  readonly firmBuilderBidBps: bigint;
   readonly adaptiveBidding: boolean;
   readonly adaptiveBidStepBps: bigint;
   readonly adaptiveBidMaxBps: bigint;
@@ -61,6 +62,7 @@ export interface KeeperConfig {
   readonly enableConvexEarmarks: boolean;
   readonly enableConvexKicks: boolean;
   readonly enableStakeDaoCurveHarvests: boolean;
+  readonly enableFirmReplenishments: boolean;
   readonly poolBountyEstimateBps: bigint;
   readonly poolPullGasLimit: bigint;
   readonly poolSyncGasLimit: bigint;
@@ -79,6 +81,13 @@ export interface KeeperConfig {
   readonly stakeDaoHarvestRewardHaircutBps: bigint;
   readonly stakeDaoOracleMaxAgeSeconds: number;
   readonly stakeDaoDiscoveryBlockRange: number;
+  readonly firmReplenishGasLimit: bigint;
+  readonly firmMaxCandidates: number;
+  readonly firmRewardHaircutBps: bigint;
+  readonly firmDolaOracleMaxAgeSeconds: number;
+  readonly firmEthOracleMaxAgeSeconds: number;
+  readonly firmDiscoveryBlockRange: number;
+  readonly firmBorrowerLookbackBlocks: number;
   readonly dryRun: boolean;
   readonly runOnce: boolean;
   readonly privateKey: Hex | undefined;
@@ -224,12 +233,21 @@ export function loadConfig(): KeeperConfig {
     "ENABLE_STAKEDAO_CURVE_HARVESTS",
     false,
   );
+  const enableFirmReplenishments = booleanEnv(
+    "ENABLE_FIRM_REPLENISHMENTS",
+    false,
+  );
   if (
-    enableStakeDaoCurveHarvests &&
+    (enableStakeDaoCurveHarvests ||
+      enableFirmReplenishments) &&
     submissionMode !== "flashbots"
   ) {
     throw new Error(
-      "ENABLE_STAKEDAO_CURVE_HARVESTS requires SUBMISSION_MODE=flashbots",
+      `${
+        enableFirmReplenishments
+          ? "ENABLE_FIRM_REPLENISHMENTS"
+          : "ENABLE_STAKEDAO_CURVE_HARVESTS"
+      } requires SUBMISSION_MODE=flashbots`,
     );
   }
   const builderBidBps = integerEnv("BUILDER_BID_BPS", 8_100, {
@@ -292,6 +310,14 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const firmBuilderBidBps = integerEnv(
+    "FIRM_BUILDER_BID_BPS",
+    1_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const adaptiveBidMaxBps = integerEnv(
     "ADAPTIVE_BID_MAX_BPS",
     9_900,
@@ -347,6 +373,7 @@ export function loadConfig(): KeeperConfig {
     liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
     convexBuilderBidBps: BigInt(convexBuilderBidBps),
     stakeDaoBuilderBidBps: BigInt(stakeDaoBuilderBidBps),
+    firmBuilderBidBps: BigInt(firmBuilderBidBps),
     adaptiveBidding: booleanEnv("ADAPTIVE_BIDDING", true),
     adaptiveBidStepBps: BigInt(
       integerEnv("ADAPTIVE_BID_STEP_BPS", 25, {
@@ -434,6 +461,7 @@ export function loadConfig(): KeeperConfig {
     ),
     enableConvexKicks: booleanEnv("ENABLE_CONVEX_KICKS", true),
     enableStakeDaoCurveHarvests,
+    enableFirmReplenishments,
     poolBountyEstimateBps: BigInt(
       integerEnv("POOL_BOUNTY_ESTIMATE_BPS", 9_000, {
         min: 0,
@@ -538,6 +566,43 @@ export function loadConfig(): KeeperConfig {
       "STAKEDAO_DISCOVERY_BLOCK_RANGE",
       100_000,
       { min: 1_000, max: 1_000_000 },
+    ),
+    firmReplenishGasLimit: BigInt(
+      integerEnv("FIRM_REPLENISH_GAS_LIMIT", 400_000, {
+        min: 21_000,
+        max: 5_000_000,
+      }),
+    ),
+    firmMaxCandidates: integerEnv(
+      "FIRM_MAX_CANDIDATES",
+      64,
+      { min: 1, max: 1_000 },
+    ),
+    firmRewardHaircutBps: BigInt(
+      integerEnv("FIRM_REWARD_HAIRCUT_BPS", 9_500, {
+        min: 0,
+        max: 10_000,
+      }),
+    ),
+    firmDolaOracleMaxAgeSeconds: integerEnv(
+      "FIRM_DOLA_ORACLE_MAX_AGE_SECONDS",
+      90_000,
+      { min: 60, max: 604_800 },
+    ),
+    firmEthOracleMaxAgeSeconds: integerEnv(
+      "FIRM_ETH_ORACLE_MAX_AGE_SECONDS",
+      7_200,
+      { min: 60, max: 86_400 },
+    ),
+    firmDiscoveryBlockRange: integerEnv(
+      "FIRM_DISCOVERY_BLOCK_RANGE",
+      100_000,
+      { min: 1_000, max: 1_000_000 },
+    ),
+    firmBorrowerLookbackBlocks: integerEnv(
+      "FIRM_BORROWER_LOOKBACK_BLOCKS",
+      100_000,
+      { min: 1_000, max: 5_000_000 },
     ),
     dryRun: booleanEnv("DRY_RUN", true),
     runOnce: booleanEnv("RUN_ONCE", false),

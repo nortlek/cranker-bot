@@ -58,9 +58,11 @@ Check the realized-profit goal:
 npx tsx scripts/goal-status.ts
 ```
 
-The status script includes the keeper's ETH, WETH, DAI, CRV, and CVX balances,
-uses on-chain price feeds, compares them with the recorded baseline, and checks
-both `latest` and `pending` account nonces.
+The status script includes the keeper's ETH, WETH, DAI, DOLA, CRV, and CVX
+balances, uses on-chain price feeds, compares them with the recorded baseline,
+and checks both `latest` and `pending` account nonces. DOLA is counted only
+when its Chainlink round is complete and fresh, is capped at one USD, and uses
+the configured FiRM reward haircut.
 
 ## Production topology
 
@@ -373,6 +375,7 @@ At the last handoff, the configured policy was approximately:
 | Liquity V2 | 81% |
 | Convex | 10% |
 | Stake DAO Curve harvest | 10% |
+| FiRM forced replenishment | 10% (feature default-off) |
 
 These values are context, not immutable recommendations. Re-read recent
 competition and durable bid state before changing them.
@@ -390,6 +393,9 @@ Production currently evaluates:
 - Convex `earmarkRewards` and expired vlCVX lock kicks
 - optional Stake DAO v4 Curve Accountant harvests; the code is validated but
   the production feature remains default-off while margins are thin
+- optional Inverse FiRM forced replenishments; fixed observed deficits and
+  exact DOLA receipt accounting are implemented, but production remains
+  default-off because realized competitor margins are extremely thin
 
 The core control flow is:
 
@@ -398,6 +404,8 @@ The core control flow is:
 - `src/lifecycle.ts`: round/lifecycle routing helpers
 - `src/bidding.ts`: builder payment policy
 - `src/economics.ts`: rewards, gas, and profitability
+- `src/firm.ts`: canonical FiRM discovery, fixed-input economics, and receipt
+  validation
 - `src/adaptive-bidding.ts`: in-memory learned bidding behavior
 - `src/postgres-adaptive-bidding.ts`: durable learned bids
 - `src/flashbots.ts`: bundle simulation and relay submission

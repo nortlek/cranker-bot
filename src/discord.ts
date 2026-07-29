@@ -34,6 +34,8 @@ const FAILURE_EVENTS = new Set([
   "competitor_bid_measurement_failed",
   "dependency_batch_unfunded",
   "fatal",
+  "firm_replenish_accounting_failed",
+  "firm_replenish_scan_failed",
   "keeper_batch_submission_failed",
   "keeper_pass_failed",
   "keeper_receipt_unresolved",
@@ -156,6 +158,10 @@ export function buildDiscordEmbed(
         field(
           "Stake DAO bid",
           `${compact(entry.configuredStakeDaoBuilderBidBps)} bps`,
+        ),
+        field(
+          "FiRM bid",
+          `${compact(entry.configuredFirmBuilderBidBps)} bps`,
         ),
       ],
     });
