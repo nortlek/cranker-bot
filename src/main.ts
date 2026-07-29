@@ -14,7 +14,10 @@ import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 
 import { AdaptiveBidController } from "./adaptive-bidding.js";
-import { factoryAbi, vaultFactoryAbi } from "./abi.js";
+import {
+  factoryAbi,
+  vaultFactoryAbi,
+} from "./abi.js";
 import {
   aggregateBuilderBidBps,
   quoteCompetitiveFees,
@@ -22,7 +25,10 @@ import {
 } from "./bidding.js";
 import { observeWinningCrankBids } from "./competition.js";
 import { CHAIN_ID } from "./constants.js";
-import { loadConfig } from "./config.js";
+import {
+  loadConfig,
+  pendingFundingExecutionEnabled,
+} from "./config.js";
 import { DiscordWebhookNotifier } from "./discord.js";
 import { requiredProfit } from "./economics.js";
 import {
@@ -44,6 +50,14 @@ import {
   LatestHeadSignal,
   retryTransientRead,
 } from "./heads.js";
+import { executePendingFundingBackrun } from "./pending-funding-backrun.js";
+import {
+  PendingFundingReplacementTracker,
+  PendingFundingValidationError,
+  subscribeToAlchemyPendingFundingHashes,
+  validatePendingFundingPrerequisite,
+  type ValidatedPendingFundingPrerequisite,
+} from "./pending-funding.js";
 import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
   estimatedJobReward,
@@ -60,6 +74,11 @@ import {
   createPostgresEventSink,
   type BatchedEventSink,
 } from "./telemetry.js";
+import {
+  PendingFundingExecutionController,
+  SignerSubmissionCoordinator,
+  signerNonceIsUsable,
+} from "./signer-coordinator.js";
 
 async function sleep(milliseconds: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -81,6 +100,9 @@ let signerLease: SignerLease | undefined;
 let adaptiveBidController: AdaptiveBidController | undefined;
 let signerLeaseFailure: Error | undefined;
 let closeHeadSubscription: (() => Promise<void>) | undefined;
+let closePendingFundingRuntime:
+  | (() => Promise<void>)
+  | undefined;
 
 class SignerLeaseLostError extends Error {
   constructor(cause: unknown) {
@@ -118,14 +140,18 @@ async function assertSignerLeaseHeld(): Promise<void> {
 
 async function closeRuntimeResources(): Promise<void> {
   try {
-    await Promise.all([
-      closeHeadSubscription?.(),
-      adaptiveBidController?.close(),
-      telemetrySink?.close(),
-      discordNotifier?.flush(),
-    ]);
+    await closePendingFundingRuntime?.();
   } finally {
-    await signerLease?.release();
+    try {
+      await Promise.all([
+        closeHeadSubscription?.(),
+        adaptiveBidController?.close(),
+        telemetrySink?.close(),
+        discordNotifier?.flush(),
+      ]);
+    } finally {
+      await signerLease?.release();
+    }
   }
 }
 
@@ -226,7 +252,20 @@ async function main(): Promise<void> {
             timeout: 20_000,
           }),
         });
+  const signerCoordinator = new SignerSubmissionCoordinator();
   const headSignal = new LatestHeadSignal();
+  let stopping = false;
+  let requestStop: (() => void) | undefined;
+  const stopRequested = new Promise<void>((resolve) => {
+    requestStop = resolve;
+  });
+  const stop = (): void => {
+    stopping = true;
+    requestStop?.();
+    requestStop = undefined;
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
   if (config.headRpcUrl !== undefined) {
     const headTransport = webSocket(config.headRpcUrl, {
       timeout: 10_000,
@@ -243,6 +282,7 @@ async function main(): Promise<void> {
       poll: false,
       onBlock: (block) => {
         headSignal.observe(block.number);
+        signerCoordinator.observeHead(block.number);
         log("debug", "head_subscription_observed", {
           block: block.number.toString(),
           blockHash: block.hash,
@@ -373,24 +413,79 @@ async function main(): Promise<void> {
         minimumViablePrefix,
         bountyBaseFeePerGas,
       }) => {
-        const batchStartedAt = performance.now();
-        const limitedRequests = requests.slice(0, 100);
-        const preliminarySignStartedAt = performance.now();
-        const preliminaryTransactions = await Promise.all(
-          limitedRequests.map((request) =>
-            signer.signTransaction({
-              chainId: mainnet.id,
-              type: "eip1559",
-              to: request.target,
-              data: request.data,
-              gas: request.gas,
-              maxFeePerGas: request.maxFeePerGas,
-              maxPriorityFeePerGas: request.maxPriorityFeePerGas,
-              nonce: request.nonce,
-              value: 0n,
-            }),
-          ),
-        );
+        const firstPlannedRequest = requests[0];
+        if (firstPlannedRequest === undefined) {
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
+        const reservation = signerCoordinator.tryReserve({
+          targetBlock,
+          nonce: firstPlannedRequest.nonce,
+          lane: "normal_keeper_pass",
+        });
+        if (reservation === undefined) {
+          const active =
+            signerCoordinator.reservationFor(targetBlock);
+          log("info", "signer_submission_slot_busy", {
+            targetBlock: targetBlock.toString(),
+            requestedLane: "normal_keeper_pass",
+            activeLane: active?.lane ?? "",
+            activeNonce: active?.nonce ?? "",
+            action: "skip_conflicting_private_bundle",
+          });
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
+        let retainReservation = false;
+        try {
+          await assertSignerLeaseHeld();
+          const [submissionHead, latestNonce, pendingNonce] =
+            await Promise.all([
+              publicClient.getBlockNumber(),
+              publicClient.getTransactionCount({
+                address: signer.address,
+                blockTag: "latest",
+              }),
+              publicClient.getTransactionCount({
+                address: signer.address,
+                blockTag: "pending",
+              }),
+            ]);
+          if (
+            submissionHead >= targetBlock ||
+            !signerNonceIsUsable({
+              account: signer.address,
+              expectedNonce: firstPlannedRequest.nonce,
+              latestNonce,
+              pendingNonce,
+            })
+          ) {
+            log("info", "signer_submission_gate_rejected", {
+              targetBlock: targetBlock.toString(),
+              currentBlock: submissionHead.toString(),
+              expectedNonce: firstPlannedRequest.nonce,
+              latestNonce,
+              pendingNonce,
+              lane: "normal_keeper_pass",
+            });
+            return { hashes: [], targetBlock, relayCount: 0 };
+          }
+          const batchStartedAt = performance.now();
+          const limitedRequests = requests.slice(0, 100);
+          const preliminarySignStartedAt = performance.now();
+          const preliminaryTransactions = await Promise.all(
+            limitedRequests.map((request) =>
+              signer.signTransaction({
+                chainId: mainnet.id,
+                type: "eip1559",
+                to: request.target,
+                data: request.data,
+                gas: request.gas,
+                maxFeePerGas: request.maxFeePerGas,
+                maxPriorityFeePerGas: request.maxPriorityFeePerGas,
+                nonce: request.nonce,
+                value: 0n,
+              }),
+            ),
+          );
         log("info", "bundle_stage_timing", {
           stage: "preliminary_sign",
           durationMs:
@@ -733,11 +828,36 @@ async function main(): Promise<void> {
         if (minimumEconomicPrefix > selected.length) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
-        const submissionHead = await publicClient.getBlockNumber();
-        if (submissionHead >= targetBlock) {
+        const [
+          finalSubmissionHead,
+          finalLatestNonce,
+          finalPendingNonce,
+        ] = await Promise.all([
+          publicClient.getBlockNumber(),
+          publicClient.getTransactionCount({
+            address: signer.address,
+            blockTag: "latest",
+          }),
+          publicClient.getTransactionCount({
+            address: signer.address,
+            blockTag: "pending",
+          }),
+        ]);
+        if (
+          finalSubmissionHead >= targetBlock ||
+          !signerNonceIsUsable({
+            account: signer.address,
+            expectedNonce: firstPlannedRequest.nonce,
+            latestNonce: finalLatestNonce,
+            pendingNonce: finalPendingNonce,
+          })
+        ) {
           log("info", "bundle_target_expired_before_submission", {
             targetBlock: targetBlock.toString(),
-            currentBlock: submissionHead.toString(),
+            currentBlock: finalSubmissionHead.toString(),
+            expectedNonce: firstPlannedRequest.nonce,
+            latestNonce: finalLatestNonce,
+            pendingNonce: finalPendingNonce,
             action: "skip_submission",
           });
           return { hashes: [], targetBlock, relayCount: 0 };
@@ -801,6 +921,7 @@ async function main(): Promise<void> {
             ),
           ),
         );
+        retainReservation = true;
         return {
           hashes: accepted.map((transaction) => keccak256(transaction)),
           targetBlock,
@@ -820,6 +941,11 @@ async function main(): Promise<void> {
             transactionCount: submission.transactionCount,
           })),
         };
+        } finally {
+          if (!retainReservation) {
+            signerCoordinator.release(reservation);
+          }
+        }
       };
       if (adaptiveBidController !== undefined) {
         const bidController = adaptiveBidController;
@@ -862,6 +988,8 @@ async function main(): Promise<void> {
                   "competitor_bid_state_availability_waited",
                   {
                     targetBlock: outcome.targetBlock.toString(),
+                    bidScope:
+                      outcome.bidScope ?? "standing_order",
                     readAttempts: observationRead.attempts,
                     availabilityWaitMs: observationRead.waitedMs,
                   },
@@ -871,6 +999,8 @@ async function main(): Promise<void> {
               for (const observation of observations) {
                 log("info", "competitor_bid_observed", {
                   targetBlock: outcome.targetBlock.toString(),
+                  bidScope:
+                    outcome.bidScope ?? "standing_order",
                   transactionHash: observation.transactionHash,
                   orderCount: observation.orderCount,
                   relevantOrders: JSON.stringify(
@@ -908,47 +1038,72 @@ async function main(): Promise<void> {
             } catch (error) {
               log("warn", "competitor_bid_measurement_failed", {
                 targetBlock: outcome.targetBlock.toString(),
+                bidScope:
+                  outcome.bidScope ?? "standing_order",
                 reason: errorMessage(error),
               });
             }
           }
 
           const adjustments =
-            await bidController.observeBatch(
-              outcome.attempts.map((attempt) => {
-                const observedWinningBidBps =
-                  observedBidsByOrder.get(
-                    attempt.order.toLowerCase(),
-                  );
-                return {
-                  order: attempt.order,
-                  outcome: attempt.included
-                    ? {
-                        kind: "full_win" as const,
-                        blockNumber: outcome.targetBlock,
-                        ...(attempt.effectiveBidBps === undefined
-                          ? {}
-                          : {
-                              effectiveBidBps:
-                                attempt.effectiveBidBps,
-                            }),
-                      }
-                    : {
-                        kind: "miss" as const,
-                        blockNumber: outcome.targetBlock,
-                        ...(attempt.effectiveBidBps === undefined
-                          ? {}
-                          : {
-                              effectiveBidBps:
-                                attempt.effectiveBidBps,
-                            }),
-                        ...(observedWinningBidBps === undefined
-                          ? {}
-                          : { observedWinningBidBps }),
-                      },
-                };
-              }),
-          );
+            outcome.bidScope === "pending_funding_backrun"
+              ? []
+              : await bidController.observeBatch(
+                  outcome.attempts.map((attempt) => {
+                    const observedWinningBidBps =
+                      observedBidsByOrder.get(
+                        attempt.order.toLowerCase(),
+                      );
+                    return {
+                      order: attempt.order,
+                      outcome: attempt.included
+                        ? {
+                            kind: "full_win" as const,
+                            blockNumber: outcome.targetBlock,
+                            ...(attempt.effectiveBidBps ===
+                            undefined
+                              ? {}
+                              : {
+                                  effectiveBidBps:
+                                    attempt.effectiveBidBps,
+                                }),
+                          }
+                        : {
+                            kind: "miss" as const,
+                            blockNumber: outcome.targetBlock,
+                            ...(attempt.effectiveBidBps ===
+                            undefined
+                              ? {}
+                              : {
+                                  effectiveBidBps:
+                                    attempt.effectiveBidBps,
+                                }),
+                            ...(observedWinningBidBps === undefined
+                              ? {}
+                              : { observedWinningBidBps }),
+                          },
+                    };
+                  }),
+                );
+          if (outcome.bidScope === "pending_funding_backrun") {
+            log("info", "pending_funding_bid_observation", {
+              targetBlock: outcome.targetBlock.toString(),
+              outcome: fullWin ? "win" : "loss",
+              attempted: outcome.attempts.length,
+              observedWinningBids: JSON.stringify(
+                Object.fromEntries(
+                  [...observedBidsByOrder.entries()].map(
+                    ([order, bidBps]) => [
+                      order,
+                      bidBps.toString(),
+                    ],
+                  ),
+                ),
+              ),
+              action:
+                "hold_lane_specific_static_bid_without_contaminating_standing_order_learning",
+            });
+          }
           for (const adjustment of adjustments) {
             const attempt = outcome.attempts.find(
               (candidate) =>
@@ -991,17 +1146,286 @@ async function main(): Promise<void> {
                 "",
             });
           }
-          log("info", "adaptive_bid_batch_complete", {
-            targetBlock: outcome.targetBlock.toString(),
-            outcome: fullWin
-              ? "full_win"
-              : includedCount === 0
-                ? "loss"
-                : "partial_win",
-            included: includedCount,
-            attempted: outcome.attempts.length,
+          if (outcome.bidScope !== "pending_funding_backrun") {
+            log("info", "adaptive_bid_batch_complete", {
+              targetBlock: outcome.targetBlock.toString(),
+              bidScope: "standing_order",
+              outcome: fullWin
+                ? "full_win"
+                : includedCount === 0
+                  ? "loss"
+                  : "partial_win",
+              included: includedCount,
+              attempted: outcome.attempts.length,
+            });
+          }
+        };
+      }
+      if (pendingFundingExecutionEnabled(config)) {
+        const [orders, vaults] = await Promise.all([
+          publicClient.readContract({
+            address: config.factoryAddress,
+            abi: factoryAbi,
+            functionName: "allOrders",
+          }),
+          config.enableVaults
+            ? publicClient.readContract({
+                address: config.vaultFactoryAddress,
+                abi: vaultFactoryAbi,
+                functionName: "allVaults",
+              })
+            : Promise.resolve([]),
+        ]);
+        const canonicalTargets = [
+          ...new Set(
+            [...orders, ...vaults].map((address) =>
+              getAddress(address),
+            ),
+          ),
+        ];
+        const replacementTracker =
+          new PendingFundingReplacementTracker();
+        const executionController =
+          new PendingFundingExecutionController();
+        let candidateResolutionQueue = Promise.resolve();
+        let queuedCandidate:
+          | ValidatedPendingFundingPrerequisite
+          | undefined;
+
+        const executeQueuedCandidate = (): void => {
+          if (
+            executionController.active ||
+            executionController.stopping
+          ) {
+            return;
+          }
+          const prerequisite = queuedCandidate;
+          if (prerequisite === undefined) return;
+          queuedCandidate = undefined;
+          const execution = executionController.start(
+            async (signal) => {
+              try {
+                const result =
+                  await executePendingFundingBackrun({
+                    publicClient,
+                    pendingClient: discoveryClient,
+                    signer,
+                    prerequisite,
+                    relays,
+                    builders: config.flashbotsBuilders,
+                    config,
+                    builderBidBps:
+                      config.pendingFundingBuilderBidBps,
+                    coordinator: signerCoordinator,
+                    assertSignerLeaseHeld,
+                    isPrerequisiteCurrent: () =>
+                      replacementTracker.isCurrent({
+                        hash: prerequisite.hash,
+                        sender: prerequisite.sender,
+                        nonce: prerequisite.nonce,
+                      }),
+                    waitForTargetBlock: async (
+                      targetBlock,
+                      timeoutMs,
+                    ) => {
+                      const afterBlock = targetBlock - 1n;
+                      if (
+                        headSignal.latestAfter(afterBlock) !==
+                        undefined
+                      ) {
+                        return true;
+                      }
+                      return headSignal.waitForNewer(
+                        afterBlock,
+                        timeoutMs,
+                      );
+                    },
+                    observePrivateBatch,
+                    signal,
+                  });
+                log(
+                  "info",
+                  "pending_funding_backrun_complete",
+                  {
+                    prerequisiteHash: prerequisite.hash,
+                    order: prerequisite.target,
+                    status: result.status,
+                    reason: result.reason,
+                    targetBlock:
+                      result.targetBlock?.toString() ?? "",
+                    crankHash: result.crankHash ?? "",
+                    realizedProfit:
+                      result.realizedProfitWei === undefined
+                        ? ""
+                        : eth(result.realizedProfitWei),
+                  },
+                );
+              } catch (error) {
+                log(
+                  "warn",
+                  "pending_funding_backrun_failed",
+                  {
+                    prerequisiteHash: prerequisite.hash,
+                    order: prerequisite.target,
+                    reason: errorMessage(error),
+                  },
+                );
+              } finally {
+                replacementTracker.forget({
+                  hash: prerequisite.hash,
+                  sender: prerequisite.sender,
+                  nonce: prerequisite.nonce,
+                });
+              }
+            },
+          );
+          void execution?.finally(() => {
+            executeQueuedCandidate();
           });
         };
+
+        const subscription =
+          subscribeToAlchemyPendingFundingHashes({
+            url: config.headRpcUrl!,
+            targetAddresses: canonicalTargets,
+            onHash: (hash) => {
+              candidateResolutionQueue =
+                candidateResolutionQueue.then(
+                  async () => {
+                    if (executionController.stopping) {
+                      return;
+                    }
+                    try {
+                      const [rawTransaction, transaction] =
+                        await Promise.all([
+                          discoveryClient.getRawTransaction({
+                            hash,
+                          }),
+                          discoveryClient.getTransaction({
+                            hash,
+                          }),
+                        ]);
+                      if (transaction.blockNumber !== null) {
+                        return;
+                      }
+                      const prerequisite =
+                        await validatePendingFundingPrerequisite({
+                          rawTransaction,
+                          expectedHash: hash,
+                          rpcTransaction: {
+                            hash: transaction.hash,
+                            from: transaction.from,
+                            nonce: transaction.nonce,
+                            chainId: transaction.chainId,
+                            type: transaction.type,
+                            to: transaction.to,
+                            value: transaction.value,
+                            input: transaction.input,
+                          },
+                          canonicalTargets,
+                        });
+                      if (executionController.stopping) {
+                        return;
+                      }
+                      const tracked =
+                        replacementTracker.observe({
+                          hash: prerequisite.hash,
+                          sender: prerequisite.sender,
+                          nonce: prerequisite.nonce,
+                        });
+                      if (tracked.status === "duplicate") {
+                        return;
+                      }
+                      if (tracked.status === "replacement") {
+                        log(
+                          "info",
+                          "pending_funding_replacement_observed",
+                          {
+                            order: prerequisite.target,
+                            sender: prerequisite.sender,
+                            nonce: prerequisite.nonce,
+                            replacedHash:
+                              tracked.replacedHash,
+                            hash: prerequisite.hash,
+                          },
+                        );
+                      }
+                      const displaced = queuedCandidate;
+                      if (
+                        displaced !== undefined &&
+                        displaced.hash.toLowerCase() !==
+                          prerequisite.hash.toLowerCase()
+                      ) {
+                        replacementTracker.forget({
+                          hash: displaced.hash,
+                          sender: displaced.sender,
+                          nonce: displaced.nonce,
+                        });
+                      }
+                      queuedCandidate = prerequisite;
+                      executeQueuedCandidate();
+                    } catch (error) {
+                      log(
+                        "debug",
+                        "pending_funding_candidate_rejected",
+                        {
+                          hash,
+                          reason:
+                            error instanceof
+                            PendingFundingValidationError
+                              ? error.code
+                              : errorMessage(error),
+                        },
+                      );
+                    }
+                  },
+                );
+              return candidateResolutionQueue;
+            },
+            onError: (error) => {
+              log(
+                "warn",
+                "pending_funding_subscription_failed",
+                {
+                  errorClass: error.code,
+                  action:
+                    "reconnecting_same_filtered_subscription",
+                },
+              );
+            },
+          });
+        try {
+          await Promise.race([
+            subscription.ready,
+            new Promise<never>((_, reject) => {
+              const timer = setTimeout(() => {
+                reject(
+                  new Error(
+                    "pending funding subscription did not become ready",
+                  ),
+                );
+              }, 10_000);
+              timer.unref();
+            }),
+          ]);
+        } catch (error) {
+          subscription.close();
+          throw error;
+        }
+        closePendingFundingRuntime = async () => {
+          subscription.close();
+          queuedCandidate = undefined;
+          replacementTracker.clear();
+          const drain = executionController.stopAndDrain();
+          await candidateResolutionQueue;
+          await drain;
+        };
+        log("info", "pending_funding_subscription_started", {
+          targetCount: canonicalTargets.length,
+          hashesOnly: true,
+          transport: "websocket",
+          fallback: "none",
+        });
       }
     }
   } else if (!config.dryRun) {
@@ -1024,6 +1448,8 @@ async function main(): Promise<void> {
     relayCount: config.flashbotsRelayUrls.length,
     builderCount: config.flashbotsBuilders.length,
     configuredBuilderBidBps: config.builderBidBps.toString(),
+    configuredPendingFundingBuilderBidBps:
+      config.pendingFundingBuilderBidBps.toString(),
     adaptiveBidMinimumBps:
       config.adaptiveBidMinBps.toString(),
     adaptiveBidEvidenceMaxAgeBlocks:
@@ -1065,6 +1491,8 @@ async function main(): Promise<void> {
       config.enableStakeDaoCurveHarvests,
     firmReplenishments:
       config.enableFirmReplenishments,
+    pendingFundingBackruns:
+      pendingFundingExecutionEnabled(config),
     liveBidAdapter: config.liveBidAdapterAddress,
     poolBountyEstimateBps:
       config.poolBountyEstimateBps.toString(),
@@ -1075,14 +1503,6 @@ async function main(): Promise<void> {
     sourceRevision: sourceRevision ?? "",
     deploymentId: deploymentId ?? "",
   });
-
-  let stopping = false;
-  const stop = (): void => {
-    stopping = true;
-    headSignal.close();
-  };
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
 
   let lastProcessedBlock = -1n;
   do {
@@ -1095,10 +1515,13 @@ async function main(): Promise<void> {
         lastProcessedBlock >= 0n &&
         subscribedBlock === undefined
       ) {
-        const observed = await headSignal.waitForNewer(
-          lastProcessedBlock,
-          config.headStaleTimeoutMs,
-        );
+        const observed = await Promise.race([
+          headSignal.waitForNewer(
+            lastProcessedBlock,
+            config.headStaleTimeoutMs,
+          ),
+          stopRequested.then(() => false),
+        ]);
         if (stopping) break;
         subscribedBlock =
           headSignal.latestAfter(lastProcessedBlock);
@@ -1117,6 +1540,7 @@ async function main(): Promise<void> {
       const block =
         subscribedBlock ??
         (await publicClient.getBlockNumber());
+      signerCoordinator.observeHead(block);
       const headSource =
         subscribedBlock !== undefined
           ? "websocket"

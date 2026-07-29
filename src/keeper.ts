@@ -73,6 +73,7 @@ export interface CrankBatchResult {
 
 export interface PrivateBatchOutcome {
   readonly targetBlock: bigint;
+  readonly bidScope?: "standing_order" | "pending_funding_backrun";
   readonly attempts: readonly {
     readonly order: Address;
     readonly crankFee: bigint;

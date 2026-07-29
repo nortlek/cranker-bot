@@ -108,6 +108,13 @@ immediate failures. The same WebSocket signal wakes private target-block
 receipt finalization, after which HTTP must serve that exact block before
 receipts are classified. Never print either endpoint.
 
+When `ENABLE_PENDING_FUNDING_BACKRUNS=true`, the worker opens a second,
+hash-only Alchemy filtered subscription on the same `WS_URL` for current
+canonical order/vault recipients. It reconnects through that same mechanism
+and has no polling or unfiltered alternative. Exact raw transactions are
+fetched through `DISCOVERY_RPC_URL`; never log either the raw bytes or either
+endpoint.
+
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
 deploy the exact local committed source with the Railway CLI.
@@ -149,6 +156,9 @@ jq -c 'select(
   .event == "keeper_transaction_sent" or
   .event == "keeper_receipt" or
   .event == "keeper_transaction_expired" or
+  .event == "pending_funding_backrun_opportunity" or
+  .event == "pending_funding_backrun_submitted" or
+  .event == "pending_funding_backrun_complete" or
   .event == "acquisition_status" or
   .event == "competitor_bid_observed"
 )'
@@ -412,6 +422,17 @@ These constraints prevent expensive or unsafe regressions:
   If so, the minimum viable prefix must include every call needed for the
   aggregate profit. Never submit a subsidized crank by itself.
 - Explicit contiguous nonces are assigned only when `latest == pending`.
+- A pending-funding backrun is always the exact two-transaction bundle
+  `[public empty-calldata ETH transfer, keeper crank]`. Verify the raw hash,
+  recovered sender, mainnet chain ID, supported legacy/2930/1559 type, sender
+  nonce, positive value, canonical recipient, empty input, and pending status
+  before signing. Simulate the full pair twice, price and account only the
+  keeper crank, never submit a prerequisite-only prefix, suppress observed
+  replacements, and reserve the signer target block against the normal loop.
+  Record a bid loss only when the prerequisite landed and a competitor
+  actually emitted `Cranked`. Keep this lane's static bid independent from
+  confirmed-head standing-order adaptive state until it has enough live
+  outcomes to justify its own durable policy.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Fetch that exact block number over the
   authoritative HTTP RPC and pin core pool, lifecycle, order/vault, and
@@ -453,6 +474,7 @@ At the last handoff, the configured policy was approximately:
 | Standing-order baseline | 86.44% |
 | Standing-order learned minimum | 10% |
 | Standing-order learned maximum in use | 94.54% |
+| Pending-funding standing-order backrun | 10% |
 | Pool pull | 20% |
 | Pool acquisition ready | 10% |
 | Pool acquisition fulfilled | 5% |
@@ -470,6 +492,9 @@ competition and durable bid state before changing them.
 Production currently evaluates:
 
 - PullStandingOrder and compatible PullVault `crank()`
+- optional exact-pair backruns of public ETH funding transfers to canonical
+  orders/vaults; private-only and default-off unless production enables
+  `ENABLE_PENDING_FUNDING_BACKRUNS`
 - PullPool funding and acquisition lifecycle
 - public FWA acquisition processing
 - FWAToken `buyback()`
@@ -494,6 +519,12 @@ The core control flow is:
 - `src/adaptive-bidding.ts`: in-memory learned bidding behavior
 - `src/postgres-adaptive-bidding.ts`: durable learned bids
 - `src/flashbots.ts`: bundle simulation and relay submission
+- `src/pending-funding.ts`: raw prerequisite validation, replacement tracking,
+  and the hash-only filtered subscription
+- `src/pending-funding-backrun.ts`: exact-pair simulation, crank-only
+  economics, relay submission, receipt accounting, and adaptive outcome rules
+- `src/signer-coordinator.ts`: per-target-block signer reservation shared by
+  confirmed-head and pending-event lanes
 - `src/telemetry.ts`: PostgreSQL event persistence
 - `src/singleton.ts`: signer advisory lease
 - `src/discord.ts`: automatic embeds

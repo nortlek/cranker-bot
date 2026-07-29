@@ -13,7 +13,10 @@ candidate or dependent sequence is simulated and priced before private
 submission. An optional private-only lane also batches profitable Stake DAO v4
 Curve Accountant harvests for their CRV caller fee. A second default-off,
 private-only lane watches canonical Inverse FiRM markets for capital-free,
-DOLA-paid forced DBR replenishments.
+DOLA-paid forced DBR replenishments. An opt-in private pending-funding lane can
+also copy a public ETH transfer to a canonical standing order into the same
+bundle as the dependent `crank`, allowing the keeper to compete when an order
+becomes funded between confirmed heads.
 
 ## Examined transaction
 
@@ -116,6 +119,18 @@ Each new block, the keeper:
    missed orders it measures both priority fees and direct block-beneficiary
    payments made by the winning crank transaction, then updates that order's
    next bid. A missed bundle expires instead of entering the public mempool.
+
+When `ENABLE_PENDING_FUNDING_BACKRUNS=true`, a separate filtered Alchemy
+subscription watches only canonical order and vault recipients. A positive,
+empty-calldata Ethereum transfer is accepted only after its exact raw bytes,
+hash, recovered sender, nonce, chain ID, type, recipient, value, and pending
+status agree with the authoritative RPC response. The keeper then simulates
+`[public funding transaction, keeper crank]`, prices only the crank's reward
+and gas, re-signs and re-simulates the exact pair, and submits the pair
+privately for one block. It never submits the funding transaction alone or
+counts the funder's value, gas, or priority fee as keeper P&L. A shared
+target-block reservation prevents this asynchronous lane and the confirmed
+head planner from making conflicting signer decisions.
 
 Candidate gas estimates run with bounded concurrency and retain fee-ranked
 ordering. When `WS_URL` is configured, a `newHeads` subscription wakes the
@@ -310,6 +325,16 @@ successful `crank` fees are sent to that keeper address.
   on the exact block fetched through `RPC_URL`. The same signal wakes private
   target-block receipt finalization; HTTP must then serve that exact block
   before receipts are classified as confirmed or expired.
+- `ENABLE_PENDING_FUNDING_BACKRUNS`: enables the hash-only filtered Alchemy
+  `alchemy_pendingTransactions` watcher. It requires `WS_URL` and
+  `SUBMISSION_MODE=flashbots`, accepts only current canonical order/vault
+  recipients, fetches and validates the exact raw prerequisite through
+  `DISCOVERY_RPC_URL`, and has no polling or unfiltered alternative. It
+  defaults to `false`.
+- `PENDING_FUNDING_BUILDER_BID_BPS`: independent builder bid for the
+  pending-funding lane. It defaults to 1000 bps and deliberately does not
+  inherit or update the much higher confirmed-head standing-order adaptive
+  state.
 - `HEAD_STALE_TIMEOUT_MS`: maximum wait for a subscribed head before HTTP is
   consulted as a liveness assertion. If HTTP has advanced, the subscription is
   treated as broken and the worker exits for a supervised restart.

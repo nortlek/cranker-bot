@@ -18,10 +18,10 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 10:49 America/Denver, the
-verified snapshot was **$138.51061485 net**, or **55.40%** of the goal, with
-`latest == pending == 426` and net ETH equivalent of
-`0.073308569792014963`. An earlier full reconciliation through nonce 387 found
+2026-07-30 23:59 America/Denver**. At 2026-07-29 12:50 America/Denver, the
+verified snapshot was **$146.85785253 net**, or **58.74%** of the goal, with
+`latest == pending == 453` and net ETH equivalent of
+`0.076403786506562525`. An earlier full reconciliation through nonce 387 found
 172 successful receipts and matched them exactly to a
 `0.043126556881111625 ETH` wallet increase: 38 settles, 41 syncs, 41
 processors, 5 pulls, and 47 standing-order cranks. Those attempts had no fatal,
@@ -40,6 +40,57 @@ npx tsx scripts/goal-status.ts
 before reporting progress or deploying.
 
 ## Immediate engineering queue
+
+### P0 — Capture same-block standing-order funding backruns
+
+Status: implemented behind `ENABLE_PENDING_FUNDING_BACKRUNS`; pending
+production validation.
+
+Block `25640168` exposed a confirmed-head blind spot. Transaction
+`0xdc83150b31e45d68157ed0083c2437f3834ee4054063c09fa44beba4408ed0a4`
+funded order `0x93d56d01534e7e4702fEE7a6282C708cB60d49E7` with `0.09 ETH` at
+transaction index 116. The immediately following transaction
+`0xe7925f830706f38119a9fc268fe712e6408da27ae555e9088c9e780c5050d538`
+cranked it for `0.0025 ETH`. At the preceding confirmed head the order balance
+was zero, so an ordinary next-head planner could not compete.
+
+The winning crank paid zero priority fee and `0.000118275820830379 ETH`
+directly to the block fee recipient: **473 bps** of the `0.0025 ETH` reward.
+Its base-fee gas cost was `0.000143933305844128 ETH`, leaving about
+`0.00223779 ETH` after gas and the direct payment. The new lane therefore
+starts with an independent 1000-bps builder bid rather than inheriting the
+confirmed-head standing-order controller's 8644–9454 bps state.
+
+A 20,000-block scan across 64 known canonical targets found 1,690 `Cranked`
+events. Fifty-three had a positive-ETH funding transfer to the same order
+earlier in the same block, totaling `0.0273 ETH` of caller fees in roughly 2.8
+days. The pattern includes round 269's `0.01 ETH` fee and the round 286
+example above. This is meaningful gross reward, but inclusion share and
+retained profit remain to be measured live.
+
+The implementation uses Alchemy's hash-only filtered pending subscription and
+fetches exact signed bytes with `eth_getRawTransactionByHash`. It rejects
+malformed, unsigned, replaced, non-mainnet, EIP-4844/EIP-7702, noncanonical,
+zero-value, and calldata-bearing prerequisites. It exact-simulates
+`[raw funding, preliminary crank]`, prices only the crank item, re-signs with
+the lane-specific static bid, exact-simulates the final pair, and submits only
+that pair to private relays for one target block. The funding transaction
+is never sent alone and its value, gas, priority fee, and hash are excluded
+from keeper P&L. A target-block signer reservation serializes this lane with
+the ordinary planner. A miss is measured only when the funding transaction
+landed and another transaction emitted `Cranked`; the observed competitor bid
+is logged without contaminating confirmed-head standing-order learning.
+
+Next acceptance criteria:
+
+- deploy with the feature enabled and verify one healthy signer lease plus a
+  live hash-only subscription
+- inspect every candidate rejection, exact simulation, relay result, and
+  receipt from durable telemetry
+- reconcile the first included crank from its decoded `Cranked` fee and only
+  the keeper receipt's gas
+- compare captured share and retained profit against the 53-event historical
+  cohort before changing any bid ceiling
 
 ### P0 — StonkPit fee-collection crank on Robinhood Chain
 
@@ -711,6 +762,9 @@ Competition is strong. Historical pull competition was roughly 593 bps median,
 standing-order bids are adaptively learned and persisted in PostgreSQL.
 
 Priority work is marginal-profit selection, not simply raising the global bid.
+The optional pending-funding exact-pair lane covers orders that become funded
+between confirmed heads; its prerequisite transaction is never treated as a
+keeper cost, reward, or independently submit-able prefix.
 
 ### PullPool/FWA lifecycle
 

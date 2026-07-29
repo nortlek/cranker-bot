@@ -4,12 +4,19 @@ import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
   FWA_PROCESS_DISCOVERY_MAX_COUNT,
   loadConfig,
+  pendingFundingExecutionEnabled,
 } from "../src/config.js";
 
 const originalFwaProcessGasLimit =
   process.env.FWA_PROCESS_GAS_LIMIT;
 const originalFwaProcessMaxCount =
   process.env.FWA_PROCESS_MAX_COUNT;
+const originalPendingFundingBackruns =
+  process.env.ENABLE_PENDING_FUNDING_BACKRUNS;
+const originalPendingFundingBuilderBidBps =
+  process.env.PENDING_FUNDING_BUILDER_BID_BPS;
+const originalWsUrl = process.env.WS_URL;
+const originalSubmissionMode = process.env.SUBMISSION_MODE;
 
 afterEach(() => {
   if (originalFwaProcessGasLimit === undefined) {
@@ -23,6 +30,25 @@ afterEach(() => {
   } else {
     process.env.FWA_PROCESS_MAX_COUNT =
       originalFwaProcessMaxCount;
+  }
+  if (originalPendingFundingBackruns === undefined) {
+    delete process.env.ENABLE_PENDING_FUNDING_BACKRUNS;
+  } else {
+    process.env.ENABLE_PENDING_FUNDING_BACKRUNS =
+      originalPendingFundingBackruns;
+  }
+  if (originalPendingFundingBuilderBidBps === undefined) {
+    delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
+  } else {
+    process.env.PENDING_FUNDING_BUILDER_BID_BPS =
+      originalPendingFundingBuilderBidBps;
+  }
+  if (originalWsUrl === undefined) delete process.env.WS_URL;
+  else process.env.WS_URL = originalWsUrl;
+  if (originalSubmissionMode === undefined) {
+    delete process.env.SUBMISSION_MODE;
+  } else {
+    process.env.SUBMISSION_MODE = originalSubmissionMode;
   }
 });
 
@@ -63,5 +89,45 @@ describe("FWA processor discovery window", () => {
     expect(() => loadConfig()).toThrow(
       "FWA_PROCESS_MAX_COUNT",
     );
+  });
+});
+
+describe("pending funding backruns", () => {
+  it("defaults disabled", () => {
+    delete process.env.ENABLE_PENDING_FUNDING_BACKRUNS;
+    delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
+
+    const config = loadConfig();
+    expect(config.enablePendingFundingBackruns).toBe(false);
+    expect(config.pendingFundingBuilderBidBps).toBe(1_000n);
+  });
+
+  it("requires a private submission mode and WebSocket source", () => {
+    process.env.ENABLE_PENDING_FUNDING_BACKRUNS = "true";
+    delete process.env.WS_URL;
+
+    expect(() => loadConfig()).toThrow("requires WS_URL");
+
+    process.env.WS_URL = "wss://example.invalid";
+    process.env.SUBMISSION_MODE = "public";
+
+    expect(() => loadConfig()).toThrow(
+      "requires SUBMISSION_MODE=flashbots",
+    );
+  });
+
+  it("cannot execute in dry-run mode even when configured", () => {
+    expect(
+      pendingFundingExecutionEnabled({
+        enablePendingFundingBackruns: true,
+        dryRun: true,
+      }),
+    ).toBe(false);
+    expect(
+      pendingFundingExecutionEnabled({
+        enablePendingFundingBackruns: true,
+        dryRun: false,
+      }),
+    ).toBe(true);
   });
 });

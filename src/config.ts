@@ -30,6 +30,7 @@ export interface KeeperConfig {
   readonly flashbotsAuthPrivateKey: Hex | undefined;
   readonly relayTimeoutMs: number;
   readonly builderBidBps: bigint;
+  readonly pendingFundingBuilderBidBps: bigint;
   readonly poolBuilderBidBps: bigint;
   readonly poolPullBuilderBidBps: bigint;
   readonly poolFulfilledBuilderBidBps: bigint;
@@ -61,6 +62,7 @@ export interface KeeperConfig {
   readonly expectedPoolAddress: Address;
   readonly expectedFwaTokenAddress: Address;
   readonly liveBidAdapterAddress: Address;
+  readonly enablePendingFundingBackruns: boolean;
   readonly enablePoolLifecycle: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
@@ -110,6 +112,15 @@ export interface KeeperConfig {
   readonly confirmations: number;
   readonly receiptTimeoutMs: number;
   readonly maxTransactionsPerPass: number;
+}
+
+export function pendingFundingExecutionEnabled(
+  config: Pick<
+    KeeperConfig,
+    "dryRun" | "enablePendingFundingBackruns"
+  >,
+): boolean {
+  return config.enablePendingFundingBackruns && !config.dryRun;
 }
 
 function submissionModeEnv(): "flashbots" | "public" {
@@ -251,6 +262,11 @@ export function loadConfig(): KeeperConfig {
     process.env.DISCOVERY_RPC_URLS?.split(",")[0]?.trim() ||
     rpcUrl;
   const submissionMode = submissionModeEnv();
+  const headRpcUrl = headRpcUrlEnv();
+  const enablePendingFundingBackruns = booleanEnv(
+    "ENABLE_PENDING_FUNDING_BACKRUNS",
+    false,
+  );
   const enableStakeDaoCurveHarvests = booleanEnv(
     "ENABLE_STAKEDAO_CURVE_HARVESTS",
     false,
@@ -261,21 +277,40 @@ export function loadConfig(): KeeperConfig {
   );
   if (
     (enableStakeDaoCurveHarvests ||
-      enableFirmReplenishments) &&
+      enableFirmReplenishments ||
+      enablePendingFundingBackruns) &&
     submissionMode !== "flashbots"
   ) {
     throw new Error(
       `${
-        enableFirmReplenishments
+        enablePendingFundingBackruns
+          ? "ENABLE_PENDING_FUNDING_BACKRUNS"
+          : enableFirmReplenishments
           ? "ENABLE_FIRM_REPLENISHMENTS"
           : "ENABLE_STAKEDAO_CURVE_HARVESTS"
       } requires SUBMISSION_MODE=flashbots`,
+    );
+  }
+  if (
+    enablePendingFundingBackruns &&
+    headRpcUrl === undefined
+  ) {
+    throw new Error(
+      "ENABLE_PENDING_FUNDING_BACKRUNS requires WS_URL",
     );
   }
   const builderBidBps = integerEnv("BUILDER_BID_BPS", 8_100, {
     min: 0,
     max: 10_000,
   });
+  const pendingFundingBuilderBidBps = integerEnv(
+    "PENDING_FUNDING_BUILDER_BID_BPS",
+    1_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const poolBuilderBidBps = integerEnv(
     "POOL_BUILDER_BID_BPS",
     1_000,
@@ -385,7 +420,7 @@ export function loadConfig(): KeeperConfig {
   return {
     rpcUrl,
     discoveryRpcUrl,
-    headRpcUrl: headRpcUrlEnv(),
+    headRpcUrl,
     submissionMode,
     flashbotsRelayUrls: relayUrlsEnv(),
     flashbotsBuilders: flashbotsBuildersEnv(),
@@ -397,6 +432,8 @@ export function loadConfig(): KeeperConfig {
       max: 30_000,
     }),
     builderBidBps: BigInt(builderBidBps),
+    pendingFundingBuilderBidBps:
+      BigInt(pendingFundingBuilderBidBps),
     poolBuilderBidBps: BigInt(poolBuilderBidBps),
     poolPullBuilderBidBps: BigInt(poolPullBuilderBidBps),
     poolFulfilledBuilderBidBps:
@@ -485,6 +522,7 @@ export function loadConfig(): KeeperConfig {
       process.env.LIVE_BID_ADAPTER_ADDRESS ||
         LIVE_BID_ADAPTER_ADDRESS,
     ),
+    enablePendingFundingBackruns,
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
     enableVaults: booleanEnv("ENABLE_VAULTS", true),
     enableBuyback: booleanEnv("ENABLE_BUYBACK", true),
