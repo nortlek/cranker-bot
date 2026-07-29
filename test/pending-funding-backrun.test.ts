@@ -260,6 +260,7 @@ describe("pending funding prerequisite-bundle accounting", () => {
       pendingClient: pendingClient as never,
       signer,
       prerequisite: {
+        action: "order_funding",
         rawTransaction: rawFunding,
         hash: fundingHash,
         sender: funder.address,
@@ -331,6 +332,7 @@ describe("pending funding prerequisite-bundle accounting", () => {
       pendingClient: {} as never,
       signer,
       prerequisite: {
+        action: "order_funding",
         rawTransaction: "0x01",
         hash: `0x${"11".repeat(32)}`,
         sender: signer.address,
@@ -446,6 +448,7 @@ describe("pending funding prerequisite-bundle accounting", () => {
         pendingClient: {} as never,
         signer,
         prerequisite: {
+          action: "order_funding",
           rawTransaction: rawFunding,
           hash: keccak256(rawFunding),
           sender: funder.address,

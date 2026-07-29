@@ -1,7 +1,6 @@
 import {
   decodeEventLog,
   encodeFunctionData,
-  formatEther,
   keccak256,
   type Address,
   type Chain,
@@ -12,7 +11,7 @@ import {
   type Transport,
 } from "viem";
 
-import { standingOrderAbi } from "./abi.js";
+import { poolAbi } from "./abi.js";
 import { quoteCompetitiveFees } from "./bidding.js";
 import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
@@ -26,122 +25,57 @@ import {
   successfulPrefixLength,
 } from "./flashbots.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
-import type { PrivateBatchOutcome } from "./keeper.js";
+import { estimatePoolBounty } from "./lifecycle.js";
+import {
+  pendingFundingBundleTransactions,
+  receiptSucceededInTarget,
+} from "./pending-funding-backrun.js";
 import type { ValidatedPendingFundingPrerequisite } from "./pending-funding.js";
 import {
   SignerSubmissionCoordinator,
   signerNonceIsUsable,
 } from "./signer-coordinator.js";
 
-export type PendingFundingBackrunStatus =
-  | "confirmed"
-  | "expired"
-  | "skipped";
+type PoolTicketPrerequisite = Extract<
+  ValidatedPendingFundingPrerequisite,
+  { action: "pool_ticket_purchase" }
+>;
 
-export interface PendingFundingBackrunResult {
-  readonly status: PendingFundingBackrunStatus;
+export interface PendingPoolPullBackrunResult {
+  readonly status: "confirmed" | "expired" | "skipped";
   readonly reason: string;
   readonly targetBlock?: bigint;
-  readonly crankHash?: Hash;
+  readonly pullHash?: Hash;
   readonly realizedProfitWei?: bigint;
 }
 
-type OrderFundingPrerequisite = Extract<
-  ValidatedPendingFundingPrerequisite,
-  { action: "order_funding" }
->;
-
-function abortRequested(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true;
-}
-
-interface ExactCrankSimulation {
-  readonly signedCrank: `0x${string}`;
+interface ExactPoolPullSimulation {
+  readonly signedPull: Hex;
   readonly gasUsed: bigint;
   readonly gasLimit: bigint;
+  readonly grossReward: bigint;
   readonly maxFeePerGas: bigint;
   readonly maxPriorityFeePerGas: bigint;
   readonly effectiveBuilderBidBps: bigint;
   readonly expectedProfit: bigint;
 }
 
-export function pendingFundingBundleTransactions(
-  prerequisite: Hex,
-  crank: Hex,
-): readonly [Hex, Hex] {
-  if (prerequisite === "0x" || crank === "0x") {
-    throw new Error(
-      "pending funding bundle transactions cannot be empty",
-    );
-  }
-  return [prerequisite, crank];
+function abortRequested(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 
-export function shouldObservePendingFundingMiss(parameters: {
-  readonly prerequisiteIncluded: boolean;
-  readonly competitorCranked: boolean;
-}): boolean {
-  return (
-    parameters.prerequisiteIncluded &&
-    parameters.competitorCranked
-  );
-}
-
-export function receiptSucceededInTarget(parameters: {
-  readonly status: "success" | "reverted";
-  readonly blockNumber: bigint;
-  readonly targetBlock: bigint;
-}): boolean {
-  return (
-    parameters.status === "success" &&
-    parameters.blockNumber === parameters.targetBlock
-  );
-}
-
-function decodedCrankedFee(
-  order: Address,
-  caller: Address,
-  logs: readonly {
-    readonly address: Address;
-    readonly data: `0x${string}`;
-    readonly topics: [] | [`0x${string}`, ...`0x${string}`[]];
-  }[],
-): bigint | undefined {
-  for (const entry of logs) {
-    if (entry.address.toLowerCase() !== order.toLowerCase()) {
-      continue;
-    }
-    try {
-      const decoded = decodeEventLog({
-        abi: standingOrderAbi,
-        data: entry.data,
-        topics: entry.topics,
-      });
-      if (
-        decoded.eventName === "Cranked" &&
-        decoded.args.caller.toLowerCase() === caller.toLowerCase()
-      ) {
-        return decoded.args.fee;
-      }
-    } catch {
-      // A known order may emit unrelated events in the same receipt.
-    }
-  }
-  return undefined;
-}
-
-export function pendingFundingCrankGasUsed(parameters: {
+export function pendingPoolPullGasUsed(parameters: {
   readonly simulation: Parameters<typeof simulatedGasUsed>[0];
 }): bigint {
   if (successfulPrefixLength(parameters.simulation, 2) !== 2) {
     throw new Error(
-      "pending funding prerequisite bundle did not simulate both transactions",
+      "pending ticket purchase plus pull bundle did not simulate both transactions",
     );
   }
   const gas = simulatedGasUsed(parameters.simulation, 2)[1];
   if (gas === undefined) {
     throw new Error(
-      "pending funding simulation omitted crank gas usage",
+      "pending ticket purchase simulation omitted pull gas usage",
     );
   }
   return gas;
@@ -163,6 +97,180 @@ function sameFeeQuote(
   );
 }
 
+function conservativeNextBaseFee(baseFeePerGas: bigint): bigint {
+  if (baseFeePerGas <= 0n) return 0n;
+  return (baseFeePerGas * 7n) / 8n;
+}
+
+async function exactPricedPoolPull(parameters: {
+  readonly relay: FlashbotsRelay;
+  readonly signer: PrivateKeyAccount;
+  readonly prerequisite: PoolTicketPrerequisite;
+  readonly targetBlock: bigint;
+  readonly nonce: number;
+  readonly accountBalance: bigint;
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly bountyBaseFeePerGas: bigint;
+  readonly crankBountyCap: bigint;
+  readonly bountyTipWei: bigint;
+  readonly builderBidBps: bigint;
+  readonly config: KeeperConfig;
+}): Promise<ExactPoolPullSimulation | undefined> {
+  if (
+    parameters.baseFeeAllowancePerGas <= 0n ||
+    parameters.bountyBaseFeePerGas < 0n
+  ) {
+    return undefined;
+  }
+  const maximumAffordableGas =
+    parameters.accountBalance /
+    parameters.baseFeeAllowancePerGas;
+  const preliminaryGasLimit =
+    maximumAffordableGas <
+    BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT)
+      ? maximumAffordableGas
+      : BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT);
+  if (preliminaryGasLimit < 21_000n) return undefined;
+
+  const pullData = encodeFunctionData({
+    abi: poolAbi,
+    functionName: "pull",
+    args: [parameters.prerequisite.roundId],
+  });
+  const preliminaryPull =
+    await parameters.signer.signTransaction({
+      chainId: 1,
+      type: "eip1559",
+      to: parameters.prerequisite.target,
+      data: pullData,
+      gas: preliminaryGasLimit,
+      maxFeePerGas: parameters.baseFeeAllowancePerGas,
+      maxPriorityFeePerGas: 0n,
+      nonce: parameters.nonce,
+      value: 0n,
+    });
+  const preliminarySimulation =
+    await parameters.relay.callBundle(
+      pendingFundingBundleTransactions(
+        parameters.prerequisite.rawTransaction,
+        preliminaryPull,
+      ),
+      parameters.targetBlock,
+    );
+  let simulatedPullGas = pendingPoolPullGasUsed({
+    simulation: preliminarySimulation,
+  });
+  let grossReward = estimatePoolBounty({
+    gasUsed: simulatedPullGas,
+    baseFeePerGas: parameters.bountyBaseFeePerGas,
+    terms: {
+      crankBountyCap: parameters.crankBountyCap,
+      bountyTipWei: parameters.bountyTipWei,
+    },
+    estimateBps:
+      parameters.config.poolPullBountyEstimateBps,
+  });
+  let quote = quoteCompetitiveFees({
+    crankFee: grossReward,
+    simulatedGasUsed: simulatedPullGas,
+    baseFeeAllowancePerGas:
+      parameters.baseFeeAllowancePerGas,
+    minimumPriorityFeePerGas:
+      parameters.config.poolMinPriorityFeePerGas,
+    builderBidBps: parameters.builderBidBps,
+    maxFeePerGasCap: parameters.config.maxFeePerGas,
+    minProfitWei: parameters.config.minProfitWei,
+  });
+  if (!quote.profitable) return undefined;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const gasLimit = bufferedGas(
+      simulatedPullGas,
+      parameters.config.gasLimitMultiplierBps,
+    );
+    if (
+      gasLimit > BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT) ||
+      gasLimit * quote.maxFeePerGas >
+        parameters.accountBalance
+    ) {
+      return undefined;
+    }
+    const signedPull =
+      await parameters.signer.signTransaction({
+        chainId: 1,
+        type: "eip1559",
+        to: parameters.prerequisite.target,
+        data: pullData,
+        gas: gasLimit,
+        maxFeePerGas: quote.maxFeePerGas,
+        maxPriorityFeePerGas:
+          quote.maxPriorityFeePerGas,
+        nonce: parameters.nonce,
+        value: 0n,
+      });
+    const finalSimulation =
+      await parameters.relay.callBundle(
+        pendingFundingBundleTransactions(
+          parameters.prerequisite.rawTransaction,
+          signedPull,
+        ),
+        parameters.targetBlock,
+      );
+    const finalGasUsed = pendingPoolPullGasUsed({
+      simulation: finalSimulation,
+    });
+    const finalGrossReward = estimatePoolBounty({
+      gasUsed: finalGasUsed,
+      baseFeePerGas: parameters.bountyBaseFeePerGas,
+      terms: {
+        crankBountyCap: parameters.crankBountyCap,
+        bountyTipWei: parameters.bountyTipWei,
+      },
+      estimateBps:
+        parameters.config.poolPullBountyEstimateBps,
+    });
+    const repriced = quoteCompetitiveFees({
+      crankFee: finalGrossReward,
+      simulatedGasUsed: finalGasUsed,
+      baseFeeAllowancePerGas:
+        parameters.baseFeeAllowancePerGas,
+      minimumPriorityFeePerGas:
+        parameters.config.poolMinPriorityFeePerGas,
+      builderBidBps: parameters.builderBidBps,
+      maxFeePerGasCap: parameters.config.maxFeePerGas,
+      minProfitWei: parameters.config.minProfitWei,
+    });
+    if (!repriced.profitable) return undefined;
+    if (sameFeeQuote(quote, repriced)) {
+      const expectedProfit =
+        finalGrossReward -
+        finalGasUsed * repriced.maxFeePerGas;
+      if (
+        expectedProfit <
+        requiredProfit(parameters.config.minProfitWei)
+      ) {
+        return undefined;
+      }
+      return {
+        signedPull,
+        gasUsed: finalGasUsed,
+        gasLimit,
+        grossReward: finalGrossReward,
+        maxFeePerGas: repriced.maxFeePerGas,
+        maxPriorityFeePerGas:
+          repriced.maxPriorityFeePerGas,
+        effectiveBuilderBidBps:
+          repriced.effectiveBuilderBidBps,
+        expectedProfit,
+      };
+    }
+    quote = repriced;
+    simulatedPullGas = finalGasUsed;
+    grossReward = finalGrossReward;
+  }
+  return undefined;
+}
+
 async function getReceiptOrUndefined(
   client: PublicClient<Transport, Chain>,
   hash: Hash,
@@ -182,153 +290,49 @@ async function getReceiptOrUndefined(
   return undefined;
 }
 
-async function exactPricedCrank(parameters: {
-  readonly relay: FlashbotsRelay;
-  readonly signer: PrivateKeyAccount;
-  readonly prerequisite: OrderFundingPrerequisite;
-  readonly targetBlock: bigint;
-  readonly nonce: number;
-  readonly crankFee: bigint;
-  readonly accountBalance: bigint;
-  readonly baseFeeAllowancePerGas: bigint;
-  readonly builderBidBps: bigint;
-  readonly config: KeeperConfig;
-}): Promise<ExactCrankSimulation | undefined> {
-  if (parameters.baseFeeAllowancePerGas <= 0n) {
-    return undefined;
-  }
-  const maximumAffordableGas =
-    parameters.accountBalance /
-    parameters.baseFeeAllowancePerGas;
-  const preliminaryGasLimit =
-    maximumAffordableGas <
-    BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT)
-      ? maximumAffordableGas
-      : BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT);
-  if (preliminaryGasLimit < 21_000n) {
-    return undefined;
-  }
-  const crankData = encodeFunctionData({
-    abi: standingOrderAbi,
-    functionName: "crank",
-  });
-  const preliminaryCrank =
-    await parameters.signer.signTransaction({
-      chainId: 1,
-      type: "eip1559",
-      to: parameters.prerequisite.target,
-      data: crankData,
-      gas: preliminaryGasLimit,
-      maxFeePerGas: parameters.baseFeeAllowancePerGas,
-      maxPriorityFeePerGas: 0n,
-      nonce: parameters.nonce,
-      value: 0n,
-    });
-  const preliminarySimulation =
-    await parameters.relay.callBundle(
-      pendingFundingBundleTransactions(
-        parameters.prerequisite.rawTransaction,
-        preliminaryCrank,
-      ),
-      parameters.targetBlock,
-    );
-  let simulatedCrankGas = pendingFundingCrankGasUsed({
-    simulation: preliminarySimulation,
-  });
-  let quote = quoteCompetitiveFees({
-    crankFee: parameters.crankFee,
-    simulatedGasUsed: simulatedCrankGas,
-    baseFeeAllowancePerGas:
-      parameters.baseFeeAllowancePerGas,
-    minimumPriorityFeePerGas:
-      parameters.config.minPriorityFeePerGas,
-    builderBidBps: parameters.builderBidBps,
-    maxFeePerGasCap: parameters.config.maxFeePerGas,
-    minProfitWei: parameters.config.minProfitWei,
-  });
-  if (!quote.profitable) return undefined;
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const gasLimit = bufferedGas(
-      simulatedCrankGas,
-      parameters.config.gasLimitMultiplierBps,
-    );
+function decodedPoolBounty(parameters: {
+  readonly pool: Address;
+  readonly caller: Address;
+  readonly roundId: bigint;
+  readonly logs: readonly {
+    readonly address: Address;
+    readonly data: Hex;
+    readonly topics: [] | [Hex, ...Hex[]];
+  }[];
+}): bigint | undefined {
+  for (const entry of parameters.logs) {
     if (
-      gasLimit > BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT) ||
-      gasLimit * quote.maxFeePerGas >
-        parameters.accountBalance
+      entry.address.toLowerCase() !==
+      parameters.pool.toLowerCase()
     ) {
-      return undefined;
+      continue;
     }
-    const signedCrank =
-      await parameters.signer.signTransaction({
-        chainId: 1,
-        type: "eip1559",
-        to: parameters.prerequisite.target,
-        data: crankData,
-        gas: gasLimit,
-        maxFeePerGas: quote.maxFeePerGas,
-        maxPriorityFeePerGas:
-          quote.maxPriorityFeePerGas,
-        nonce: parameters.nonce,
-        value: 0n,
+    try {
+      const decoded = decodeEventLog({
+        abi: poolAbi,
+        data: entry.data,
+        topics: entry.topics,
       });
-    const finalSimulation =
-      await parameters.relay.callBundle(
-        pendingFundingBundleTransactions(
-          parameters.prerequisite.rawTransaction,
-          signedCrank,
-        ),
-        parameters.targetBlock,
-      );
-    const finalGasUsed = pendingFundingCrankGasUsed({
-      simulation: finalSimulation,
-    });
-    const repriced = quoteCompetitiveFees({
-      crankFee: parameters.crankFee,
-      simulatedGasUsed: finalGasUsed,
-      baseFeeAllowancePerGas:
-        parameters.baseFeeAllowancePerGas,
-      minimumPriorityFeePerGas:
-        parameters.config.minPriorityFeePerGas,
-      builderBidBps: parameters.builderBidBps,
-      maxFeePerGasCap: parameters.config.maxFeePerGas,
-      minProfitWei: parameters.config.minProfitWei,
-    });
-    if (!repriced.profitable) return undefined;
-    if (sameFeeQuote(quote, repriced)) {
-      const expectedProfit =
-        parameters.crankFee -
-        finalGasUsed * repriced.maxFeePerGas;
       if (
-        expectedProfit <
-        requiredProfit(parameters.config.minProfitWei)
+        decoded.eventName === "CrankBountyPaid" &&
+        decoded.args.roundId === parameters.roundId &&
+        decoded.args.cranker.toLowerCase() ===
+          parameters.caller.toLowerCase()
       ) {
-        return undefined;
+        return decoded.args.amount;
       }
-      return {
-        signedCrank,
-        gasUsed: finalGasUsed,
-        gasLimit,
-        maxFeePerGas: repriced.maxFeePerGas,
-        maxPriorityFeePerGas:
-          repriced.maxPriorityFeePerGas,
-        effectiveBuilderBidBps:
-          repriced.effectiveBuilderBidBps,
-        expectedProfit,
-      };
+    } catch {
+      // The pool emits several unrelated lifecycle events.
     }
-    quote = repriced;
-    simulatedCrankGas = finalGasUsed;
   }
   return undefined;
 }
 
-export async function executePendingFundingBackrun(parameters: {
+export async function executePendingPoolPullBackrun(parameters: {
   readonly publicClient: PublicClient<Transport, Chain>;
   readonly pendingClient: PublicClient<Transport, Chain>;
   readonly signer: PrivateKeyAccount;
-  readonly prerequisite: OrderFundingPrerequisite;
+  readonly prerequisite: PoolTicketPrerequisite;
   readonly relays: readonly FlashbotsRelay[];
   readonly builders: readonly string[];
   readonly config: KeeperConfig;
@@ -340,24 +344,17 @@ export async function executePendingFundingBackrun(parameters: {
     targetBlock: bigint,
     timeoutMs: number,
   ) => Promise<boolean>;
-  readonly observePrivateBatch:
-    | ((outcome: PrivateBatchOutcome) => Promise<void>)
-    | undefined;
   readonly signal?: AbortSignal;
-}): Promise<PendingFundingBackrunResult> {
+}): Promise<PendingPoolPullBackrunResult> {
   if (parameters.config.dryRun) {
-    return {
-      status: "skipped",
-      reason: "dry_run",
-    };
+    return { status: "skipped", reason: "dry_run" };
   }
   if (abortRequested(parameters.signal)) {
-    return {
-      status: "skipped",
-      reason: "shutdown",
-    };
+    return { status: "skipped", reason: "shutdown" };
   }
-  const order = parameters.prerequisite.target;
+
+  const pool = parameters.prerequisite.target;
+  const roundId = parameters.prerequisite.roundId;
   const currentHead = await parameters.publicClient.getBlockNumber();
   const targetBlock = currentHead + 1n;
   const [latestNonce, pendingNonce] = await Promise.all([
@@ -377,17 +374,10 @@ export async function executePendingFundingBackrun(parameters: {
       targetBlock,
     };
   }
-  if (abortRequested(parameters.signal)) {
-    return {
-      status: "skipped",
-      reason: "shutdown",
-      targetBlock,
-    };
-  }
   const reservation = parameters.coordinator.tryReserve({
     targetBlock,
     nonce: latestNonce,
-    lane: "pending_funding_backrun",
+    lane: "pending_pool_pull_backrun",
   });
   if (reservation === undefined) {
     return {
@@ -406,48 +396,83 @@ export async function executePendingFundingBackrun(parameters: {
     ) {
       return {
         status: "skipped",
-        reason:
-          abortRequested(parameters.signal)
-            ? "shutdown"
-            : "prerequisite_replaced",
+        reason: abortRequested(parameters.signal)
+          ? "shutdown"
+          : "prerequisite_replaced",
         targetBlock,
       };
     }
-    const [feeQuote, crankFee, accountBalance] =
-      await Promise.all([
-        parameters.publicClient.estimateFeesPerGas({
-          type: "eip1559",
-        }),
-        parameters.publicClient.readContract({
-          address: order,
-          abi: standingOrderAbi,
-          functionName: "crankFee",
-          blockNumber: currentHead,
-        }),
-        parameters.publicClient.getBalance({
-          address: parameters.signer.address,
-          blockNumber: currentHead,
-        }),
-      ]);
+    const [
+      feeQuote,
+      latestBlock,
+      roundCount,
+      ethPendingRound,
+      round,
+      accountBalance,
+    ] = await Promise.all([
+      parameters.publicClient.estimateFeesPerGas({
+        type: "eip1559",
+      }),
+      parameters.publicClient.getBlock({
+        blockNumber: currentHead,
+      }),
+      parameters.publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "roundCount",
+        blockNumber: currentHead,
+      }),
+      parameters.publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "ethPendingRound",
+        blockNumber: currentHead,
+      }),
+      parameters.publicClient.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "getRound",
+        args: [roundId],
+        blockNumber: currentHead,
+      }),
+      parameters.publicClient.getBalance({
+        address: parameters.signer.address,
+        blockNumber: currentHead,
+      }),
+    ]);
+    if (
+      roundCount !== roundId ||
+      ethPendingRound !== 0n ||
+      round.state !== 1
+    ) {
+      return {
+        status: "skipped",
+        reason: "round_not_open",
+        targetBlock,
+      };
+    }
     const baseFeeAllowancePerGas =
       feeQuote.maxFeePerGas -
       feeQuote.maxPriorityFeePerGas;
-    const builderBidBps = parameters.builderBidBps;
-    const exact = await exactPricedCrank({
+    const exact = await exactPricedPoolPull({
       relay: parameters.relays[0]!,
       signer: parameters.signer,
       prerequisite: parameters.prerequisite,
       targetBlock,
       nonce: latestNonce,
-      crankFee,
       accountBalance,
       baseFeeAllowancePerGas,
-      builderBidBps,
+      bountyBaseFeePerGas: conservativeNextBaseFee(
+        latestBlock.baseFeePerGas ?? 0n,
+      ),
+      crankBountyCap: round.crankBountyCap,
+      bountyTipWei: round.bountyTipWei,
+      builderBidBps: parameters.builderBidBps,
       config: parameters.config,
     }).catch((error: unknown) => {
-      log("debug", "pending_funding_backrun_simulation_failed", {
+      log("debug", "pending_pool_pull_simulation_failed", {
         prerequisiteHash: parameters.prerequisite.hash,
-        order,
+        round: roundId.toString(),
         targetBlock: targetBlock.toString(),
         reason: errorMessage(error),
       });
@@ -467,14 +492,16 @@ export async function executePendingFundingBackrun(parameters: {
         targetBlock,
       };
     }
-    log("info", "pending_funding_backrun_opportunity", {
+    log("info", "pending_pool_pull_opportunity", {
       prerequisiteHash: parameters.prerequisite.hash,
-      order,
-      fundingValue: eth(parameters.prerequisite.value),
-      crankFee: eth(crankFee),
-      crankGasUsed: exact.gasUsed.toString(),
-      crankGasLimit: exact.gasLimit.toString(),
-      builderBidBps: builderBidBps.toString(),
+      round: roundId.toString(),
+      tickets: parameters.prerequisite.tickets,
+      purchaseValue: eth(parameters.prerequisite.value),
+      pullGasUsed: exact.gasUsed.toString(),
+      pullGasLimit: exact.gasLimit.toString(),
+      grossReward: eth(exact.grossReward),
+      builderBidBps:
+        parameters.builderBidBps.toString(),
       effectiveBuilderBidBps:
         exact.effectiveBuilderBidBps.toString(),
       maxFeePerGas: gwei(exact.maxFeePerGas),
@@ -491,28 +518,27 @@ export async function executePendingFundingBackrun(parameters: {
       submissionHead,
       finalLatestNonce,
       finalPendingNonce,
-    ] =
-      await Promise.all([
-        parameters.pendingClient
-          .getTransaction({
-            hash: parameters.prerequisite.hash,
-          })
-          .catch(() => undefined),
-        parameters.pendingClient
-          .getRawTransaction({
-            hash: parameters.prerequisite.hash,
-          })
-          .catch(() => undefined),
-        parameters.publicClient.getBlockNumber(),
-        parameters.publicClient.getTransactionCount({
-          address: parameters.signer.address,
-          blockTag: "latest",
-        }),
-        parameters.publicClient.getTransactionCount({
-          address: parameters.signer.address,
-          blockTag: "pending",
-        }),
-      ]);
+    ] = await Promise.all([
+      parameters.pendingClient
+        .getTransaction({
+          hash: parameters.prerequisite.hash,
+        })
+        .catch(() => undefined),
+      parameters.pendingClient
+        .getRawTransaction({
+          hash: parameters.prerequisite.hash,
+        })
+        .catch(() => undefined),
+      parameters.publicClient.getBlockNumber(),
+      parameters.publicClient.getTransactionCount({
+        address: parameters.signer.address,
+        blockTag: "latest",
+      }),
+      parameters.publicClient.getTransactionCount({
+        address: parameters.signer.address,
+        blockTag: "pending",
+      }),
+    ]);
     if (
       abortRequested(parameters.signal) ||
       currentPendingTransaction === undefined ||
@@ -547,29 +573,22 @@ export async function executePendingFundingBackrun(parameters: {
       parameters.relays,
       pendingFundingBundleTransactions(
         parameters.prerequisite.rawTransaction,
-        exact.signedCrank,
+        exact.signedPull,
       ),
       targetBlock,
       parameters.builders,
     );
     retainReservation = true;
-    const crankHash = keccak256(exact.signedCrank);
-    const relayIndexes = [
-      ...new Set(
-        submissions.map((submission) =>
-          parameters.relays.findIndex(
-            (relay) => relay.url === submission.relayUrl,
-          ),
-        ),
-      ),
-    ];
-    log("info", "pending_funding_backrun_submitted", {
+    const pullHash = keccak256(exact.signedPull);
+    log("info", "pending_pool_pull_submitted", {
       prerequisiteHash: parameters.prerequisite.hash,
-      hash: crankHash,
-      order,
+      hash: pullHash,
+      round: roundId.toString(),
       nonce: latestNonce,
       targetBlock: targetBlock.toString(),
-      relayCount: relayIndexes.length,
+      relayCount: new Set(
+        submissions.map((submission) => submission.relayUrl),
+      ).size,
       bundleCount: submissions.length,
       transactionCount: 2,
       prerequisiteCount: 1,
@@ -578,9 +597,9 @@ export async function executePendingFundingBackrun(parameters: {
         exact.effectiveBuilderBidBps.toString(),
     });
     log("info", "keeper_transaction_sent", {
-      kind: "standing_order",
-      label: `pending_funding_backrun:${order}`,
-      hash: crankHash,
+      kind: "pool_pull",
+      label: `pending_pool_pull_backrun:${roundId}`,
+      hash: pullHash,
       nonce: latestNonce,
       mode: "flashbots",
       targetBlock: targetBlock.toString(),
@@ -596,9 +615,9 @@ export async function executePendingFundingBackrun(parameters: {
     );
     if (!observed) {
       log("warn", "keeper_transaction_expired", {
-        kind: "standing_order",
-        label: `pending_funding_backrun:${order}`,
-        hash: crankHash,
+        kind: "pool_pull",
+        label: `pending_pool_pull_backrun:${roundId}`,
+        hash: pullHash,
         nonce: latestNonce,
         targetBlock: targetBlock.toString(),
         prerequisiteHash: parameters.prerequisite.hash,
@@ -608,106 +627,72 @@ export async function executePendingFundingBackrun(parameters: {
         status: "expired",
         reason: "target_block_unobserved",
         targetBlock,
-        crankHash,
+        pullHash,
       };
     }
 
-    const crankReceipt = await getReceiptOrUndefined(
+    const pullReceipt = await getReceiptOrUndefined(
       parameters.publicClient,
-      crankHash,
+      pullHash,
     );
-    if (crankReceipt !== undefined) {
+    if (pullReceipt !== undefined) {
       const includedAsPlanned =
         receiptSucceededInTarget({
-          status: crankReceipt.status,
-          blockNumber: crankReceipt.blockNumber,
+          status: pullReceipt.status,
+          blockNumber: pullReceipt.blockNumber,
           targetBlock,
         });
       const paidReward = includedAsPlanned
-        ? (decodedCrankedFee(
-            order,
-            parameters.signer.address,
-            crankReceipt.logs,
-          ) ?? 0n)
+        ? (decodedPoolBounty({
+            pool,
+            caller: parameters.signer.address,
+            roundId,
+            logs: pullReceipt.logs,
+          }) ?? 0n)
         : 0n;
       if (includedAsPlanned && paidReward === 0n) {
-        log("warn", "pending_funding_accounting_failed", {
+        log("warn", "pending_pool_pull_accounting_failed", {
           prerequisiteHash: parameters.prerequisite.hash,
-          hash: crankHash,
-          order,
-          reason: "Cranked fee event was missing",
-        });
-      }
-      if (crankReceipt.blockNumber !== targetBlock) {
-        log("warn", "pending_funding_accounting_failed", {
-          prerequisiteHash: parameters.prerequisite.hash,
-          hash: crankHash,
-          order,
-          reason: "crank receipt landed outside its target block",
-          expectedBlock: targetBlock.toString(),
-          actualBlock: crankReceipt.blockNumber.toString(),
+          hash: pullHash,
+          round: roundId.toString(),
+          reason: "CrankBountyPaid event was missing",
         });
       }
       const gasCost =
-        crankReceipt.gasUsed *
-        crankReceipt.effectiveGasPrice;
+        pullReceipt.gasUsed *
+        pullReceipt.effectiveGasPrice;
       const realizedProfit = paidReward - gasCost;
       log(
         includedAsPlanned ? "info" : "warn",
         "keeper_receipt",
         {
-          kind: "standing_order",
-          label: `pending_funding_backrun:${order}`,
-          hash: crankHash,
+          kind: "pool_pull",
+          label: `pending_pool_pull_backrun:${roundId}`,
+          hash: pullHash,
           nonce: latestNonce,
-          block: crankReceipt.blockNumber.toString(),
-          status: crankReceipt.status,
-          gasUsed: crankReceipt.gasUsed.toString(),
+          block: pullReceipt.blockNumber.toString(),
+          status: pullReceipt.status,
+          gasUsed: pullReceipt.gasUsed.toString(),
           paidReward: eth(paidReward),
           gasCost: eth(gasCost),
           realizedProfit: eth(realizedProfit),
           prerequisiteHash: parameters.prerequisite.hash,
           expectedBlock: targetBlock.toString(),
           targetBlockMatched:
-            crankReceipt.blockNumber === targetBlock,
+            pullReceipt.blockNumber === targetBlock,
         },
       );
-      if (
-        includedAsPlanned &&
-        parameters.observePrivateBatch !== undefined
-      ) {
-        try {
-          await parameters.observePrivateBatch({
-            targetBlock,
-            bidScope: "pending_funding_backrun",
-            attempts: [
-              {
-                order,
-                crankFee,
-                hash: crankHash,
-                included: true,
-                effectiveBidBps:
-                  exact.effectiveBuilderBidBps,
-              },
-            ],
-          });
-        } catch (error) {
-          log("warn", "adaptive_bid_observation_failed", {
-            targetBlock: targetBlock.toString(),
-            bidScope: "pending_funding_backrun",
-            reason: errorMessage(error),
-          });
-        }
-      }
       return {
-        status: includedAsPlanned ? "confirmed" : "expired",
+        status: includedAsPlanned
+          ? "confirmed"
+          : "expired",
         reason: includedAsPlanned
           ? "confirmed"
-          : crankReceipt.blockNumber !== targetBlock
-            ? "crank_wrong_block"
-            : "crank_reverted",
+          : pullReceipt.blockNumber !== targetBlock
+            ? "pull_wrong_block"
+            : "pull_reverted",
         targetBlock,
-        crankHash,
+        pullHash,
         realizedProfitWei: realizedProfit,
       };
     }
@@ -723,93 +708,55 @@ export async function executePendingFundingBackrun(parameters: {
         blockNumber: prerequisiteReceipt.blockNumber,
         targetBlock,
       });
-    let competitorCranked = false;
+    let competitorPulled = false;
     if (prerequisiteIncluded) {
-      const orderLogs = await parameters.publicClient.getLogs({
-        address: order,
-        event: standingOrderAbi.find(
-          (item) =>
-            item.type === "event" &&
-            item.name === "Cranked",
-        ) as Extract<
-          (typeof standingOrderAbi)[number],
-          { type: "event"; name: "Cranked" }
-        >,
+      const pulledEvent = poolAbi.find(
+        (item) =>
+          item.type === "event" &&
+          item.name === "Pulled",
+      ) as Extract<
+        (typeof poolAbi)[number],
+        { type: "event"; name: "Pulled" }
+      >;
+      const pulledLogs = await parameters.publicClient.getLogs({
+        address: pool,
+        event: pulledEvent,
+        args: { roundId },
         fromBlock: targetBlock,
         toBlock: targetBlock,
         strict: true,
       });
-      competitorCranked = orderLogs.some(
+      competitorPulled = pulledLogs.some(
         (entry) =>
           entry.transactionHash !== null &&
           entry.transactionHash.toLowerCase() !==
-            crankHash.toLowerCase(),
+            pullHash.toLowerCase(),
       );
     }
     log("warn", "keeper_transaction_expired", {
-      kind: "standing_order",
-      label: `pending_funding_backrun:${order}`,
-      hash: crankHash,
+      kind: "pool_pull",
+      label: `pending_pool_pull_backrun:${roundId}`,
+      hash: pullHash,
       nonce: latestNonce,
       targetBlock: targetBlock.toString(),
       prerequisiteHash: parameters.prerequisite.hash,
       prerequisiteIncluded,
-      competitorCranked,
-      reason: "private crank was not included",
+      competitorPulled,
+      reason: "private pull was not included",
     });
-    if (
-      shouldObservePendingFundingMiss({
-        prerequisiteIncluded,
-        competitorCranked,
-      }) &&
-      parameters.observePrivateBatch !== undefined
-    ) {
-      try {
-        await parameters.observePrivateBatch({
-          targetBlock,
-          bidScope: "pending_funding_backrun",
-          attempts: [
-            {
-              order,
-              crankFee,
-              hash: crankHash,
-              included: false,
-              effectiveBidBps:
-                exact.effectiveBuilderBidBps,
-            },
-          ],
-        });
-      } catch (error) {
-        log("warn", "adaptive_bid_observation_failed", {
-          targetBlock: targetBlock.toString(),
-          bidScope: "pending_funding_backrun",
-          reason: errorMessage(error),
-        });
-      }
-    }
     return {
       status: "expired",
       reason: !prerequisiteIncluded
         ? "prerequisite_not_included"
-        : competitorCranked
+        : competitorPulled
           ? "competitor_won"
-          : "crank_not_included",
+          : "pull_not_included",
       targetBlock,
-      crankHash,
+      pullHash,
     };
   } finally {
     if (!retainReservation) {
       parameters.coordinator.release(reservation);
     }
   }
-}
-
-export function formatPendingFundingBackrunResult(
-  result: PendingFundingBackrunResult,
-): string {
-  const profit =
-    result.realizedProfitWei === undefined
-      ? ""
-      : `, realized ${formatEther(result.realizedProfitWei)} ETH`;
-  return `${result.status}:${result.reason}${profit}`;
 }

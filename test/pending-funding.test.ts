@@ -1,4 +1,5 @@
 import {
+  encodeFunctionData,
   getAddress,
   keccak256,
   parseTransaction,
@@ -17,6 +18,7 @@ import {
   vi,
 } from "vitest";
 
+import { poolAbi } from "../src/abi.js";
 import {
   PendingFundingReplacementTracker,
   PendingFundingValidationError,
@@ -38,6 +40,9 @@ const canonicalTarget = getAddress(
 );
 const otherTarget = getAddress(
   "0x2000000000000000000000000000000000000002",
+);
+const poolTarget = getAddress(
+  "0x3000000000000000000000000000000000000003",
 );
 
 async function signFunding(
@@ -170,6 +175,62 @@ describe("validatePendingFundingPrerequisite", () => {
       });
     },
   );
+
+  it("accepts an exact signed pool ticket purchase prerequisite", async () => {
+    const data = encodeFunctionData({
+      abi: poolAbi,
+      functionName: "buyTickets",
+      args: [301n, 6, account.address],
+    });
+    const rawTransaction = await signFunding("eip1559", {
+      to: poolTarget,
+      value: 30_000_000_000_000_000n,
+      data,
+    });
+    const hash = keccak256(rawTransaction);
+
+    await expect(
+      validatePendingFundingPrerequisite({
+        rawTransaction,
+        expectedHash: hash,
+        rpcTransaction: rpcTransaction(rawTransaction),
+        canonicalTargets: [canonicalTarget, poolTarget],
+        poolTarget,
+      }),
+    ).resolves.toMatchObject({
+      action: "pool_ticket_purchase",
+      rawTransaction,
+      hash,
+      target: poolTarget,
+      value: 30_000_000_000_000_000n,
+      roundId: 301n,
+      tickets: 6,
+      recipient: account.address,
+    });
+  });
+
+  it("rejects another pool function as a prerequisite", async () => {
+    const data = encodeFunctionData({
+      abi: poolAbi,
+      functionName: "pull",
+      args: [301n],
+    });
+    const rawTransaction = await signFunding("eip1559", {
+      to: poolTarget,
+      data,
+    });
+
+    await expectValidationCode(
+      validatePendingFundingPrerequisite({
+        rawTransaction,
+        expectedHash: keccak256(rawTransaction),
+        rpcTransaction: rpcTransaction(rawTransaction),
+        canonicalTargets: [canonicalTarget, poolTarget],
+        poolTarget,
+      }),
+      "input_unsupported",
+    );
+  });
 
   it.each([null, undefined])(
     "rejects missing raw bytes",

@@ -61,6 +61,7 @@ import {
   retryTransientRead,
 } from "./heads.js";
 import { executePendingFundingBackrun } from "./pending-funding-backrun.js";
+import { executePendingPoolPullBackrun } from "./pending-pool-pull-backrun.js";
 import {
   PendingFundingReplacementTracker,
   PendingFundingValidationError,
@@ -1419,9 +1420,11 @@ async function main(): Promise<void> {
         ]);
         const canonicalTargets = [
           ...new Set(
-            [...orders, ...vaults].map((address) =>
-              getAddress(address),
-            ),
+            [
+              ...orders,
+              ...vaults,
+              config.expectedPoolAddress,
+            ].map((address) => getAddress(address)),
           ),
         ];
         const replacementTracker =
@@ -1448,54 +1451,116 @@ async function main(): Promise<void> {
             async (signal) => {
               try {
                 const result =
-                  await executePendingFundingBackrun({
-                    publicClient,
-                    pendingClient: discoveryClient,
-                    signer,
-                    prerequisite,
-                    relays,
-                    builders: config.flashbotsBuilders,
-                    config,
-                    builderBidBps:
-                      config.pendingFundingBuilderBidBps,
-                    coordinator: signerCoordinator,
-                    assertSignerLeaseHeld,
-                    isPrerequisiteCurrent: () =>
-                      replacementTracker.isCurrent({
-                        hash: prerequisite.hash,
-                        sender: prerequisite.sender,
-                        nonce: prerequisite.nonce,
-                      }),
-                    waitForTargetBlock: async (
-                      targetBlock,
-                      timeoutMs,
-                    ) => {
-                      const afterBlock = targetBlock - 1n;
-                      if (
-                        headSignal.latestAfter(afterBlock) !==
-                        undefined
-                      ) {
-                        return true;
-                      }
-                      return headSignal.waitForNewer(
-                        afterBlock,
-                        timeoutMs,
-                      );
-                    },
-                    observePrivateBatch,
-                    signal,
-                  });
+                  prerequisite.action ===
+                  "pool_ticket_purchase"
+                    ? await executePendingPoolPullBackrun({
+                        publicClient,
+                        pendingClient: discoveryClient,
+                        signer,
+                        prerequisite,
+                        relays,
+                        builders:
+                          config.flashbotsBuilders,
+                        config,
+                        builderBidBps:
+                          config.poolPullBuilderBidBps,
+                        coordinator: signerCoordinator,
+                        assertSignerLeaseHeld,
+                        isPrerequisiteCurrent: () =>
+                          replacementTracker.isCurrent({
+                            hash: prerequisite.hash,
+                            sender: prerequisite.sender,
+                            nonce: prerequisite.nonce,
+                          }),
+                        waitForTargetBlock: async (
+                          targetBlock,
+                          timeoutMs,
+                        ) => {
+                          const afterBlock =
+                            targetBlock - 1n;
+                          if (
+                            headSignal.latestAfter(
+                              afterBlock,
+                            ) !== undefined
+                          ) {
+                            return true;
+                          }
+                          return headSignal.waitForNewer(
+                            afterBlock,
+                            timeoutMs,
+                          );
+                        },
+                        signal,
+                      })
+                    : await executePendingFundingBackrun({
+                        publicClient,
+                        pendingClient: discoveryClient,
+                        signer,
+                        prerequisite,
+                        relays,
+                        builders:
+                          config.flashbotsBuilders,
+                        config,
+                        builderBidBps:
+                          config.pendingFundingBuilderBidBps,
+                        coordinator: signerCoordinator,
+                        assertSignerLeaseHeld,
+                        isPrerequisiteCurrent: () =>
+                          replacementTracker.isCurrent({
+                            hash: prerequisite.hash,
+                            sender: prerequisite.sender,
+                            nonce: prerequisite.nonce,
+                          }),
+                        waitForTargetBlock: async (
+                          targetBlock,
+                          timeoutMs,
+                        ) => {
+                          const afterBlock =
+                            targetBlock - 1n;
+                          if (
+                            headSignal.latestAfter(
+                              afterBlock,
+                            ) !== undefined
+                          ) {
+                            return true;
+                          }
+                          return headSignal.waitForNewer(
+                            afterBlock,
+                            timeoutMs,
+                          );
+                        },
+                        observePrivateBatch,
+                        signal,
+                      });
+                const transactionHash =
+                  "pullHash" in result
+                    ? result.pullHash
+                    : "crankHash" in result
+                      ? result.crankHash
+                      : undefined;
                 log(
                   "info",
-                  "pending_funding_backrun_complete",
+                  prerequisite.action ===
+                    "pool_ticket_purchase"
+                    ? "pending_pool_pull_backrun_complete"
+                    : "pending_funding_backrun_complete",
                   {
                     prerequisiteHash: prerequisite.hash,
-                    order: prerequisite.target,
+                    action: prerequisite.action,
+                    target: prerequisite.target,
+                    ...(prerequisite.action ===
+                    "pool_ticket_purchase"
+                      ? {
+                          round:
+                            prerequisite.roundId.toString(),
+                        }
+                      : {}),
                     status: result.status,
                     reason: result.reason,
                     targetBlock:
                       result.targetBlock?.toString() ?? "",
-                    crankHash: result.crankHash ?? "",
+                    transactionHash:
+                      transactionHash ?? "",
                     realizedProfit:
                       result.realizedProfitWei === undefined
                         ? ""
@@ -1505,10 +1570,14 @@ async function main(): Promise<void> {
               } catch (error) {
                 log(
                   "warn",
-                  "pending_funding_backrun_failed",
+                  prerequisite.action ===
+                    "pool_ticket_purchase"
+                    ? "pending_pool_pull_backrun_failed"
+                    : "pending_funding_backrun_failed",
                   {
                     prerequisiteHash: prerequisite.hash,
-                    order: prerequisite.target,
+                    action: prerequisite.action,
+                    target: prerequisite.target,
                     reason: errorMessage(error),
                   },
                 );
@@ -1631,16 +1700,28 @@ async function main(): Promise<void> {
                             input: transaction.input,
                           },
                           canonicalTargets,
+                          poolTarget:
+                            config.expectedPoolAddress,
                         });
                       log(
                         "info",
                         "pending_funding_candidate_validated",
                         {
                           hash: prerequisite.hash,
-                          order: prerequisite.target,
+                          action: prerequisite.action,
+                          target: prerequisite.target,
                           sender: prerequisite.sender,
                           nonce: prerequisite.nonce,
                           value: eth(prerequisite.value),
+                          ...(prerequisite.action ===
+                          "pool_ticket_purchase"
+                            ? {
+                                round:
+                                  prerequisite.roundId.toString(),
+                                tickets:
+                                  prerequisite.tickets,
+                              }
+                            : {}),
                           resolutionQueueWaitMs,
                           resolutionMs:
                             performance.now() -

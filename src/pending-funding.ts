@@ -1,4 +1,5 @@
 import {
+  decodeFunctionData,
   getAddress,
   isAddress,
   isAddressEqual,
@@ -12,6 +13,8 @@ import {
   type Hex,
   type TransactionSerialized,
 } from "viem";
+
+import { poolAbi } from "./abi.js";
 
 const ETHEREUM_CHAIN_ID = 1;
 const EMPTY_INPUT = "0x";
@@ -117,7 +120,10 @@ export type PendingFundingValidationErrorCode =
   | "target_not_canonical"
   | "value_not_positive"
   | "value_mismatch"
-  | "input_not_empty";
+  | "input_not_empty"
+  | "input_mismatch"
+  | "input_unsupported"
+  | "ticket_purchase_invalid";
 
 export class PendingFundingValidationError extends Error {
   readonly code: PendingFundingValidationErrorCode;
@@ -132,7 +138,7 @@ export class PendingFundingValidationError extends Error {
   }
 }
 
-export interface ValidatedPendingFundingPrerequisite {
+interface ValidatedPendingPrerequisiteBase {
   readonly rawTransaction: Hex;
   readonly hash: Hash;
   readonly sender: Address;
@@ -142,6 +148,17 @@ export interface ValidatedPendingFundingPrerequisite {
   readonly target: Address;
   readonly value: bigint;
 }
+
+export type ValidatedPendingFundingPrerequisite =
+  | (ValidatedPendingPrerequisiteBase & {
+      readonly action: "order_funding";
+    })
+  | (ValidatedPendingPrerequisiteBase & {
+      readonly action: "pool_ticket_purchase";
+      readonly roundId: bigint;
+      readonly tickets: number;
+      readonly recipient: Address;
+    });
 
 function validationFailure(
   code: PendingFundingValidationErrorCode,
@@ -187,6 +204,7 @@ export async function validatePendingFundingPrerequisite(parameters: {
   readonly expectedHash: Hash;
   readonly rpcTransaction: PendingFundingRpcTransaction;
   readonly canonicalTargets: Iterable<Address>;
+  readonly poolTarget?: Address;
 }): Promise<ValidatedPendingFundingPrerequisite> {
   const {
     rawTransaction,
@@ -380,17 +398,82 @@ export async function validatePendingFundingPrerequisite(parameters: {
   }
 
   const input = parsed.data ?? EMPTY_INPUT;
+  const isPoolTarget =
+    parameters.poolTarget !== undefined &&
+    isAddressEqual(target, parameters.poolTarget);
+  if (!isPoolTarget) {
+    if (
+      input !== EMPTY_INPUT ||
+      rpcTransaction.input !== EMPTY_INPUT
+    ) {
+      validationFailure(
+        "input_not_empty",
+        "Pending funding transaction input must be empty",
+      );
+    }
+    return {
+      action: "order_funding",
+      rawTransaction,
+      hash: computedHash,
+      sender,
+      nonce: parsed.nonce,
+      chainId: ETHEREUM_CHAIN_ID,
+      type: parsed.type,
+      target,
+      value,
+    };
+  }
+  if (input.toLowerCase() !== rpcTransaction.input.toLowerCase()) {
+    validationFailure(
+      "input_mismatch",
+      "Raw and RPC pending transaction inputs do not match",
+    );
+  }
+  let decoded: ReturnType<typeof decodeFunctionData>;
+  try {
+    decoded = decodeFunctionData({
+      abi: poolAbi,
+      data: input,
+    });
+  } catch {
+    validationFailure(
+      "input_unsupported",
+      "Pending pool transaction calldata is not recognized",
+    );
+  }
+  if (decoded.functionName !== "buyTickets") {
+    validationFailure(
+      "input_unsupported",
+      "Pending pool transaction is not a ticket purchase",
+    );
+  }
   if (
-    input !== EMPTY_INPUT ||
-    rpcTransaction.input !== EMPTY_INPUT
+    !Array.isArray(decoded.args) ||
+    decoded.args.length !== 3
   ) {
     validationFailure(
-      "input_not_empty",
-      "Pending funding transaction input must be empty",
+      "ticket_purchase_invalid",
+      "Pending pool ticket purchase arguments are incomplete",
+    );
+  }
+  const [roundId, tickets, recipient] = decoded.args;
+  if (
+    typeof roundId !== "bigint" ||
+    roundId <= 0n ||
+    typeof tickets !== "number" ||
+    !Number.isSafeInteger(tickets) ||
+    tickets <= 0 ||
+    typeof recipient !== "string" ||
+    !isAddress(recipient, { strict: false })
+  ) {
+    validationFailure(
+      "ticket_purchase_invalid",
+      "Pending pool ticket purchase arguments are invalid",
     );
   }
 
   return {
+    action: "pool_ticket_purchase",
     rawTransaction,
     hash: computedHash,
     sender,
@@ -399,6 +482,9 @@ export async function validatePendingFundingPrerequisite(parameters: {
     type: parsed.type,
     target,
     value,
+    roundId,
+    tickets,
+    recipient: getAddress(recipient),
   };
 }
 

@@ -44,6 +44,8 @@ const FAILURE_EVENTS = new Set([
   "nonce_batch_blocked",
   "pending_funding_accounting_failed",
   "pending_funding_backrun_failed",
+  "pending_pool_pull_accounting_failed",
+  "pending_pool_pull_backrun_failed",
   "signer_lease_disabled",
   "signer_lease_waiting",
   "stakedao_curve_scan_failed",
