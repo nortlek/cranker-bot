@@ -121,6 +121,21 @@ and has no polling or unfiltered alternative. Exact raw transactions are
 fetched through `DISCOVERY_RPC_URL`; never log either the raw bytes or either
 endpoint.
 
+Pending delivery telemetry distinguishes provider visibility from local
+resolution latency:
+
+- `pending_funding_subscription_ready` identifies each connection generation
+  and its target count.
+- `pending_funding_hash_observed` records immediate hash delivery and queue
+  depth.
+- `pending_funding_candidate_validated` records a still-pending exact
+  prerequisite.
+- `pending_funding_candidate_late` records a candidate that resolved only
+  after mining, including block, raw availability, and bounded timing.
+- resolution failures use a fixed reason plus a secret-free nested error
+  fingerprint. They never persist raw provider messages, RPC URLs, bodies, or
+  transaction bytes.
+
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
 deploy the exact local committed source with the Railway CLI.
@@ -429,6 +444,12 @@ These constraints prevent expensive or unsafe regressions:
 - The ready chain requires at least the processor plus sync prefix. Economic
   accounting may require the full processor/sync/settle prefix when earlier
   calls are not independently profitable.
+- The ready processor uses `FWA_PROCESS_GAS_LIMIT` only as a protocol signing
+  envelope. Do not charge that ceiling as consumed gas or add duplicate local
+  processor simulation/estimation to the hot path. Mandatory private prefix
+  simulation must prove processor compatibility with sync, return actual gas
+  for pricing, and the competitively priced signed bundle must simulate again
+  before submission.
 - A fulfilled acquisition is normally `syncFwaResult(round) -> settle(round)`.
 - Standing-order cranks and a pool `pull` may form a cross-subsidized sequence.
   If so, the minimum viable prefix must include every call needed for the

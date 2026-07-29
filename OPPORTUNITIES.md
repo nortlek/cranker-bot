@@ -404,10 +404,10 @@ none when no exact prefix is profitable.
 
 ### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 
-Status: gas cutoff deployed to production on 2026-07-29 in Railway deployment
-`907570f9-3c4c-4faf-9b50-7ace142d8fd8` from commit
-`f18cc0eb72b180275e78acb3f013d7f6c740e378`; the wider queue discovery is live
-in deployment `85c8f552-c7f3-484c-a995-aeb5086811ef`.
+Status: the gas cutoff, wider queue discovery, and exact-simulation deferral
+are deployed. The latest implementation is Railway deployment
+`f1ad0ac0-e03f-4e8d-8604-61baf558d8cd` from exact source
+`30ead99725372c194cdefb3ce6702f3f7d761326`.
 
 The ready-cycle planner previously rejected a directly estimated
 `processAcquisitions` call when its buffered gas exceeded `3,000,000`, before
@@ -421,10 +421,9 @@ The fixed 3M value was not an economic bound: a transaction gas limit is not
 the amount charged, and every ready dependency-safe prefix is exact-simulated
 and repriced from actual simulated gas plus its builder payment before private
 submission. The default processor ceiling is therefore Ethereum's
-`16,777,216` per-transaction protocol cap. The existing 20% estimate buffer,
-signer-balance gate, exact signed-prefix simulation, aggregate profit gate, and
-private one-block expiry remain unchanged. Estimates above the protocol cap
-still fail closed.
+`16,777,216` per-transaction protocol cap. The signer-balance gate, exact
+signed-prefix simulation, aggregate profit gate, and private one-block expiry
+remain unchanged. No signed processor can exceed the protocol cap.
 
 The same planner searched only the first five queued request IDs. A 20,000
 block event reconstruction matched 285 PullPool requests to their
@@ -437,6 +436,34 @@ eligible block processed the full required prefix, with buffered gas from
 window is now 50. That is only a read/simulation bound: the required count,
 complete return value, protocol gas cap, signed-prefix simulation, signer
 balance, and aggregate profitability still fail closed before submission.
+
+Rounds 299 and 300 exposed a second consequence of treating the processor gas
+ceiling as an estimate. Local `simulateContract` plus `estimateContractGas`
+took `8.204` to `10.787` seconds on the public processor; one profitable
+round-299 plan was stale before it reached submission. The same static
+admission step then charged the complete `16,777,216` signing envelope as if
+it were consumed gas and repeatedly labeled ready round 300
+`primary_bundle_unprofitable`.
+
+The ready planner now derives the exact required queue prefix from pinned
+state, signs the processor with the maximum fundable protocol envelope, and
+defers processor correctness and gas economics to mandatory private bundle
+simulation. A processor result that cannot support `syncFwaResult` makes the
+required two-call prefix revert and fail closed. The successful simulation's
+actual per-transaction gas then drives reward-weighted prefix selection,
+builder payment, and the profit floor; the competitively priced signed bundle
+is exact-simulated again before submission. This removes the duplicate
+high-latency local calls without weakening simulation, atomicity, balance,
+nonce, or private-expiry safeguards.
+
+The retiring deployment won round 300 immediately before releasing its signer
+lease: `processAcquisitions(7) -> syncFwaResult(300) -> settle(300)` landed in
+block `25641096`, used `4,481,332` gas in aggregate, paid
+`0.000636126538314232 ETH` in gas, and realized
+`0.000541654019964083 ETH` net from `0.001177780558278315 ETH` gross. This
+validates that the large processor is economically viable, but it occurred on
+the prior source. The next ready lifecycle is the first direct production
+exercise of the new exact-deferred admission path.
 
 ### P0 — Replace polling and synchronous full scans on the hot path
 
@@ -652,6 +679,23 @@ uses `batchTargetBlock` as a fallback, treats aggregate batch submission,
 result, and adaptive-outcome events as queue-critical, and backfills existing
 valid numeric batch targets.
 
+The pending-funding subscription previously had an unobservable loss mode. At
+block `25640951`, owner funding transaction
+`0x1b5d5cce24d898f07f7255f9dee0064079eade0a742c8497c9a79eb7347216b0`
+was immediately followed by a competitor crank that retained about
+`0.000256649238296217 ETH` after gas and direct builder payment, but the
+durable stream contained no pending-candidate event. A hash that resolved only
+after mining was silently discarded, so provider non-delivery and late local
+resolution could not be distinguished.
+
+Deployment `f1ad0ac0-e03f-4e8d-8604-61baf558d8cd` now emits subscription
+generation readiness, immediate hash observation with queue depth, validated
+pending candidates, mined-late candidates with raw-availability and resolution
+timing, duplicates, and sanitized resolution failures. Raw transactions,
+endpoint URLs, RPC bodies, and provider messages are excluded. The first
+replacement connection emitted `pending_funding_subscription_ready` for all
+67 canonical targets.
+
 Next add `plan_id`, `job_id`, `variant_id`, and `relay_submission_id`; endpoint
 aliases and per-RPC-method instrumentation; and raw wei/gas in typed
 `numeric(78,0)` columns. Add `keeper_passes`,
@@ -761,12 +805,17 @@ exact-simulated, versioned V2 adapter is validated.
 
 ### P0 — Reduce acquisition lifecycle latency
 
-Status: deployed in `7175815`; continue measuring.
+Status: lifecycle-first routing is deployed. Processor correctness and gas
+economics are now deferred to mandatory exact private bundle simulation in
+Railway deployment `f1ad0ac0-e03f-4e8d-8604-61baf558d8cd`; measure the next
+ready lifecycle.
 
 The ready acquisition path has a short competitive window. `planJobs` should
 read the acquisition lifecycle first and return a profitable lifecycle plan
 before waiting for order registries, Liquity, Convex, buyback, and sweep scans.
-The processor simulation and gas estimate can run concurrently.
+The previous processor simulation and gas estimate did run concurrently, but
+live calls still consumed most of a block on large queues. They are no longer
+duplicated before relay simulation.
 
 Acceptance:
 
