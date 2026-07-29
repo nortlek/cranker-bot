@@ -746,6 +746,16 @@ export function orderAlreadyBought(
   return lastRoundBought >= roundId;
 }
 
+export function planningHeadIsStale(
+  plannedBlock: bigint,
+  observedBlock: bigint,
+): boolean {
+  if (plannedBlock < 0n || observedBlock < 0n) {
+    throw new Error("block numbers cannot be negative");
+  }
+  return observedBlock > plannedBlock;
+}
+
 function orderJob(order: EligibleOrder): KeeperJob {
   return {
     kind: "standing_order",
@@ -3525,7 +3535,12 @@ export async function runKeeperPass(
     throw new Error("live mode requires a configured transaction sender");
   }
   const submissionHead = await context.publicClient.getBlockNumber();
-  if (submissionHead !== context.headBlockNumber) {
+  if (
+    planningHeadIsStale(
+      context.headBlockNumber,
+      submissionHead,
+    )
+  ) {
     log("info", "keeper_plan_stale", {
       plannedBlock: context.headBlockNumber.toString(),
       currentBlock: submissionHead.toString(),
@@ -3547,13 +3562,16 @@ export async function runKeeperPass(
   const [latestNonce, pendingNonce, accountBalance] = await Promise.all([
     context.publicClient.getTransactionCount({
       address: accountAddress,
-      blockTag: "latest",
+      blockNumber: context.headBlockNumber,
     }),
     context.publicClient.getTransactionCount({
       address: accountAddress,
       blockTag: "pending",
     }),
-    context.publicClient.getBalance({ address: accountAddress }),
+    context.publicClient.getBalance({
+      address: accountAddress,
+      blockNumber: context.headBlockNumber,
+    }),
   ]);
   log("info", "keeper_pass_stage_timing", {
     stage: "account_gate",

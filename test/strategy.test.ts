@@ -4,6 +4,7 @@ import {
   highestPositiveClaimableIndexes,
   orderAlreadyBought,
   orderHasMinimumBalance,
+  planningHeadIsStale,
 } from "../src/strategy.js";
 
 describe("highestPositiveClaimableIndexes", () => {
@@ -54,6 +55,23 @@ describe("orderAlreadyBought", () => {
   it("rejects invalid negative round identifiers", () => {
     expect(() => orderAlreadyBought(-1n, 1n)).toThrow(
       "cannot be negative",
+    );
+  });
+});
+
+describe("planningHeadIsStale", () => {
+  it("accepts a lagging HTTP head after exact-block planning", () => {
+    expect(planningHeadIsStale(100n, 99n)).toBe(false);
+  });
+
+  it("accepts the planned head and rejects a newer head", () => {
+    expect(planningHeadIsStale(100n, 100n)).toBe(false);
+    expect(planningHeadIsStale(100n, 101n)).toBe(true);
+  });
+
+  it("rejects invalid negative block numbers", () => {
+    expect(() => planningHeadIsStale(-1n, 0n)).toThrow(
+      "block numbers cannot be negative",
     );
   });
 });
