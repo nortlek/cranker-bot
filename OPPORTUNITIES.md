@@ -189,7 +189,8 @@ removed.
 
 ### P0 — Repair lifecycle funding enrichment and pool-pull bidding
 
-Status: implemented and validated; deploy and measure.
+Status: enrichment and pull bidding are live; dependency-safe preliminary
+prefix admission is validated locally and pending deployment.
 
 Across 58 live lifecycle plans, 36 successfully appended a next-round
 `pool_pull`, but none submitted that suffix. Every pull used the static
@@ -205,6 +206,20 @@ using a direct block-beneficiary transfer. The pool-pull lane is therefore
 bounded at `2,000 bps`. Repricing all 48 historical quotes at that level left a
 minimum expected profit of `0.00069927 ETH` and a median of
 `0.00095048 ETH`. Ready and fulfilled lifecycle bids remain unchanged.
+
+The enrichment path also exposed a prefix-admission bug. The planner could
+append an optional next-round suffix to a profitable lifecycle base, then the
+preliminary whole-plan economics check rejected every job when that suffix
+made the full estimate negative. The exact prefix selector that was designed
+to drop the suffix was therefore never reached. At historical head block
+`25639351`, the round-263 replay produced
+`processAcquisitions(8) -> sync -> settle -> pull`; the three-call base
+retained an estimated `0.000171186211710636 ETH`, while the optional pull made
+the full estimate `-0.000215057674289364 ETH`. Preliminary admission now
+requires any dependency-safe prefix—not the optional full suffix—to clear the
+same conservative gas and profit floor. Private submission still
+exact-simulates and reward-weighted-reprices every safe prefix, and submits
+none when no exact prefix is profitable.
 
 ### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 

@@ -14,6 +14,18 @@ export interface ProfitDecision {
   readonly requiredProfit: bigint;
 }
 
+export interface EstimatedPrefixComponent {
+  readonly rewardWei: bigint;
+  readonly maxGasCostWei: bigint;
+}
+
+export interface EstimatedPrefixSelection {
+  readonly length: number;
+  readonly grossRewardWei: bigint;
+  readonly maxGasCostWei: bigint;
+  readonly expectedProfitWei: bigint;
+}
+
 const BPS = 10_000n;
 const MINIMUM_POSITIVE_PROFIT = 1n;
 
@@ -50,4 +62,59 @@ export function assessProfit(inputs: ProfitInputs): ProfitDecision {
     maxProfit,
     requiredProfit: profitFloor,
   };
+}
+
+/**
+ * Selects the dependency-safe prefix with the greatest conservative estimated
+ * profit. This is only a preliminary admission gate; private submission still
+ * exact-simulates and reprices every safe prefix.
+ */
+export function selectMostProfitableEstimatedPrefix(parameters: {
+  readonly components: readonly EstimatedPrefixComponent[];
+  readonly minimumViablePrefix: number;
+  readonly minProfitWei: bigint;
+}): EstimatedPrefixSelection | undefined {
+  if (
+    parameters.minimumViablePrefix < 1 ||
+    parameters.minimumViablePrefix > parameters.components.length
+  ) {
+    return undefined;
+  }
+  const profitFloor = requiredProfit(parameters.minProfitWei);
+  let grossRewardWei = 0n;
+  let maxGasCostWei = 0n;
+  let best: EstimatedPrefixSelection | undefined;
+
+  for (
+    let index = 0;
+    index < parameters.components.length;
+    index += 1
+  ) {
+    const component = parameters.components[index]!;
+    if (component.rewardWei < 0n) {
+      throw new Error("prefix reward cannot be negative");
+    }
+    if (component.maxGasCostWei < 0n) {
+      throw new Error("prefix gas cost cannot be negative");
+    }
+    grossRewardWei += component.rewardWei;
+    maxGasCostWei += component.maxGasCostWei;
+
+    const length = index + 1;
+    if (length < parameters.minimumViablePrefix) continue;
+    const expectedProfitWei = grossRewardWei - maxGasCostWei;
+    if (expectedProfitWei < profitFloor) continue;
+    if (
+      best === undefined ||
+      expectedProfitWei > best.expectedProfitWei
+    ) {
+      best = {
+        length,
+        grossRewardWei,
+        maxGasCostWei,
+        expectedProfitWei,
+      };
+    }
+  }
+  return best;
 }

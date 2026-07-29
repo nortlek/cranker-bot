@@ -60,6 +60,7 @@ import {
   assessProfit,
   bufferedGas,
   requiredProfit,
+  selectMostProfitableEstimatedPrefix,
 } from "./economics.js";
 import {
   accountFirmReceipt,
@@ -3494,42 +3495,54 @@ export async function runKeeperPass(
   const baseFeePerGas = maxFeePerGas - maxPriorityFeePerGas;
   const bountyBaseFeePerGas =
     latestBlock.baseFeePerGas ?? baseFeePerGas;
-  const estimatedGrossReward = plan.jobs.reduce(
-    (total, job) =>
-      total +
-      estimatedJobReward({
-        job,
-        gasUsed: job.gas,
-        baseFeePerGas: bountyBaseFeePerGas,
-        poolBountyEstimateBps:
-          context.config.poolBountyEstimateBps,
-      }),
+  const estimatedComponents = plan.jobs.map((job) => {
+    const rewardWei = estimatedJobReward({
+      job,
+      gasUsed: job.gas,
+      baseFeePerGas: bountyBaseFeePerGas,
+      poolBountyEstimateBps:
+        context.config.poolBountyEstimateBps,
+    });
+    const planningMaxFeePerGas =
+      context.config.submissionMode === "flashbots" &&
+      (job.kind === "convex_earmark" ||
+        job.kind === "convex_kick" ||
+        job.kind === "stakedao_curve_harvest" ||
+        job.kind === "firm_replenish")
+        ? feeQuote.maxFeePerGas
+        : maxFeePerGas;
+    return {
+      rewardWei,
+      maxGasCostWei: job.gas * planningMaxFeePerGas,
+    };
+  });
+  const estimatedGrossReward = estimatedComponents.reduce(
+    (total, component) => total + component.rewardWei,
     0n,
   );
-  const estimatedMaxGasCost = plan.jobs.reduce(
-    (total, job) =>
-      total +
-      job.gas *
-        (context.config.submissionMode === "flashbots" &&
-        (job.kind === "convex_earmark" ||
-          job.kind === "convex_kick" ||
-          job.kind === "stakedao_curve_harvest" ||
-          job.kind === "firm_replenish")
-          ? feeQuote.maxFeePerGas
-          : maxFeePerGas),
+  const estimatedMaxGasCost = estimatedComponents.reduce(
+    (total, component) => total + component.maxGasCostWei,
     0n,
   );
-  const estimatedProfit =
+  const fullEstimatedProfit =
     estimatedGrossReward - estimatedMaxGasCost;
-  const planProfitable =
-    plan.jobs.length > 0 &&
-    estimatedProfit >= requiredProfit(context.config.minProfitWei);
+  const estimatedPrefix = selectMostProfitableEstimatedPrefix({
+    components: estimatedComponents,
+    minimumViablePrefix: plan.minimumViablePrefix,
+    minProfitWei: context.config.minProfitWei,
+  });
+  const planProfitable = estimatedPrefix !== undefined;
   if (plan.jobs.length > 0) {
     log(planProfitable ? "info" : "warn", "keeper_plan_economics", {
       jobs: plan.jobs.length,
+      selectedEstimatedJobs: estimatedPrefix?.length ?? 0,
       estimatedGrossReward: eth(estimatedGrossReward),
       estimatedMaxGasCost: eth(estimatedMaxGasCost),
-      estimatedProfit: eth(estimatedProfit),
+      estimatedProfit: eth(
+        estimatedPrefix?.expectedProfitWei ??
+          fullEstimatedProfit,
+      ),
+      fullEstimatedProfit: eth(fullEstimatedProfit),
       requiredProfit: eth(requiredProfit(context.config.minProfitWei)),
       accepted: planProfitable,
     });

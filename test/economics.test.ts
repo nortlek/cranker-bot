@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { assessProfit, bufferedGas } from "../src/economics.js";
+import {
+  assessProfit,
+  bufferedGas,
+  selectMostProfitableEstimatedPrefix,
+} from "../src/economics.js";
 import { rankByFee } from "../src/keeper.js";
 import { buildNoncePlan } from "../src/nonces.js";
 
@@ -70,6 +74,53 @@ describe("assessProfit", () => {
     expect(decision.maxProfit).toBe(0n);
     expect(decision.requiredProfit).toBe(1n);
     expect(decision.profitable).toBe(false);
+  });
+});
+
+describe("selectMostProfitableEstimatedPrefix", () => {
+  it("preserves a profitable base when an optional suffix is unprofitable", () => {
+    expect(
+      selectMostProfitableEstimatedPrefix({
+        components: [
+          { rewardWei: 300n, maxGasCostWei: 100n },
+          { rewardWei: 200n, maxGasCostWei: 100n },
+          { rewardWei: 0n, maxGasCostWei: 400n },
+        ],
+        minimumViablePrefix: 2,
+        minProfitWei: 0n,
+      }),
+    ).toEqual({
+      length: 2,
+      grossRewardWei: 500n,
+      maxGasCostWei: 200n,
+      expectedProfitWei: 300n,
+    });
+  });
+
+  it("rejects every prefix below the dependency floor", () => {
+    expect(
+      selectMostProfitableEstimatedPrefix({
+        components: [
+          { rewardWei: 300n, maxGasCostWei: 100n },
+          { rewardWei: 0n, maxGasCostWei: 300n },
+        ],
+        minimumViablePrefix: 2,
+        minProfitWei: 0n,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("keeps the shorter prefix when retained profit ties", () => {
+    expect(
+      selectMostProfitableEstimatedPrefix({
+        components: [
+          { rewardWei: 300n, maxGasCostWei: 100n },
+          { rewardWei: 100n, maxGasCostWei: 100n },
+        ],
+        minimumViablePrefix: 1,
+        minProfitWei: 0n,
+      })?.length,
+    ).toBe(1);
   });
 });
 
