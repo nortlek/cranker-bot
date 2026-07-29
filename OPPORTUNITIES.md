@@ -282,6 +282,14 @@ every relay-prefix result by numeric alias, full relay wait, and total pass
 duration. Relay errors are categorized without logging credential-bearing
 URLs.
 
+Bundled receipt and expiration events use `batchTargetBlock`, while the
+PostgreSQL sink originally indexed only `targetBlock`. Consequently, every
+recent bundled expiration had a null indexed target block and could not be
+grouped efficiently with its submission or competitor result. The sink now
+uses `batchTargetBlock` as a fallback, treats aggregate batch submission,
+result, and adaptive-outcome events as queue-critical, and backfills existing
+valid numeric batch targets.
+
 Next add `plan_id`, `job_id`, `variant_id`, and `relay_submission_id`; endpoint
 aliases and per-RPC-method instrumentation; and raw wei/gas in typed
 `numeric(78,0)` columns. Add `keeper_passes`,

@@ -76,6 +76,29 @@ describe("BatchedEventSink", () => {
     await sink.close();
   });
 
+  it("indexes a bundled event by its batch target block", async () => {
+    const writer = new RecordingWriter();
+    const sink = new BatchedEventSink({
+      writer,
+      batchSize: 10,
+      flushIntervalMs: 60_000,
+      maximumQueueSize: 100,
+    });
+
+    sink.notify(
+      entry("keeper_transaction_expired", {
+        batchTargetBlock: "25635556",
+        hash:
+          "0x2222222222222222222222222222222222222222222222222222222222222222",
+        kind: "standing_order",
+      }),
+    );
+    await sink.flush();
+
+    expect(writer.events[0]?.targetBlock).toBe("25635556");
+    await sink.close();
+  });
+
   it("retains a failed batch and succeeds on a later flush", async () => {
     const writer = new RecordingWriter();
     writer.failures = 1;

@@ -55,6 +55,7 @@ export interface BatchedEventSinkOptions {
 }
 
 const IMPORTANT_EVENTS = new Set([
+  "adaptive_bid_batch_complete",
   "adaptive_builder_bid_updated",
   "bundle_stage_timing",
   "competitor_bid_observed",
@@ -66,6 +67,8 @@ const IMPORTANT_EVENTS = new Set([
   "keeper_pass_stage_timing",
   "keeper_pass_timing",
   "keeper_plan_stale",
+  "keeper_batch_result",
+  "keeper_batch_submitted",
   "keeper_transaction_expired",
   "keeper_transaction_sent",
   "relay_submission_result",
@@ -287,7 +290,9 @@ export class BatchedEventSink {
       runId: this.#runId,
       entry,
       blockNumber: optionalIntegerString(entry.block),
-      targetBlock: optionalIntegerString(entry.targetBlock),
+      targetBlock:
+        optionalIntegerString(entry.targetBlock) ??
+        optionalIntegerString(entry.batchTargetBlock),
       transactionHash:
         optionalString(entry.hash) ??
         optionalString(entry.transactionHash),
