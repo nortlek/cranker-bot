@@ -6,6 +6,7 @@ import {
   encodeFunctionData,
   formatUnits,
   getAddress,
+  InvalidInputRpcError,
   InvalidParamsRpcError,
   RpcRequestError,
   type Account,
@@ -515,14 +516,16 @@ export function isFreshBlockStateUnavailable(
   error: unknown,
 ): boolean {
   if (!(error instanceof BaseError)) return false;
-  const invalidParams = error.walk(
+  const providerError = error.walk(
     (candidate) =>
       candidate instanceof InvalidParamsRpcError ||
+      candidate instanceof InvalidInputRpcError ||
       (candidate instanceof RpcRequestError &&
-        candidate.code === InvalidParamsRpcError.code),
+        (candidate.code === InvalidParamsRpcError.code ||
+          candidate.code === InvalidInputRpcError.code)),
   );
-  if (!(invalidParams instanceof BaseError)) return false;
-  const details = invalidParams.details ?? "";
+  if (!(providerError instanceof BaseError)) return false;
+  const details = providerError.details ?? "";
   return (
     /^Missing or invalid parameters\.?$/i.test(details) ||
     /^Invalid parameters were provided to the RPC method\.?$/i.test(

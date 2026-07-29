@@ -108,11 +108,13 @@ subscription liveness after
 `HEAD_STALE_TIMEOUT_MS`; if the chain advanced without a subscribed head, the
 worker exits for a supervised restart instead of silently degrading to a
 second head path. Exact fixed-block state reads tolerate up to one second of
-publication skew by retrying only classified `BlockNotFound` and the two
-observed provider `-32602` fresh-state messages; all other errors remain
-immediate failures. The same WebSocket signal wakes private target-block
-receipt finalization, after which HTTP must serve that exact target block
-before receipts are classified. Never print either endpoint.
+publication skew by retrying only classified `BlockNotFound`, the observed
+provider `-32602` fresh-state messages, and viem's typed
+`InvalidInputRpcError[-32000]` when its detail is exactly one of those same
+messages; all other errors remain immediate failures. The same WebSocket
+signal wakes private target-block receipt finalization, after which HTTP must
+serve that exact target block before receipts are classified. Never print
+either endpoint.
 
 When `ENABLE_PENDING_FUNDING_BACKRUNS=true`, the worker opens a second,
 hash-only Alchemy filtered subscription on the same `WS_URL` for current
@@ -478,10 +480,12 @@ These constraints prevent expensive or unsafe regressions:
   authoritative HTTP RPC; never substitute a later `"latest"` response.
   Discard the plan if the head changes before nonce gating, and never submit
   after its target block arrives. Exact-block planning and post-block
-  competitor-state reads may retry only classified `BlockNotFound` or the
-  observed nested RPC `-32602` detail
+  competitor-state reads may retry only classified `BlockNotFound`, the
+  observed nested RPC `-32602` detail, or typed
+  `InvalidInputRpcError[-32000]` with the exact detail
   `Missing or invalid parameters.` against the same block and provider during
-  their bounded publication-skew windows.
+  their bounded publication-skew windows. Do not classify other `-32000`
+  errors or messages as publication lag.
 - The exact signed bundle and every economically safe prefix are simulated
   before submission.
 - Private one-block bundles are the default. A missed bundle expires and must

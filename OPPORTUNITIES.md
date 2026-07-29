@@ -572,6 +572,17 @@ The change is live in Railway deployment
 advisory signer lease and won round 297's complete ready chain on its first
 pass; no failure event was required to validate the normal path.
 
+The correlated fingerprint subsequently captured the same transient provider
+detail at blocks `25641062` and `25641094`, but viem classified those responses
+as `InvalidInputRpcError[-32000]` rather than
+`InvalidParamsRpcError[-32602]`. The identical block path recovered on a later
+pass, and the block-94 failure preceded a successful round-300 lifecycle
+submission at block 95. Exact fixed-block reads now include only that typed
+`-32000` class when its detail exactly matches the already observed
+publication-lag messages. Other `-32000` classes and messages remain immediate
+failures; retries remain pinned to the same provider and block for at most ten
+100 ms waits.
+
 The subscribed-head investigation then found that the worker already received
 the block number, hash, timestamp, and base fee in each `newHeads` notification
 but discarded all except the number. It waited for

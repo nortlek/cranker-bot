@@ -1,5 +1,6 @@
 import {
   BlockNotFoundError,
+  InvalidInputRpcError,
   InvalidParamsRpcError,
   RpcRequestError,
 } from "viem";
@@ -61,6 +62,26 @@ describe("isFreshBlockStateUnavailable", () => {
     }
   });
 
+  it("recognizes the provider's exact -32000 publication-lag signature", () => {
+    const requestError = new RpcRequestError({
+      body: {
+        method: "eth_call",
+        params: [],
+      },
+      error: {
+        code: InvalidInputRpcError.code,
+        message: "Missing or invalid parameters.",
+      },
+      url: "https://example.invalid",
+    });
+
+    expect(
+      isFreshBlockStateUnavailable(
+        new InvalidInputRpcError(requestError),
+      ),
+    ).toBe(true);
+  });
+
   it("does not classify unrelated invalid parameters as state lag", () => {
     const requestError = new RpcRequestError({
       body: {
@@ -82,6 +103,23 @@ describe("isFreshBlockStateUnavailable", () => {
     expect(
       isFreshBlockStateUnavailable(
         new Error("Missing or invalid parameters."),
+      ),
+    ).toBe(false);
+
+    const unrelatedInputError = new RpcRequestError({
+      body: {
+        method: "eth_call",
+        params: [],
+      },
+      error: {
+        code: InvalidInputRpcError.code,
+        message: "execution aborted",
+      },
+      url: "https://example.invalid",
+    });
+    expect(
+      isFreshBlockStateUnavailable(
+        new InvalidInputRpcError(unrelatedInputError),
       ),
     ).toBe(false);
   });
