@@ -15,6 +15,22 @@ export interface CompetitiveFeeQuote {
   readonly reason?: "fee_cap" | "profit_floor";
 }
 
+export interface CompetitivePrefixComponent {
+  readonly rewardWei: bigint;
+  readonly gasUsed: bigint;
+  readonly builderBidBps: bigint;
+  readonly minimumPriorityFeePerGas: bigint;
+}
+
+export interface CompetitivePrefixSelection {
+  readonly length: number;
+  readonly grossReward: bigint;
+  readonly totalGasUsed: bigint;
+  readonly builderBidBps: bigint;
+  readonly minimumPriorityFeePerGas: bigint;
+  readonly quote: CompetitiveFeeQuote;
+}
+
 function ceilDivide(numerator: bigint, denominator: bigint): bigint {
   return (numerator + denominator - 1n) / denominator;
 }
@@ -184,4 +200,92 @@ export function quoteCompetitiveFees(parameters: {
     cappedByFeeCap,
     profitable: true,
   };
+}
+
+/**
+ * Selects the contiguous, dependency-safe prefix with the greatest retained
+ * profit after exact simulated gas and the prefix's reward-weighted builder
+ * policy. Shorter prefixes win ties to avoid unnecessary execution risk.
+ */
+export function selectMostProfitablePrefix(parameters: {
+  readonly components: readonly CompetitivePrefixComponent[];
+  readonly minimumViablePrefix: number;
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly maxFeePerGasCap: bigint;
+  readonly minProfitWei: bigint;
+}): CompetitivePrefixSelection | undefined {
+  if (
+    parameters.minimumViablePrefix < 1 ||
+    parameters.minimumViablePrefix > parameters.components.length
+  ) {
+    return undefined;
+  }
+
+  let grossReward = 0n;
+  let totalGasUsed = 0n;
+  let minimumPriorityFeePerGas = 0n;
+  const bidComponents: Array<{
+    rewardWei: bigint;
+    builderBidBps: bigint;
+  }> = [];
+  let best: CompetitivePrefixSelection | undefined;
+
+  for (
+    let index = 0;
+    index < parameters.components.length;
+    index += 1
+  ) {
+    const component = parameters.components[index]!;
+    if (component.gasUsed <= 0n) {
+      throw new Error("component gasUsed must be positive");
+    }
+    if (component.minimumPriorityFeePerGas < 0n) {
+      throw new Error(
+        "component minimumPriorityFeePerGas cannot be negative",
+      );
+    }
+    grossReward += component.rewardWei;
+    totalGasUsed += component.gasUsed;
+    bidComponents.push({
+      rewardWei: component.rewardWei,
+      builderBidBps: component.builderBidBps,
+    });
+    if (
+      component.minimumPriorityFeePerGas >
+      minimumPriorityFeePerGas
+    ) {
+      minimumPriorityFeePerGas =
+        component.minimumPriorityFeePerGas;
+    }
+
+    const length = index + 1;
+    if (length < parameters.minimumViablePrefix) continue;
+    const builderBidBps = aggregateBuilderBidBps(bidComponents);
+    const quote = quoteCompetitiveFees({
+      crankFee: grossReward,
+      simulatedGasUsed: totalGasUsed,
+      baseFeeAllowancePerGas:
+        parameters.baseFeeAllowancePerGas,
+      minimumPriorityFeePerGas,
+      builderBidBps,
+      maxFeePerGasCap: parameters.maxFeePerGasCap,
+      minProfitWei: parameters.minProfitWei,
+    });
+    if (!quote.profitable) continue;
+    if (
+      best === undefined ||
+      quote.expectedProfit > best.quote.expectedProfit
+    ) {
+      best = {
+        length,
+        grossReward,
+        totalGasUsed,
+        builderBidBps,
+        minimumPriorityFeePerGas,
+        quote,
+      };
+    }
+  }
+
+  return best;
 }

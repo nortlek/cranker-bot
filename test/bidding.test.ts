@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateBuilderBidBps,
   quoteCompetitiveFees,
+  selectMostProfitablePrefix,
 } from "../src/bidding.js";
 
 describe("aggregateBuilderBidBps", () => {
@@ -111,5 +112,112 @@ describe("quoteCompetitiveFees", () => {
     expect(quote.profitable).toBe(true);
     expect(quote.maxFeePerGas).toBe(20n);
     expect(quote.cappedByFeeCap).toBe(true);
+  });
+});
+
+describe("selectMostProfitablePrefix", () => {
+  it("drops an aggregate-profitable suffix with negative marginal profit", () => {
+    const selected = selectMostProfitablePrefix({
+      components: [
+        {
+          rewardWei: 300n,
+          gasUsed: 1n,
+          builderBidBps: 0n,
+          minimumPriorityFeePerGas: 0n,
+        },
+        {
+          rewardWei: 100n,
+          gasUsed: 2n,
+          builderBidBps: 0n,
+          minimumPriorityFeePerGas: 0n,
+        },
+      ],
+      minimumViablePrefix: 1,
+      baseFeeAllowancePerGas: 100n,
+      maxFeePerGasCap: 100n,
+      minProfitWei: 0n,
+    });
+
+    expect(selected?.length).toBe(1);
+    expect(selected?.quote.expectedProfit).toBe(200n);
+  });
+
+  it("preserves a full dependency floor", () => {
+    const selected = selectMostProfitablePrefix({
+      components: [
+        {
+          rewardWei: 300n,
+          gasUsed: 1n,
+          builderBidBps: 0n,
+          minimumPriorityFeePerGas: 0n,
+        },
+        {
+          rewardWei: 100n,
+          gasUsed: 2n,
+          builderBidBps: 0n,
+          minimumPriorityFeePerGas: 0n,
+        },
+      ],
+      minimumViablePrefix: 2,
+      baseFeeAllowancePerGas: 100n,
+      maxFeePerGasCap: 100n,
+      minProfitWei: 0n,
+    });
+
+    expect(selected?.length).toBe(2);
+    expect(selected?.quote.expectedProfit).toBe(100n);
+  });
+
+  it("keeps individually negative receipts when the repriced bundle is more profitable", () => {
+    const selected = selectMostProfitablePrefix({
+      components: [
+        {
+          rewardWei: parseEther("0.0003"),
+          gasUsed: 183_753n,
+          builderBidBps: 8_644n,
+          minimumPriorityFeePerGas: 0n,
+        },
+        {
+          rewardWei: parseEther("0.0001"),
+          gasUsed: 183_753n,
+          builderBidBps: 8_644n,
+          minimumPriorityFeePerGas: 0n,
+        },
+        {
+          rewardWei: parseEther("0.0001"),
+          gasUsed: 183_753n,
+          builderBidBps: 8_644n,
+          minimumPriorityFeePerGas: 0n,
+        },
+      ],
+      minimumViablePrefix: 1,
+      baseFeeAllowancePerGas: parseGwei("0.049105902"),
+      maxFeePerGasCap: parseGwei("5"),
+      minProfitWei: 0n,
+    });
+
+    expect(selected?.length).toBe(3);
+    expect(selected?.quote.expectedProfit).toBeGreaterThan(
+      parseEther("0.00004"),
+    );
+  });
+
+  it("returns undefined when no dependency-safe prefix is profitable", () => {
+    expect(
+      selectMostProfitablePrefix({
+        components: [
+          {
+            rewardWei: 99n,
+            gasUsed: 1n,
+            builderBidBps: 0n,
+            minimumPriorityFeePerGas: 0n,
+          },
+        ],
+        minimumViablePrefix: 1,
+        baseFeeAllowancePerGas: 100n,
+        maxFeePerGasCap: 100n,
+        minProfitWei: 0n,
+      }),
+    ).toBeUndefined();
   });
 });

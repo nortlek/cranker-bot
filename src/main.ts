@@ -15,6 +15,7 @@ import { factoryAbi, vaultFactoryAbi } from "./abi.js";
 import {
   aggregateBuilderBidBps,
   quoteCompetitiveFees,
+  selectMostProfitablePrefix,
 } from "./bidding.js";
 import { observeWinningCrankBids } from "./competition.js";
 import { CHAIN_ID } from "./constants.js";
@@ -269,19 +270,12 @@ async function main(): Promise<void> {
         const baseFeeAllowancePerGas =
           firstRequest.maxFeePerGas -
           firstRequest.maxPriorityFeePerGas;
-        let grossReward = 0n;
-        let totalGasUsed = 0n;
-        let hasPoolPullBid = false;
-        let hasPoolReadyBid = false;
-        let hasPoolFulfilledBid = false;
-        let hasDefaultBid = false;
-        let hasLiveBidSweepBid = false;
-        let hasLiquityBid = false;
-        let hasConvexBid = false;
-        let minimumPriorityFeePerGas = 0n;
-        const bidComponents: Array<{
+        const pricingComponents: Array<{
           rewardWei: bigint;
+          gasUsed: bigint;
           builderBidBps: bigint;
+          minimumPriorityFeePerGas: bigint;
+          bidPolicy: string;
         }> = [];
         for (let index = 0; index < prefixRequests.length; index += 1) {
           const request = prefixRequests[index];
@@ -296,117 +290,149 @@ async function main(): Promise<void> {
             poolBountyEstimateBps:
               config.poolBountyEstimateBps,
           });
-          grossReward += rewardWei;
-          totalGasUsed += transactionGas;
           let requestBidBps: bigint;
+          let requestMinimumPriorityFeePerGas = 0n;
+          let requestBidPolicy: string;
           if (request.order !== undefined) {
             requestBidBps =
               adaptiveBidController?.currentBidBps(request.order) ??
               config.builderBidBps;
-            hasDefaultBid = true;
-            if (
-              config.minPriorityFeePerGas >
-              minimumPriorityFeePerGas
-            ) {
-              minimumPriorityFeePerGas =
-                config.minPriorityFeePerGas;
-            }
+            requestBidPolicy = "default";
+            requestMinimumPriorityFeePerGas =
+              config.minPriorityFeePerGas;
           } else if (
             request.poolBuilderBidPolicy !== undefined
           ) {
             switch (request.poolBuilderBidPolicy) {
               case "pool_pull":
                 requestBidBps = config.poolPullBuilderBidBps;
-                hasPoolPullBid = true;
+                requestBidPolicy = "pool_pull";
                 break;
               case "pool_ready":
                 requestBidBps = config.poolBuilderBidBps;
-                hasPoolReadyBid = true;
+                requestBidPolicy = "pool_ready";
                 break;
               case "pool_fulfilled":
                 requestBidBps =
                   config.poolFulfilledBuilderBidBps;
-                hasPoolFulfilledBid = true;
+                requestBidPolicy = "pool_fulfilled";
                 break;
             }
-            if (
-              config.poolMinPriorityFeePerGas >
-              minimumPriorityFeePerGas
-            ) {
-              minimumPriorityFeePerGas =
-                config.poolMinPriorityFeePerGas;
-            }
+            requestMinimumPriorityFeePerGas =
+              config.poolMinPriorityFeePerGas;
           } else if (request.kind === "live_bid_sweep") {
             requestBidBps =
               config.liveBidSweepBuilderBidBps;
-            hasLiveBidSweepBid = true;
-            if (
-              config.liveBidSweepMinPriorityFeePerGas >
-              minimumPriorityFeePerGas
-            ) {
-              minimumPriorityFeePerGas =
-                config.liveBidSweepMinPriorityFeePerGas;
-            }
+            requestBidPolicy = "live_bid_sweep";
+            requestMinimumPriorityFeePerGas =
+              config.liveBidSweepMinPriorityFeePerGas;
           } else if (request.kind === "liquity_liquidation") {
             requestBidBps = config.liquityBuilderBidBps;
-            hasLiquityBid = true;
-            if (
-              config.minPriorityFeePerGas >
-              minimumPriorityFeePerGas
-            ) {
-              minimumPriorityFeePerGas =
-                config.minPriorityFeePerGas;
-            }
+            requestBidPolicy = "liquity";
+            requestMinimumPriorityFeePerGas =
+              config.minPriorityFeePerGas;
           } else if (
             request.kind === "convex_earmark" ||
             request.kind === "convex_kick"
           ) {
             requestBidBps = config.convexBuilderBidBps;
-            hasConvexBid = true;
+            requestBidPolicy = "convex";
           } else {
             requestBidBps = config.builderBidBps;
-            hasDefaultBid = true;
-            if (
-              config.minPriorityFeePerGas >
-              minimumPriorityFeePerGas
-            ) {
-              minimumPriorityFeePerGas =
-                config.minPriorityFeePerGas;
-            }
+            requestBidPolicy = "default";
+            requestMinimumPriorityFeePerGas =
+              config.minPriorityFeePerGas;
           }
-          bidComponents.push({
+          pricingComponents.push({
             rewardWei,
+            gasUsed: transactionGas,
             builderBidBps: requestBidBps,
+            minimumPriorityFeePerGas:
+              requestMinimumPriorityFeePerGas,
+            bidPolicy: requestBidPolicy,
           });
         }
+
+        const fullGrossReward = pricingComponents.reduce(
+          (total, component) => total + component.rewardWei,
+          0n,
+        );
+        const fullGasUsed = pricingComponents.reduce(
+          (total, component) => total + component.gasUsed,
+          0n,
+        );
+        const fullMinimumPriorityFeePerGas =
+          pricingComponents.reduce(
+            (highest, component) =>
+              component.minimumPriorityFeePerGas > highest
+                ? component.minimumPriorityFeePerGas
+                : highest,
+            0n,
+          );
+        const fullBuilderBidBps = aggregateBuilderBidBps(
+          pricingComponents,
+        );
+        const fullQuote = quoteCompetitiveFees({
+          crankFee: fullGrossReward,
+          simulatedGasUsed: fullGasUsed,
+          baseFeeAllowancePerGas,
+          minimumPriorityFeePerGas:
+            fullMinimumPriorityFeePerGas,
+          builderBidBps: fullBuilderBidBps,
+          maxFeePerGasCap: config.maxFeePerGas,
+          minProfitWei: config.minProfitWei,
+        });
+        const prefixSelection = selectMostProfitablePrefix({
+          components: pricingComponents,
+          minimumViablePrefix,
+          baseFeeAllowancePerGas,
+          maxFeePerGasCap: config.maxFeePerGas,
+          minProfitWei: config.minProfitWei,
+        });
+        const selectedLength =
+          prefixSelection?.length ?? pricingComponents.length;
+        const selectedPricingComponents =
+          pricingComponents.slice(0, selectedLength);
+        const competitivelySelectedRequests =
+          prefixRequests.slice(0, selectedLength);
+        const grossReward =
+          prefixSelection?.grossReward ?? fullGrossReward;
+        const totalGasUsed =
+          prefixSelection?.totalGasUsed ?? fullGasUsed;
         const builderBidBps =
-          aggregateBuilderBidBps(bidComponents);
+          prefixSelection?.builderBidBps ?? fullBuilderBidBps;
+        const quote = prefixSelection?.quote ?? fullQuote;
         const bidPolicies = [
-          ...(hasDefaultBid ? ["default"] : []),
-          ...(hasPoolPullBid ? ["pool_pull"] : []),
-          ...(hasPoolReadyBid ? ["pool_ready"] : []),
-          ...(hasPoolFulfilledBid ? ["pool_fulfilled"] : []),
-          ...(hasLiveBidSweepBid ? ["live_bid_sweep"] : []),
-          ...(hasLiquityBid ? ["liquity"] : []),
-          ...(hasConvexBid ? ["convex"] : []),
+          ...new Set(
+            selectedPricingComponents.map(
+              (component) => component.bidPolicy,
+            ),
+          ),
         ];
         const bidPolicy =
           bidPolicies.length > 1
             ? `weighted:${bidPolicies.join("+")}`
             : (bidPolicies[0] ?? "default");
-        const quote = quoteCompetitiveFees({
-          crankFee: grossReward,
-          simulatedGasUsed: totalGasUsed,
-          baseFeeAllowancePerGas,
-          minimumPriorityFeePerGas,
-          builderBidBps,
-          maxFeePerGasCap: config.maxFeePerGas,
-          minProfitWei: config.minProfitWei,
-        });
+        if (selectedLength < prefixRequests.length) {
+          log("info", "unprofitable_bundle_suffix_pruned", {
+            plannedJobs: prefixRequests.length,
+            selectedJobs: selectedLength,
+            droppedJobs: prefixRequests.length - selectedLength,
+            droppedKinds: JSON.stringify(
+              prefixRequests
+                .slice(selectedLength)
+                .map((request) => request.kind),
+            ),
+            selectedExpectedProfit: eth(quote.expectedProfit),
+            fullExpectedProfit: eth(fullQuote.expectedProfit),
+          });
+        }
         log(quote.profitable ? "info" : "warn", "builder_bid", {
-          jobs: prefixRequests.length,
+          jobs: competitivelySelectedRequests.length,
           kinds: JSON.stringify(
-            prefixRequests.map((request) => request.kind),
+            competitivelySelectedRequests.map(
+              (request) => request.kind,
+            ),
           ),
           firstNonce: firstRequest.nonce,
           grossReward: eth(grossReward),
@@ -439,14 +465,15 @@ async function main(): Promise<void> {
           accepted: quote.profitable,
           reason: quote.reason ?? "",
         });
-        if (!quote.profitable) {
+        if (prefixSelection === undefined) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
-        const competitivelyPriced = prefixRequests.map((request) => ({
-          ...request,
-          maxFeePerGas: quote.maxFeePerGas,
-          maxPriorityFeePerGas: quote.maxPriorityFeePerGas,
-        }));
+        const competitivelyPriced =
+          competitivelySelectedRequests.map((request) => ({
+            ...request,
+            maxFeePerGas: quote.maxFeePerGas,
+            maxPriorityFeePerGas: quote.maxPriorityFeePerGas,
+          }));
         const competitiveTransactions = await Promise.all(
           competitivelyPriced.map((request) =>
             signer.signTransaction({

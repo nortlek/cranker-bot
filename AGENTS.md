@@ -341,9 +341,10 @@ These constraints prevent expensive or unsafe regressions:
 - Profit checks include gas and builder payments. A receipt is the source of
   truth for gas; decoded token transfers and balance reconciliation are the
   source of truth for reward value.
-- A bundle may be profitable while a marginal job inside it is loss-making.
-  Prefer the most profitable safe prefix, not merely any aggregate-positive
-  prefix.
+- A receipt inside a bundle may look loss-making because every transaction
+  shares one gas-normalized priority fee. Do not infer marginal contribution
+  from that receipt alone. Re-price every dependency-safe prefix with its own
+  reward-weighted builder payment and choose the highest aggregate net.
 - Use `DISCOVERY_RPC_URLS` for bulk discovery and historical scans. Never let a
   research scan saturate the latency-sensitive `RPC_URL`.
 
@@ -462,4 +463,3 @@ Before ending a working session:
 - send Discord only if the handoff contains a meaningful decision, profit, or
   incident
 - do not leave a local live process running
-

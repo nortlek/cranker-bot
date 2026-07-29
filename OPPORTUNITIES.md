@@ -80,20 +80,27 @@ Acceptance:
 
 ### P0 — Optimize marginal standing-order inclusion
 
-Status: observed live behavior; not implemented.
+Status: implemented and awaiting deployment.
 
 A recent three-order bundle was aggregate-positive but contained two
-individually loss-making `0.0001 ETH` order cranks. Their gas reduced total net
-profit even though the bundle passed the aggregate economic check.
+individually loss-making `0.0001 ETH` receipts. Durable bid telemetry proved
+that the individual receipt view was misleading: the bundle uses one uniform
+gas-normalized priority fee. At the required 86.44% aggregate builder payment,
+the three-job prefix retained about `0.0000407 ETH`, while the `0.0003 ETH`
+job alone would have retained only about `0.0000316 ETH` after re-pricing its
+builder payment.
 
-Implement selection of the most profitable dependency-safe prefix or subset
-using simulated aggregate gas and builder economics. Preserve any order that is
-required to unlock a profitable pool `pull`; otherwise exclude a job whose
-marginal contribution is negative.
+The builder stage now prices every dependency-safe contiguous prefix using its
+exact simulated gas, reward-weighted builder policy, and independent fee quote,
+then chooses the prefix with the highest aggregate expected net. This preserves
+the observed profitable three-job case while pruning a suffix only when the
+re-priced bundle would actually retain less profit. Orders required to unlock a
+profitable pool `pull` remain protected by the full dependency floor.
 
 Acceptance:
 
-- unit tests cover aggregate-positive bundles with a negative marginal job
+- unit tests cover both a genuinely negative suffix and the observed
+  individually-negative-but-aggregate-beneficial case
 - cross-subsidized `orders -> pull` dependency floors remain intact
 - logging explains excluded marginal jobs
 
