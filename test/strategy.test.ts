@@ -14,6 +14,7 @@ import {
   fwaProcessJob,
   highestPositiveClaimableIndexes,
   isConvexCrvChangeRevert,
+  isConvexNoExpiredLocksRevert,
   isFreshBlockReadUnavailable,
   isFreshBlockStateUnavailable,
   estimatedJobReward,
@@ -442,6 +443,18 @@ describe("isConvexCrvChangeRevert", () => {
     expect(isConvexCrvChangeRevert(new Error("crvChange"))).toBe(
       false,
     );
+  });
+
+  it("classifies only the exact expired-lock eligibility revert", () => {
+    expect(
+      isConvexNoExpiredLocksRevert(revertWith("no exp locks")),
+    ).toBe(true);
+    expect(
+      isConvexNoExpiredLocksRevert(revertWith("crvChange")),
+    ).toBe(false);
+    expect(
+      isConvexNoExpiredLocksRevert(new Error("no exp locks")),
+    ).toBe(false);
   });
 });
 

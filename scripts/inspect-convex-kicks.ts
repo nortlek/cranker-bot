@@ -1,4 +1,5 @@
 import {
+  BaseError,
   createPublicClient,
   decodeEventLog,
   formatEther,
@@ -120,7 +121,7 @@ async function main(): Promise<void> {
       : privateKeyToAccount(config.privateKey);
   const client = createPublicClient({
     chain: mainnet,
-    transport: http(config.rpcUrl, {
+    transport: http(config.discoveryRpcUrl, {
       retryCount: 3,
       retryDelay: 500,
       timeout: 30_000,
@@ -257,13 +258,27 @@ async function main(): Promise<void> {
             bufferedGas(gas, config.gasLimitMultiplierBps) *
               fees.maxFeePerGas,
         };
-      } catch {
-        return undefined;
+      } catch (error) {
+        return {
+          failed: true as const,
+          ...candidate,
+          reason:
+            error instanceof BaseError
+              ? error.shortMessage
+              : error instanceof Error
+                ? error.message
+                : String(error),
+        };
       }
     },
   );
   const viable = estimates
-    .filter((value): value is NonNullable<typeof value> => value !== undefined)
+    .filter(
+      (
+        value,
+      ): value is Extract<typeof value, { readonly gas: bigint }> =>
+        "gas" in value,
+    )
     .sort((left, right) =>
       left.netEthEquivalent === right.netEthEquivalent
         ? left.account.localeCompare(right.account)
@@ -271,6 +286,18 @@ async function main(): Promise<void> {
           ? -1
           : 1,
     );
+  const productionPrefiltered = ready.flatMap((candidate) => {
+    const minimumRewardCvx =
+      (candidate.unlockableCvx * rewardPerEpoch) / 10_000n;
+    const rewardEthEquivalent =
+      (minimumRewardCvx * cvxRound[1] * 9_500n) /
+      ethRound[1] /
+      10_000n;
+    return rewardEthEquivalent >
+      150_000n * fees.maxFeePerGas
+      ? [{ ...candidate, rewardEthEquivalent }]
+      : [];
+  });
   console.log(
     JSON.stringify({
       event: "convex_kick_scan",
@@ -286,9 +313,45 @@ async function main(): Promise<void> {
       epochDelay: epochDelay.toString(),
       cvxUsd: formatEther(cvxRound[1] * 10n ** 10n),
       ethUsd: formatEther(ethRound[1] * 10n ** 10n),
+      estimatedMaxFeeGwei: formatEther(
+        fees.maxFeePerGas * 10n ** 9n,
+      ),
+      productionPrefiltered: productionPrefiltered.length,
+      estimateFailureReasons: Object.fromEntries(
+        [...new Set(
+          estimates.flatMap((candidate) =>
+            "failed" in candidate
+              ? [candidate.reason]
+              : [],
+          ),
+        )].map((reason) => [
+          reason,
+          estimates.filter(
+            (candidate) =>
+              "failed" in candidate &&
+              candidate.reason === reason,
+          ).length,
+        ]),
+      ),
       profitable: viable
         .filter((candidate) => candidate.netEthEquivalent > 0n)
         .slice(0, 30)
+        .map((candidate) => ({
+          account: candidate.account,
+          unlockableCvx: formatEther(candidate.unlockableCvx),
+          rewardCvx: formatEther(candidate.conservativeRewardCvx),
+          gas: candidate.gas.toString(),
+          gasLimit: candidate.gasLimit.toString(),
+          rewardEthEquivalent: formatEther(
+            candidate.rewardEthEquivalent,
+          ),
+          netEthEquivalent: formatEther(
+            candidate.netEthEquivalent,
+          ),
+        })),
+      bestUnprofitable: viable
+        .filter((candidate) => candidate.netEthEquivalent <= 0n)
+        .slice(0, 10)
         .map((candidate) => ({
           account: candidate.account,
           unlockableCvx: formatEther(candidate.unlockableCvx),

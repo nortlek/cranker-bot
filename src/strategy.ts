@@ -381,11 +381,25 @@ interface ConvexPoolRegistrySnapshot {
   readonly pools: readonly ConvexPool[];
 }
 
+interface ConvexKickCandidateSnapshot {
+  readonly requestedAtBlock: bigint;
+  readonly candidatesScanned: number;
+  readonly unlockableCandidates: number;
+  readonly balanceReadFailures: number;
+  readonly noExpiredLocksExcluded: number;
+  readonly candidates: readonly Address[];
+}
+
 let convexPoolRegistrySnapshot: ConvexPoolRegistrySnapshot | undefined;
 let convexCandidateSnapshot: ConvexCandidateSnapshot | undefined;
 let convexCandidateRefreshPromise: Promise<void> | undefined;
+let convexKickCandidateSnapshot:
+  | ConvexKickCandidateSnapshot
+  | undefined;
+let convexKickCandidateRefreshPromise: Promise<void> | undefined;
 const CONVEX_CANDIDATE_CACHE_SIZE = 32;
 const CONVEX_CANDIDATE_REFRESH_BLOCKS = 4n;
+const CONVEX_KICK_CANDIDATE_REFRESH_BLOCKS = 4n;
 const CONVEX_POOL_REGISTRY_REFRESH_BLOCKS = 128n;
 
 async function getConvexPools(
@@ -561,11 +575,96 @@ function getConvexCandidatePools(parameters: {
   return snapshot;
 }
 
-export function scheduleColdPlannerRefresh(parameters: {
+async function loadConvexKickCandidateSnapshot(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly simulationConcurrency: number;
+  readonly requestedAtBlock: bigint;
+}): Promise<ConvexKickCandidateSnapshot> {
+  const balanceResults = await parameters.client.multicall({
+    allowFailure: true,
+    batchSize: 16_384,
+    blockNumber: parameters.requestedAtBlock,
+    contracts: CONVEX_KICK_CANDIDATES.map((candidate) => ({
+      address: CONVEX_LOCKER_ADDRESS,
+      abi: convexLockerAbi,
+      functionName: "lockedBalances" as const,
+      args: [candidate] as const,
+    })),
+  });
+  let unlockableCandidates = 0;
+  let balanceReadFailures = 0;
+  const candidates = CONVEX_KICK_CANDIDATES.filter(
+    (_candidate, index) => {
+      const result = balanceResults[index];
+      if (result?.status !== "success") {
+        balanceReadFailures += 1;
+        return true;
+      }
+      if (result.result[1] === 0n) return false;
+      unlockableCandidates += 1;
+      return true;
+    },
+  );
+  let noExpiredLocksExcluded = 0;
+  const estimateResults = await mapConcurrent(
+    candidates,
+    parameters.simulationConcurrency,
+    async (candidate): Promise<Address | undefined> => {
+      try {
+        await parameters.client.estimateContractGas({
+          account: parameters.account,
+          address: CONVEX_LOCKER_ADDRESS,
+          abi: convexLockerAbi,
+          functionName: "kickExpiredLocks",
+          args: [candidate],
+          blockNumber: parameters.requestedAtBlock,
+        });
+        return candidate;
+      } catch (error) {
+        if (isConvexNoExpiredLocksRevert(error)) {
+          noExpiredLocksExcluded += 1;
+          return undefined;
+        }
+        return candidate;
+      }
+    },
+  );
+  return {
+    requestedAtBlock: parameters.requestedAtBlock,
+    candidatesScanned: CONVEX_KICK_CANDIDATES.length,
+    unlockableCandidates,
+    balanceReadFailures,
+    noExpiredLocksExcluded,
+    candidates: estimateResults.filter(
+      (candidate): candidate is Address =>
+        candidate !== undefined,
+    ),
+  };
+}
+
+function getConvexKickCandidateAccounts(parameters: {
+  readonly headBlockNumber: bigint;
+}): ConvexKickCandidateSnapshot | undefined {
+  const snapshot = convexKickCandidateSnapshot;
+  if (
+    snapshot === undefined ||
+    snapshot.requestedAtBlock > parameters.headBlockNumber
+  ) {
+    return undefined;
+  }
+  return snapshot;
+}
+
+interface ColdPlannerRefreshParameters {
   readonly discoveryClient: PublicClient<Transport, Chain>;
   readonly config: KeeperConfig;
   readonly headBlockNumber: bigint;
-}): void {
+}
+
+function scheduleConvexEarmarkRefresh(
+  parameters: ColdPlannerRefreshParameters,
+): void {
   if (
     !parameters.config.enableConvexEarmarks ||
     convexCandidateRefreshPromise !== undefined
@@ -623,6 +722,76 @@ export function scheduleColdPlannerRefresh(parameters: {
   convexCandidateRefreshPromise = tracked;
 }
 
+function scheduleConvexKickRefresh(
+  parameters: ColdPlannerRefreshParameters,
+): void {
+  if (
+    !parameters.config.enableConvexKicks ||
+    convexKickCandidateRefreshPromise !== undefined
+  ) {
+    return;
+  }
+  const snapshot = convexKickCandidateSnapshot;
+  if (
+    snapshot !== undefined &&
+    parameters.headBlockNumber >= snapshot.requestedAtBlock &&
+    parameters.headBlockNumber - snapshot.requestedAtBlock <
+      CONVEX_KICK_CANDIDATE_REFRESH_BLOCKS
+  ) {
+    return;
+  }
+  const requestedAtBlock = parameters.headBlockNumber;
+  const startedAt = performance.now();
+  const refresh = loadConvexKickCandidateSnapshot({
+    client: parameters.discoveryClient,
+    account: parameters.config.simulationAccount,
+    simulationConcurrency:
+      parameters.config.simulationConcurrency,
+    requestedAtBlock,
+  })
+    .then((nextSnapshot) => {
+      if (
+        convexKickCandidateSnapshot === undefined ||
+        nextSnapshot.requestedAtBlock >=
+          convexKickCandidateSnapshot.requestedAtBlock
+      ) {
+        convexKickCandidateSnapshot = nextSnapshot;
+      }
+      log("info", "convex_kick_candidate_cache_refreshed", {
+        requestedAtBlock: nextSnapshot.requestedAtBlock.toString(),
+        candidatesScanned: nextSnapshot.candidatesScanned,
+        unlockableCandidates:
+          nextSnapshot.unlockableCandidates,
+        balanceReadFailures:
+          nextSnapshot.balanceReadFailures,
+        noExpiredLocksExcluded:
+          nextSnapshot.noExpiredLocksExcluded,
+        candidates: nextSnapshot.candidates.length,
+        durationMs: performance.now() - startedAt,
+      });
+    })
+    .catch((error: unknown) => {
+      log("warn", "convex_kick_candidate_cache_refresh_failed", {
+        requestedAtBlock: requestedAtBlock.toString(),
+        durationMs: performance.now() - startedAt,
+        reason: errorMessage(error),
+      });
+    });
+  const tracked = refresh.finally(() => {
+    if (convexKickCandidateRefreshPromise === tracked) {
+      convexKickCandidateRefreshPromise = undefined;
+    }
+  });
+  convexKickCandidateRefreshPromise = tracked;
+}
+
+export function scheduleColdPlannerRefresh(
+  parameters: ColdPlannerRefreshParameters,
+): void {
+  scheduleConvexEarmarkRefresh(parameters);
+  scheduleConvexKickRefresh(parameters);
+}
+
 async function getRoundSnapshot(
   client: PublicClient<Transport, Chain>,
   pool: Address,
@@ -669,6 +838,10 @@ function contractRevertReason(error: unknown): string | undefined {
 
 export function isConvexCrvChangeRevert(error: unknown): boolean {
   return contractRevertReason(error) === "crvChange";
+}
+
+export function isConvexNoExpiredLocksRevert(error: unknown): boolean {
+  return contractRevertReason(error) === "no exp locks";
 }
 
 function isBlockNotFound(error: unknown): boolean {
@@ -2249,31 +2422,65 @@ async function planConvexKick(parameters: {
   readonly account: Account | Address;
   readonly config: KeeperConfig;
   readonly maxFeePerGas: bigint;
+  readonly headBlockNumber: bigint;
   readonly skipped: Map<string, number>;
 }): Promise<KeeperJob | undefined> {
   if (!parameters.config.enableConvexKicks) return undefined;
   try {
+    const candidateSnapshot =
+      getConvexKickCandidateAccounts({
+        headBlockNumber: parameters.headBlockNumber,
+      });
+    if (candidateSnapshot === undefined) {
+      incrementReason(
+        parameters.skipped,
+        "convex_kick_cache_cold",
+      );
+      return undefined;
+    }
+    const candidates = candidateSnapshot.candidates;
+    log("debug", "convex_kick_candidate_cache_used", {
+      snapshotBlock:
+        candidateSnapshot.requestedAtBlock.toString(),
+      ageBlocks:
+        (
+          parameters.headBlockNumber -
+          candidateSnapshot.requestedAtBlock
+        ).toString(),
+      candidates: candidates.length,
+    });
+    if (candidates.length === 0) {
+      incrementReason(
+        parameters.skipped,
+        "convex_kick_none_profitable",
+      );
+      return undefined;
+    }
     const [rewardPerEpoch, cvxRound, ethRound, balanceResults] =
       await Promise.all([
         parameters.client.readContract({
           address: CONVEX_LOCKER_ADDRESS,
           abi: convexLockerAbi,
           functionName: "kickRewardPerEpoch",
+          blockNumber: parameters.headBlockNumber,
         }),
         parameters.client.readContract({
           address: CVX_USD_FEED_ADDRESS,
           abi: chainlinkPriceFeedAbi,
           functionName: "latestRoundData",
+          blockNumber: parameters.headBlockNumber,
         }),
         parameters.client.readContract({
           address: ETH_USD_FEED_ADDRESS,
           abi: chainlinkPriceFeedAbi,
           functionName: "latestRoundData",
+          blockNumber: parameters.headBlockNumber,
         }),
         parameters.client.multicall({
           allowFailure: true,
           batchSize: 16_384,
-          contracts: CONVEX_KICK_CANDIDATES.map((candidate) => ({
+          blockNumber: parameters.headBlockNumber,
+          contracts: candidates.map((candidate) => ({
             address: CONVEX_LOCKER_ADDRESS,
             abi: convexLockerAbi,
             functionName: "lockedBalances" as const,
@@ -2296,7 +2503,7 @@ async function planConvexKick(parameters: {
       return undefined;
     }
     const minimumPlausibleGas = 150_000n;
-    const prefiltered = CONVEX_KICK_CANDIDATES.flatMap(
+    const prefiltered = candidates.flatMap(
       (candidate, index) => {
         const balances = balanceResults[index];
         if (
@@ -2350,6 +2557,7 @@ async function planConvexKick(parameters: {
               abi: convexLockerAbi,
               functionName: "kickExpiredLocks",
               args: [candidate.candidate],
+              blockNumber: parameters.headBlockNumber,
             });
           const decision = assessProfit({
             crankFee: candidate.rewardEthEquivalent,
@@ -3337,6 +3545,7 @@ async function planJobs(parameters: {
         account: parameters.account,
         config: parameters.config,
         maxFeePerGas: parameters.convexMaxFeePerGas,
+        headBlockNumber: parameters.headBlockNumber,
         skipped,
       }),
   );

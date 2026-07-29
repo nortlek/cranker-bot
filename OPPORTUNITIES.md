@@ -696,6 +696,23 @@ hot scans fell to `148–296 ms` from the preceding deployment's
 `1,034.15 ms` median across 34 samples. PostgreSQL showed one open run, one
 granted signer lock, and no pass failure or fatal; nonce remained `546/546`.
 
+After that rollout, Convex expired-lock discovery became the next measured
+critical path at roughly `0.49–0.98 seconds` per head. It also exposed an
+exact-head correctness gap: the hot lock balances, reward parameter, price
+feeds, and gas estimates were not pinned to the subscribed planning block. A
+fresh reconstruction found 79 accounts with nominal unlockable balances, but
+61 exact `kickExpiredLocks(account)` estimates reverted with the literal
+`no exp locks` eligibility reason. Only 18 were simulatable, none was
+profitable, and the best remained about `0.000011786 ETH` net negative at the
+then-current `0.105873331 gwei` provider quote. Convex kick discovery now
+refreshes all configured accounts every four blocks on the separate discovery
+RPC, excludes only a typed contract revert whose exact reason is
+`no exp locks`, and retains every other failure for authoritative hot-path
+revalidation. The hot path reads and estimates only that shortlist, with every
+balance, reward, oracle, and gas call pinned to the exact subscribed head.
+Cached rewards, prices, gas, profitability, and calldata remain prohibited.
+The bulk kick inspector also now uses `DISCOVERY_RPC_URL`.
+
 The first live WebSocket window also exposed cross-provider publication skew:
 three subscribed heads reached Alchemy before the public HTTP endpoint could
 serve the same numbered block, causing a full two-second pass retry. The
