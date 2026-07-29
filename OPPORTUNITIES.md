@@ -713,6 +713,18 @@ balance, reward, oracle, and gas call pinned to the exact subscribed head.
 Cached rewards, prices, gas, profitability, and calldata remain prohibited.
 The bulk kick inspector also now uses `DISCOVERY_RPC_URL`.
 
+The first live cache refresh reported 84 balance-read failures among the 85
+configured candidates. This was a local address-normalization defect, not a
+provider or Multicall capacity problem: `CONVEX_KICK_CANDIDATES.map(getAddress)`
+passed `Array.map`'s numeric index to viem as `getAddress`'s optional chain ID,
+producing 84 EIP-1191 mixed-case strings that were invalid under ordinary
+Ethereum checksum validation. The list now uses an explicit one-argument
+callback and a regression test requires all 85 candidates to be canonical and
+unique. A read-only exact-block rerun with the normalized list returned all 85
+balances successfully, found 79 nominally unlockable accounts, excluded 61
+typed `no exp locks` estimates, and retained 18 accounts for hot exact
+revalidation.
+
 The first live WebSocket window also exposed cross-provider publication skew:
 three subscribed heads reached Alchemy before the public HTTP endpoint could
 serve the same numbered block, causing a full two-second pass retry. The

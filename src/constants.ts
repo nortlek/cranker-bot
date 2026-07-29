@@ -166,7 +166,7 @@ export const CONVEX_KICK_CANDIDATES = [
   "0xaa034692CA464b73dBc1e28eEc0cCb9C6b25BDf9",
   "0x53520308801aa8953f26758EF6f44cA2C829cD15",
   "0xBcdb22127F203b89Cec7C86d6D55041258C3dA64",
-].map(getAddress);
+].map((address) => getAddress(address));
 export const CRV_ADDRESS = getAddress(
   "0xD533a949740bb3306d119CC777fa900bA034cd52",
 );

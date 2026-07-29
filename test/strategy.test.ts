@@ -2,6 +2,7 @@ import {
   BlockNotFoundError,
   ContractFunctionRevertedError,
   encodeErrorResult,
+  getAddress,
   InvalidInputRpcError,
   InvalidParamsRpcError,
   parseAbi,
@@ -9,6 +10,7 @@ import {
 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 
+import { CONVEX_KICK_CANDIDATES } from "../src/constants.js";
 import {
   exactSimulationPlanIsAdmissible,
   fwaProcessJob,
@@ -29,6 +31,16 @@ import {
 
 const POOL =
   "0x1111111111111111111111111111111111111111" as const;
+
+describe("configured Convex kick candidates", () => {
+  it("normalizes every address without Array.map callback arguments", () => {
+    expect(CONVEX_KICK_CANDIDATES).toHaveLength(85);
+    expect(new Set(CONVEX_KICK_CANDIDATES).size).toBe(85);
+    for (const candidate of CONVEX_KICK_CANDIDATES) {
+      expect(getAddress(candidate)).toBe(candidate);
+    }
+  });
+});
 
 describe("isFreshBlockStateUnavailable", () => {
   it("recognizes viem's ordinary exact-block publication lag", () => {

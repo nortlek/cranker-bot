@@ -2477,7 +2477,7 @@ async function planConvexKick(parameters: {
           blockNumber: parameters.headBlockNumber,
         }),
         parameters.client.multicall({
-          allowFailure: true,
+          allowFailure: false,
           batchSize: 16_384,
           blockNumber: parameters.headBlockNumber,
           contracts: candidates.map((candidate) => ({
@@ -2507,15 +2507,15 @@ async function planConvexKick(parameters: {
       (candidate, index) => {
         const balances = balanceResults[index];
         if (
-          balances?.status !== "success" ||
-          balances.result[1] === 0n
+          balances === undefined ||
+          balances[1] === 0n
         ) {
           return [];
         }
         // An eligible kick pays at least one epoch. Later epochs can only
         // increase the actual CVX reward, so this is a strict reward floor.
         const minimumRewardCvx =
-          (balances.result[1] * rewardPerEpoch) / 10_000n;
+          (balances[1] * rewardPerEpoch) / 10_000n;
         // Both Chainlink feeds use 8 decimals. A 5% haircut covers price
         // movement and the cost of exiting the CVX reward.
         const rewardEthEquivalent =
@@ -2618,6 +2618,7 @@ async function planConvexKick(parameters: {
     }
     return selected;
   } catch (error) {
+    if (isFreshBlockReadUnavailable(error)) throw error;
     incrementReason(
       parameters.skipped,
       revertedErrorName(error) ?? "convex_kick_scan_failed",
