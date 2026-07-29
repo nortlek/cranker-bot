@@ -150,6 +150,45 @@ Authenticate Railway's browser UI, connect
 that a pushed commit deploys the exact SHA. Do not create another Railway
 project. Keep the existing dedicated `cranker-bot` project.
 
+### P2 — Inverse FiRM forced replenishments
+
+Status: validated live and capital-free; default-off because the lane is
+extremely competitive and worth only small cumulative revenue.
+
+The verified Inverse FiRM wBTC market at
+`0x48BA574Edf0bc4E2E40B529863aaA6a67c264E7C` permits anyone to replenish a
+borrower's DBR deficit and pays the caller DOLA. The recurring borrower
+`0x52555b437EeE8F55a7897B4E1F8fB3e7Edb2b344` accrues about `3.12863 DBR`
+of deficit per hour against roughly `27,406.6 DOLA` of debt. The safe call is
+`forceReplenish(user, observedDeficit)`, never `forceReplenishAll(user)`.
+The fixed amount is deterministic and race-safe: a smaller remaining deficit
+reverts instead of silently reducing the payout.
+
+At validation time:
+
+- DBR `replenishmentPriceBps` was `5475` and the market replenishment
+  incentive was `1000`
+- caller reward was
+  `floor(floor(amount * 5475 / 10000) * 1000 / 10000)` DOLA
+- a signer simulation estimated `215,919` gas before the keeper's first DOLA
+  receipt; established winners typically used about `193,673` gas
+- the last 100,000 blocks contained 1,813 `ForceReplenish` events, 1,768 for
+  this borrower, with only three replenishers
+- this borrower's median replenishment interval was 45 blocks and the last 50
+  winners retained a median of only about `$0.00164` after gas and tips
+- a 10% builder bid was above the observed median effective bid but below its
+  tail; total theoretical retained value was only about `$0.21/day` even if
+  every opportunity were captured
+
+Implementation should discover DBR markets and borrowers from canonical
+events, snapshot a positive fixed deficit, re-read live price/incentive and
+market relationships, exact-simulate and estimate gas from the signer, value
+DOLA conservatively, and submit only a private next-block single-transaction
+bundle. Receipt accounting must require the matching `ForceReplenish` event,
+exact input/reward fields, DOLA balance delta, and gas cost. Keep this default
+off until the higher-value FWA streak ends; it is a useful background lane,
+not a material path to the active goal.
+
 ### P2 — Read-only operations dashboard
 
 Status: design outlined; not implemented.
