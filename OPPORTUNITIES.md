@@ -18,11 +18,13 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 14:38 America/Denver, the
-verified snapshot was **$154.21421865 net**, or **61.68%** of the goal, with
-`latest == pending == 501` and net ETH equivalent of
-`0.082153818391998768`. Since the nonce-488 snapshot, ten standing orders and
-round 296 increased the wallet by `0.001070037396472117 ETH`. The latest
+2026-07-30 23:59 America/Denver**. At 2026-07-29 14:39 America/Denver, the
+verified snapshot was **$156.78396073 net**, or **62.71%** of the goal, with
+`latest == pending == 504` and net ETH equivalent of
+`0.08308195683318632`. Since the nonce-488 snapshot, ten standing orders and
+rounds 296–297 increased the wallet by `0.001998175837659669 ETH`. Round
+297's `processAcquisitions(1) -> syncFwaResult -> settle` chain retained
+`0.000928138441187552 ETH` after `0.000297072306606 ETH` of total gas. The
 eight-order batch earned `0.0022 ETH`, spent
 `0.002043066059655984 ETH`, and retained `0.000156933940344016 ETH`
 in aggregate. Round 296's
@@ -525,6 +527,11 @@ indexes the block in PostgreSQL, and records a bounded nested error-name/code
 fingerprint. Messages, URLs, request bodies, and metadata are excluded. Discord
 shows the same safe correlation fields. This makes the next occurrence
 diagnosable before broadening any retry classifier.
+The change is live in Railway deployment
+`d5f3d0b1-be9c-479b-bfaf-3980a73e098e` from exact source
+`da47f5d6c2447464a5c4e54308797a6346f317e7`. The replacement acquired one
+advisory signer lease and won round 297's complete ready chain on its first
+pass; no failure event was required to validate the normal path.
 
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five
