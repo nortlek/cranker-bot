@@ -16,6 +16,8 @@ import {
   VAULT_FACTORY_ADDRESS,
 } from "./constants.js";
 
+export const ETHEREUM_TRANSACTION_GAS_LIMIT = 16_777_216;
+
 export interface KeeperConfig {
   readonly rpcUrl: string;
   readonly discoveryRpcUrl: string;
@@ -525,10 +527,14 @@ export function loadConfig(): KeeperConfig {
       }),
     ),
     fwaProcessGasLimit: BigInt(
-      integerEnv("FWA_PROCESS_GAS_LIMIT", 3_000_000, {
-        min: 21_000,
-        max: 5_000_000,
-      }),
+      integerEnv(
+        "FWA_PROCESS_GAS_LIMIT",
+        ETHEREUM_TRANSACTION_GAS_LIMIT,
+        {
+          min: 21_000,
+          max: ETHEREUM_TRANSACTION_GAS_LIMIT,
+        },
+      ),
     ),
     fwaProcessMaxCount: integerEnv(
       "FWA_PROCESS_MAX_COUNT",

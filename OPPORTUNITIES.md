@@ -195,6 +195,27 @@ bounded at `2,000 bps`. Repricing all 48 historical quotes at that level left a
 minimum expected profit of `0.00069927 ETH` and a median of
 `0.00095048 ETH`. Ready and fulfilled lifecycle bids remain unchanged.
 
+### P0 — Remove the arbitrary FWA processor gas cutoff
+
+Status: implemented locally; validate and deploy.
+
+The ready-cycle planner previously rejected a directly estimated
+`processAcquisitions` call when its buffered gas exceeded `3,000,000`, before
+signed-bundle simulation or aggregate economics ran. This lost rounds 282 and
+283: the last eligible passes recorded `fwa_process_gas_above_limit`, then
+competitors processed ten acquisitions using `4,447,655` and `6,442,210` gas.
+Seven other ready cycles between rounds 276 and 285 landed profitably, so the
+processor path itself remains healthy.
+
+The fixed 3M value was not an economic bound: a transaction gas limit is not
+the amount charged, and every ready dependency-safe prefix is exact-simulated
+and repriced from actual simulated gas plus its builder payment before private
+submission. The default processor ceiling is therefore Ethereum's
+`16,777,216` per-transaction protocol cap. The existing 20% estimate buffer,
+signer-balance gate, exact signed-prefix simulation, aggregate profit gate, and
+private one-block expiry remain unchanged. Estimates above the protocol cap
+still fail closed.
+
 ### P0 — Replace polling and synchronous full scans on the hot path
 
 Status: exact-head prefiltering, phase telemetry, the strict WebSocket head

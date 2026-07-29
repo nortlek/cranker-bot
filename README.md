@@ -348,9 +348,11 @@ successful `crank` fees are sent to that keeper address.
   `POOL_SETTLE_GAS_LIMIT`: conservative limits for calls that become valid only
   after an earlier bundled state transition.
 - `FWA_PROCESS_GAS_LIMIT`: safety ceiling for the directly estimated
-  permissionless acquisition processor. The 3M default accommodates complex
-  result paths; private relay simulation and whole-prefix economics still
-  gate submission.
+  permissionless acquisition processor. It defaults to Ethereum's
+  `16,777,216` per-transaction protocol cap instead of imposing a lower
+  economic proxy. The buffered estimate must remain below this limit, and the
+  signed dependency-safe bundle is still exact-simulated and required to be
+  profitable after actual simulated gas and builder payment.
 - `FWA_PROCESS_MAX_COUNT`: maximum ready acquisition sequence prefix the
   keeper may clear to reach its pool request. The default is `5`; the call must
   report that the full prefix processed before it can be bundled with
