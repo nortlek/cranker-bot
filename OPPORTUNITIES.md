@@ -441,7 +441,8 @@ balance, and aggregate profitability still fail closed before submission.
 ### P0 — Replace polling and synchronous full scans on the hot path
 
 Status: exact-head prefiltering, phase telemetry, the strict WebSocket head
-path, and the first background cold-planner cache are implemented.
+path, subscribed-header reuse, and the first background cold-planner cache are
+implemented.
 
 The worker is network-bound, not compute-bound:
 
@@ -543,6 +544,27 @@ The change is live in Railway deployment
 `da47f5d6c2447464a5c4e54308797a6346f317e7`. The replacement acquired one
 advisory signer lease and won round 297's complete ready chain on its first
 pass; no failure event was required to validate the normal path.
+
+The subscribed-head investigation then found that the worker already received
+the block number, hash, timestamp, and base fee in each `newHeads` notification
+but discarded all except the number. It waited for
+`eth_getBlockByNumber(number)` on the separate HTTP transport before beginning
+the state reads that actually determine eligibility. The keeper now retains
+the complete subscribed header and starts exact-block planning immediately.
+It does not use `"latest"` or infer contract storage from the header: every
+state read remains pinned to the subscribed block and only those reads absorb
+the same narrow publication-skew errors. A mismatched supplied header fails
+closed, and the initial process-start pass still obtains a complete header
+from HTTP before the first subscription event.
+
+This is live in Railway deployment
+`b81f65c4-3d6c-48ed-a776-71abfc57d1e7` from exact source
+`a2ffbcf2bf730c9bb97b6031e16fd8e66d084ccd`. All 213 tests, typecheck, build,
+and diff checks passed. The first subscribed production pass, block
+`25641002`, reported `planningHeaderSource=websocket_subscription`,
+`blockReadAttempts=0`, and `blockAvailabilityWaitMs=0`, then completed
+normally. PostgreSQL showed exactly one open keeper run and one granted
+advisory signer lock.
 
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five

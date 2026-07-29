@@ -98,15 +98,21 @@ immediately before submission; a lost lease stops the signer. Live mode
 requires `DATABASE_URL`. Telemetry after startup is fail-open.
 
 `WS_URL`, when configured, supplies the production `newHeads` wake-up.
-`RPC_URL` remains authoritative: the keeper fetches and pins the exact observed
-block over HTTP. HTTP also asserts subscription liveness after
+The keeper retains the subscribed block number, hash, timestamp, and base fee
+and starts planning from that header without fetching a duplicate HTTP block.
+`RPC_URL` remains authoritative for contract state, simulations, nonce and
+balance gates, and receipt accounting; every state read is pinned to the
+subscribed block number. Before the first subscribed head at process startup,
+the initial pass obtains its complete header over HTTP. HTTP also asserts
+subscription liveness after
 `HEAD_STALE_TIMEOUT_MS`; if the chain advanced without a subscribed head, the
 worker exits for a supervised restart instead of silently degrading to a
-second head path. The exact fixed-block read tolerates up to one second of
-publication skew by retrying only `BlockNotFound`; all other errors remain
+second head path. Exact fixed-block state reads tolerate up to one second of
+publication skew by retrying only classified `BlockNotFound` and the two
+observed provider `-32602` fresh-state messages; all other errors remain
 immediate failures. The same WebSocket signal wakes private target-block
-receipt finalization, after which HTTP must serve that exact block before
-receipts are classified. Never print either endpoint.
+receipt finalization, after which HTTP must serve that exact target block
+before receipts are classified. Never print either endpoint.
 
 When `ENABLE_PENDING_FUNDING_BACKRUNS=true`, the worker opens a second,
 hash-only Alchemy filtered subscription on the same `WS_URL` for current
@@ -445,13 +451,14 @@ These constraints prevent expensive or unsafe regressions:
   confirmed-head standing-order adaptive state until it has enough live
   outcomes to justify its own durable policy.
 - A WebSocket `newHeads` event selects the planning head when configured;
-  otherwise `eth_blockNumber` does. Fetch that exact block number over the
-  authoritative HTTP RPC and pin core pool, lifecycle, order/vault, and
-  prefilter reads to it; never substitute a later `"latest"` response. Discard
-  the plan if the head changes before nonce gating, and never submit after its
-  target block arrives. Retry an exact header only for classified
-  `BlockNotFound`. Exact-block planning and post-block competitor-state reads
-  may retry only the observed nested RPC `-32602` detail
+  otherwise `eth_blockNumber` does. Retain the complete subscribed header and
+  do not wait for a duplicate HTTP block object. Pin core pool, lifecycle,
+  order/vault, and prefilter state reads to that exact block number on the
+  authoritative HTTP RPC; never substitute a later `"latest"` response.
+  Discard the plan if the head changes before nonce gating, and never submit
+  after its target block arrives. Exact-block planning and post-block
+  competitor-state reads may retry only classified `BlockNotFound` or the
+  observed nested RPC `-32602` detail
   `Missing or invalid parameters.` against the same block and provider during
   their bounded publication-skew windows.
 - The exact signed bundle and every economically safe prefix are simulated
