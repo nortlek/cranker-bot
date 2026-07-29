@@ -347,10 +347,19 @@ git commit -m '<concise description>'
 git push origin main
 ```
 
-Deploy:
+Railway CLI source uploads do not refresh the platform-provided
+`RAILWAY_GIT_COMMIT_SHA`. Inject the exact committed revision without
+triggering a separate variable-only deployment, then deploy that source:
 
 ```bash
+keeper_source_sha="$(git rev-parse HEAD)"
+railway variable set \
+  "DEPLOY_GIT_SHA=$keeper_source_sha" \
+  --skip-deploys \
+  --service b7254641-a937-4399-ae2d-75fc95c08049 \
+  --environment production
 railway up --detach \
+  --message "$keeper_source_sha" \
   --service b7254641-a937-4399-ae2d-75fc95c08049 \
   --environment production
 ```
@@ -369,7 +378,8 @@ Then inspect startup logs for:
 - migrations completed
 - `signer_lease_waiting` followed by `signer_lease_acquired` during replacement
 - exactly one live signer after the rollout
-- `keeper_started`
+- `keeper_started`, with `sourceRevision` equal to the deployed commit and the
+  expected `deploymentId`
 - continuing `pass_complete`
 - no `fatal`, repeated `keeper_pass_failed`, or telemetry queue growth
 

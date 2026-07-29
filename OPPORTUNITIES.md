@@ -254,7 +254,12 @@ economics pending.
 
 The append-only JSON event stream is a useful audit log, but it cannot cleanly
 attribute latency, relay delivery, or sequence-level realized economics.
-`keeper_runs.git_sha` is also null for current CLI deployments.
+Railway CLI source uploads also left `RAILWAY_GIT_COMMIT_SHA` stuck at
+`52d4228` across three later deployed images, so `keeper_runs.git_sha` was
+plausible-looking but wrong rather than merely null. The deploy workflow now
+injects the exact committed `DEPLOY_GIT_SHA` without triggering an extra
+deployment; the application prefers it for `keeper_runs.git_sha` and exposes
+both `sourceRevision` and Railway's dynamic `deploymentId` in `keeper_started`.
 
 Every pass now carries an asynchronous `passId` and observed block through all
 structured events. Monotonic events report head/fee fetch, planning, account

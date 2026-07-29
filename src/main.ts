@@ -127,6 +127,11 @@ async function closeRuntimeResources(): Promise<void> {
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const sourceRevision =
+    process.env.DEPLOY_GIT_SHA ??
+    process.env.RAILWAY_GIT_COMMIT_SHA ??
+    process.env.GIT_SHA;
+  const deploymentId = process.env.RAILWAY_DEPLOYMENT_ID;
   discordNotifier =
     config.discordWebhookUrl === undefined
       ? undefined
@@ -142,9 +147,7 @@ async function main(): Promise<void> {
           batchSize: config.telemetryBatchSize,
           flushIntervalMs: config.telemetryFlushMs,
           maximumQueueSize: config.telemetryMaxQueue,
-          gitSha:
-            process.env.RAILWAY_GIT_COMMIT_SHA ??
-            process.env.GIT_SHA,
+          gitSha: sourceRevision,
           instanceId:
             process.env.RAILWAY_REPLICA_ID ??
             process.env.HOSTNAME,
@@ -1038,6 +1041,8 @@ async function main(): Promise<void> {
       config.poolBountyEstimateBps.toString(),
     discordNotifications: discordNotifier !== undefined,
     durableTelemetry: telemetrySink !== undefined,
+    sourceRevision: sourceRevision ?? "",
+    deploymentId: deploymentId ?? "",
   });
 
   let stopping = false;
