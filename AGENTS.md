@@ -93,7 +93,9 @@ railway status
 `railway.toml` runs migrations before deployment, disables deployment overlap,
 allows 15 seconds of draining, and restarts on failure. Live instances also
 hold a PostgreSQL advisory signer lease. Failure to acquire the lease is
-fail-closed; telemetry after startup is fail-open.
+fail-closed. The worker verifies the exact lock before each live pass and
+immediately before submission; a lost lease stops the signer. Live mode
+requires `DATABASE_URL`. Telemetry after startup is fail-open.
 
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
@@ -371,7 +373,7 @@ At the last handoff, the configured policy was approximately:
 | --- | ---: |
 | Standing-order baseline | 86.44% |
 | Standing-order learned maximum in use | 94.54% |
-| Pool pull | 15% |
+| Pool pull | 20% |
 | Pool acquisition ready | 10% |
 | Pool acquisition fulfilled | 5% |
 | LiveBid sweep | 1% |

@@ -14,6 +14,7 @@ interface LeaseClient {
 
 export interface SignerLease {
   readonly waitedMs: number;
+  assertHeld(): Promise<void>;
   release(): Promise<void>;
 }
 
@@ -82,6 +83,31 @@ export async function acquireSignerLease(
         let released = false;
         return {
           waitedMs: Date.now() - startedAt,
+          assertHeld: async (): Promise<void> => {
+            if (released) {
+              throw new Error("signer lease has already been released");
+            }
+            const held = await client.query(
+              `
+                SELECT EXISTS (
+                  SELECT 1
+                  FROM pg_locks
+                  WHERE locktype = 'advisory'
+                    AND pid = pg_backend_pid()
+                    AND classid = $1::integer::oid
+                    AND objid = $2::integer::oid
+                    AND objsubid = 2
+                    AND granted
+                ) AS held
+              `,
+              [SIGNER_LOCK_NAMESPACE, ETHEREUM_MAINNET_LOCK_KEY],
+            );
+            if (held.rows[0]?.held !== true) {
+              throw new Error(
+                "signer advisory lock is no longer held by this session",
+              );
+            }
+          },
           release: async (): Promise<void> => {
             if (released) return;
             released = true;

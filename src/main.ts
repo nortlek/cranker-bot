@@ -58,6 +58,32 @@ let discordNotifier: DiscordWebhookNotifier | undefined;
 let telemetrySink: BatchedEventSink | undefined;
 let signerLease: SignerLease | undefined;
 let adaptiveBidController: AdaptiveBidController | undefined;
+let signerLeaseFailure: Error | undefined;
+
+class SignerLeaseLostError extends Error {
+  constructor(cause: unknown) {
+    super(`signer lease lost: ${errorMessage(cause)}`, { cause });
+    this.name = "SignerLeaseLostError";
+  }
+}
+
+async function assertSignerLeaseHeld(): Promise<void> {
+  if (signerLeaseFailure !== undefined) {
+    throw signerLeaseFailure;
+  }
+  if (signerLease === undefined) {
+    signerLeaseFailure = new SignerLeaseLostError(
+      "signer lease is unavailable",
+    );
+    throw signerLeaseFailure;
+  }
+  try {
+    await signerLease.assertHeld();
+  } catch (error) {
+    signerLeaseFailure = new SignerLeaseLostError(error);
+    throw signerLeaseFailure;
+  }
+}
 
 async function closeRuntimeResources(): Promise<void> {
   try {
@@ -103,19 +129,20 @@ async function main(): Promise<void> {
     discordNotifier?.notify(entry);
     telemetrySink?.notify(entry);
   });
-  if (!config.dryRun && config.databaseUrl !== undefined) {
+  if (!config.dryRun && config.databaseUrl === undefined) {
+    throw new Error(
+      "DATABASE_URL is required for a fail-closed live signer lease",
+    );
+  }
+  if (!config.dryRun) {
     signerLease = await acquireSignerLease({
-      connectionString: config.databaseUrl,
+      connectionString: config.databaseUrl!,
       onWaiting: () => {
         log("warn", "signer_lease_waiting");
       },
     });
     log("info", "signer_lease_acquired", {
       waitedMs: signerLease.waitedMs,
-    });
-  } else if (!config.dryRun) {
-    log("warn", "signer_lease_disabled", {
-      reason: "DATABASE_URL is not configured",
     });
   }
   if (
@@ -212,8 +239,9 @@ async function main(): Promise<void> {
       }),
     });
     if (config.submissionMode === "public") {
-      sendTransaction = async (request) =>
-        walletClient.sendTransaction({
+      sendTransaction = async (request) => {
+        await assertSignerLeaseHeld();
+        return walletClient.sendTransaction({
           to: request.target,
           data: request.data,
           gas: request.gas,
@@ -222,6 +250,7 @@ async function main(): Promise<void> {
           nonce: request.nonce,
           value: 0n,
         });
+      };
     } else {
       const authAccount = privateKeyToAccount(
         config.flashbotsAuthPrivateKey ?? config.privateKey,
@@ -560,6 +589,7 @@ async function main(): Promise<void> {
         if (minimumEconomicPrefix > selected.length) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
+        await assertSignerLeaseHeld();
         const submissions = await submitBundlePrefixLadder(
           relays,
           selected,
@@ -803,6 +833,9 @@ async function main(): Promise<void> {
       if (block !== lastProcessedBlock) {
         lastProcessedBlock = block;
         log("debug", "new_block", { block: block.toString() });
+        if (!config.dryRun) {
+          await assertSignerLeaseHeld();
+        }
         await runKeeperPass({
           publicClient,
           discoveryClient,
@@ -812,9 +845,19 @@ async function main(): Promise<void> {
           sendBatch,
           observePrivateBatch,
         });
+        if (signerLeaseFailure !== undefined) {
+          throw signerLeaseFailure;
+        }
         if (config.runOnce) break;
       }
     } catch (error) {
+      if (error instanceof SignerLeaseLostError) {
+        log("error", "signer_lease_lost", {
+          reason: errorMessage(error),
+          action: "stopping_signer",
+        });
+        throw error;
+      }
       log("error", "keeper_pass_failed", { reason: errorMessage(error) });
       if (config.runOnce) throw error;
     }

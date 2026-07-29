@@ -264,7 +264,7 @@ export function loadConfig(): KeeperConfig {
   );
   const poolPullBuilderBidBps = integerEnv(
     "POOL_PULL_BUILDER_BID_BPS",
-    850,
+    2_000,
     {
       min: 0,
       max: 10_000,
@@ -469,7 +469,7 @@ export function loadConfig(): KeeperConfig {
       }),
     ),
     poolPullGasLimit: BigInt(
-      integerEnv("POOL_PULL_GAS_LIMIT", 500_000, {
+      integerEnv("POOL_PULL_GAS_LIMIT", 3_000_000, {
         min: 21_000,
         max: 5_000_000,
       }),

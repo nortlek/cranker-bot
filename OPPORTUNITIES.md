@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-07-28 (America/Denver)
+Last updated: 2026-07-29 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -18,10 +18,10 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 07:03 America/Denver, the
-verified snapshot was **$133.37845037 net**, or **53.35%** of the goal, with
-`latest == pending == 378` and net ETH equivalent of
-`0.070079688812794191`. Since deployment `86b27aa2-ddc3-4ecf-96f4-22066e67e60e`,
+2026-07-30 23:59 America/Denver**. At 2026-07-29 07:21 America/Denver, the
+verified snapshot was **$135.41631151 net**, or **54.16%** of the goal, with
+`latest == pending == 387` and net ETH equivalent of
+`0.071248741690526874`. Since deployment `86b27aa2-ddc3-4ecf-96f4-22066e67e60e`,
 172 successful receipts reconciled exactly to a `0.043126556881111625 ETH`
 wallet increase: 38 settles, 41 syncs, 41 processors, 5 pulls, and 47
 standing-order cranks. No fatal, keeper-pass, Discord, or telemetry failures
@@ -37,6 +37,128 @@ npx tsx scripts/goal-status.ts
 before reporting progress or deploying.
 
 ## Immediate engineering queue
+
+### P0 — Make the live signer lease continuously fail-closed
+
+Status: implemented and validated; deploy after the nonce/lifecycle gate.
+
+The original PostgreSQL advisory lease failed closed only during acquisition.
+PostgreSQL releases a session-level advisory lock when its connection ends, but
+the worker did not re-check the lock after startup. A severed lease connection
+could therefore release the lock while the old process continued signing and a
+replacement acquired it.
+
+The lease now verifies its exact two-integer advisory-lock row in `pg_locks`
+before each live pass and again immediately before public or private
+submission. A missing connection or lock records `signer_lease_lost`, stops the
+signer, and exits instead of degrading into a retry loop. Live startup now also
+requires `DATABASE_URL`; the previous warn-and-sign-without-a-lease path is
+removed.
+
+### P0 — Repair lifecycle funding enrichment and pool-pull bidding
+
+Status: implemented and validated; deploy and measure.
+
+Across 58 live lifecycle plans, 36 successfully appended a next-round
+`pool_pull`, but none submitted that suffix. Every pull used the static
+`500,000` gas envelope and preliminary exact simulation truncated the bundle.
+The same pulls, once directly estimable, required buffered limits from
+`616,636` to `2,934,132` gas, with an `860,214` median. The static envelope is
+now `3,000,000`; actual gas, economics, and every final signed prefix remain
+exactly simulated.
+
+Standalone pulls won only 5 of 48 target blocks. Competitors pulled in 38 of
+the 43 misses, paying a median `1,872 bps`, p90 `1,998 bps`, and almost always
+using a direct block-beneficiary transfer. The pool-pull lane is therefore
+bounded at `2,000 bps`. Repricing all 48 historical quotes at that level left a
+minimum expected profit of `0.00069927 ETH` and a median of
+`0.00095048 ETH`. Ready and fulfilled lifecycle bids remain unchanged.
+
+### P0 — Replace polling and synchronous full scans on the hot path
+
+Status: measured; stage changes behind new telemetry.
+
+The worker is network-bound, not compute-bound:
+
+- Railway usage averaged about `0.019 vCPU` and `0.276 GB` RAM.
+- Head-to-submission was p50 `2.01 seconds` and p90 `3.10 seconds`.
+- An 80-block sample detected block timestamps p50 `4.77 seconds` and p90
+  `6.37 seconds` late.
+- Production polls every `2,000 ms`, and primary and discovery traffic use the
+  same public RPC endpoint.
+- A read-only pass took `2.61 seconds` with every lane, `1.81 seconds` without
+  Convex, and `1.42 seconds` with only pool/orders.
+- The minimal pass still simulated 61 orders even though 52 reverted
+  `InsufficientBalance` and nine `AlreadyBought`.
+
+Next actions, in order:
+
+1. Add a dedicated low-latency WebSocket `newHeads` source with polling
+   fallback and a separate discovery endpoint.
+2. Record head hash/timestamp and reject or re-plan if the head changes before
+   signing.
+3. Build an event-maintained order/vault registry, bulk pre-filter state, and
+   exact-simulate only plausible candidates.
+4. Refresh Convex, Liquity, and other cold scans on separate cadences and
+   revalidate only their best cached candidates at the exact head.
+5. Move receipt finalization, competitor tracing, and adaptive-bid persistence
+   behind a bounded observer queue so the signer can process the next head.
+6. Preserve the first preliminary bundle simulation result instead of making
+   the same relay round trip twice; retain the mandatory final signed
+   simulation after repricing.
+
+Do not lower `BLOCK_POLL_MS` in isolation until RPC request volume and
+publication lag are measured from the production region.
+
+### P1 — Add correlated, typed attempt and outcome telemetry
+
+Status: designed; schema and instrumentation pending.
+
+The append-only JSON event stream is a useful audit log, but it cannot cleanly
+attribute latency, relay delivery, or sequence-level realized economics.
+`keeper_runs.git_sha` is also null for current CLI deployments.
+
+Add `pass_id`, `plan_id`, `job_id`, `variant_id`, and
+`relay_submission_id`; monotonic timings for head detection, planners, RPCs,
+both simulations, pricing, first relay acceptance, and every relay response;
+and endpoint/relay aliases that never contain credentials. Persist raw wei and
+gas in typed `numeric(78,0)` columns. Add `keeper_passes`,
+`keeper_attempts`, `keeper_bundle_variants`, `keeper_relay_submissions`, and
+`keeper_outcomes` fact tables while retaining `keeper_events` as the audit
+stream.
+
+Sequence outcomes must report aggregate reward, base-fee burn, priority/direct
+builder payment, and realized net. Per-transaction figures remain components:
+a uniformly priced cross-subsidized bundle can make one receipt look
+loss-making even when that call belongs to the most profitable aggregate
+prefix. Add startup reconciliation of unresolved sent hashes and persist
+deployment SHA, source digest, policy fingerprint, region, and image digest.
+
+### P2 — Keep TypeScript and Railway; do not deploy an executor yet
+
+Status: decision recorded; revisit only with contrary measurements.
+
+TypeScript/Node is appropriate for the current I/O-bound workload. CPU stays
+below `0.03 vCPU`, while remote head, RPC, simulation, and relay calls consume
+seconds. A Rust or Go rewrite would add economic and ABI/receipt risk while
+recovering milliseconds at most.
+
+Railway is not the measured bottleneck and the single-worker/PostgreSQL-lease
+topology has produced healthy takeovers and material profit. Keep it while
+instrumenting provider/relay latency. Then compare read-only shadow probes from
+US West, US East, and Europe before moving the sole signer. Add a CI gate,
+source-SHA injection, pinned Node image digest, and a health signal for last
+head/pass, lease, and nonce. Do not run active-active signers.
+
+Do not deploy a keeper executor now. Consolidating a three-call ready cycle
+saves at most `42,000` intrinsic gas before wrapper and reward-forwarding
+overhead—about 2.3% of observed cycle gas—and a monolithic call would have
+forfeited five profitable two-call partial-prefix wins in the audited sample.
+It also makes the contract the bounty recipient, creating forwarding, custody,
+code-hash, audit, and receipt-accounting work. Revisit a minimal non-upgradeable
+executor only if fork replays prove a material advantage for a specific lane;
+preserve same-nonce variants for every safe prefix and prohibit arbitrary
+calls, delegatecall, approvals, retained balances, and public submission.
 
 ### P0 — Discover and support the announced PullPool V2
 
@@ -75,7 +197,7 @@ state says otherwise.
 
 ### P0 — Reduce acquisition lifecycle latency
 
-Status: implementation in the working tree; validate and deploy.
+Status: deployed in `7175815`; continue measuring.
 
 The ready acquisition path has a short competitive window. `planJobs` should
 read the acquisition lifecycle first and return a profitable lifecycle plan
@@ -92,7 +214,7 @@ Acceptance:
 
 ### P0 — Optimize marginal standing-order inclusion
 
-Status: implemented and awaiting deployment.
+Status: deployed; continue measuring aggregate prefix outcomes.
 
 A recent three-order bundle was aggregate-positive but contained two
 individually loss-making `0.0001 ETH` receipts. Durable bid telemetry proved
