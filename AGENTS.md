@@ -186,7 +186,9 @@ jq -c 'select(
   .event == "pending_pool_pull_submitted" or
   .event == "pending_pool_pull_backrun_complete" or
   .event == "acquisition_status" or
-  .event == "competitor_bid_observed"
+  .event == "competitor_bid_observed" or
+  .event == "pool_competitor_bid_observed" or
+  .event == "pool_pull_bid_observation"
 )'
 ```
 
@@ -266,6 +268,14 @@ Production PostgreSQL stores:
 - `keeper_events`: append-only structured logs, indexed by time, event, block,
   target block, transaction hash, and job kind
 - `adaptive_bid_state`: durable per-scope/per-target bidding state
+
+After an ordinary PoolPull miss, `pool_competitor_bid_observed` stores the
+winning transaction, round, cranker, gross pool bounty, priority payment,
+direct beneficiary payment, and a pool-reward-normalized bid upper bound.
+`pool_pull_bid_observation` distinguishes a target-block competitor win from a
+miss with no competing pull. These observations are record-only until repeated
+exact evidence supports a separate pool controller; they must not update the
+standing-order controller.
 
 Connect without exposing a connection string:
 

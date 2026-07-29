@@ -197,6 +197,15 @@ export interface KeeperObservedHead {
   readonly baseFeePerGas: bigint | null;
 }
 
+export interface PoolPullBatchOutcome {
+  readonly targetBlock: bigint;
+  readonly attempts: readonly {
+    readonly hash: Hash;
+    readonly roundId: bigint;
+    readonly included: boolean;
+  }[];
+}
+
 export interface StrategyContext {
   readonly publicClient: PublicClient<Transport, Chain>;
   readonly discoveryClient?: PublicClient<Transport, Chain>;
@@ -223,6 +232,9 @@ export interface StrategyContext {
     | undefined;
   readonly observePrivateBatch:
     | ((outcome: PrivateBatchOutcome) => Promise<void>)
+    | undefined;
+  readonly observePoolPullBatch:
+    | ((outcome: PoolPullBatchOutcome) => Promise<void>)
     | undefined;
 }
 
@@ -4306,6 +4318,42 @@ export async function runKeeperPass(
       });
     } catch (error) {
       log("warn", "adaptive_bid_observation_failed", {
+        targetBlock: privateTargetBlock.toString(),
+        reason: errorMessage(error),
+      });
+    }
+  }
+
+  const poolPullAttempts = submitted.flatMap(
+    (submission, index) => {
+      if (
+        submission.request.kind !== "pool_pull" ||
+        submission.request.roundId === undefined
+      ) {
+        return [];
+      }
+      return [
+        {
+          hash: submission.hash,
+          roundId: submission.request.roundId,
+          included:
+            receiptResults[index]?.successful ?? false,
+        },
+      ];
+    },
+  );
+  if (
+    privateTargetBlock !== undefined &&
+    poolPullAttempts.length > 0 &&
+    context.observePoolPullBatch !== undefined
+  ) {
+    try {
+      await context.observePoolPullBatch({
+        targetBlock: privateTargetBlock,
+        attempts: poolPullAttempts,
+      });
+    } catch (error) {
+      log("warn", "pool_pull_bid_observation_failed", {
         targetBlock: privateTargetBlock.toString(),
         reason: errorMessage(error),
       });

@@ -71,6 +71,7 @@ const IMPORTANT_EVENTS = new Set([
   "keeper_batch_submitted",
   "keeper_transaction_expired",
   "keeper_transaction_sent",
+  "pool_competitor_bid_observed",
   "relay_submission_result",
   "signer_lease_acquired",
   "signer_lease_waiting",

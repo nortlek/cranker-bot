@@ -8,9 +8,10 @@ import {
 } from "viem";
 import { describe, expect, it } from "vitest";
 
-import { standingOrderAbi } from "../src/abi.js";
+import { poolAbi, standingOrderAbi } from "../src/abi.js";
 import {
   aggregateKnownCrankFees,
+  aggregatePoolCrankBounties,
   calculateWinningBidBps,
   competitionRegistryBlockNumber,
 } from "../src/competition.js";
@@ -26,6 +27,9 @@ const UNKNOWN_ORDER = getAddress(
 );
 const CALLER = getAddress(
   "0x4444444444444444444444444444444444444444",
+);
+const POOL = getAddress(
+  "0x5555555555555555555555555555555555555555",
 );
 
 describe("competitionRegistryBlockNumber", () => {
@@ -109,5 +113,47 @@ describe("aggregateKnownCrankFees", () => {
       orderCount: 2,
       totalCrankFees: 600_000_000_000_000n,
     });
+  });
+});
+
+describe("aggregatePoolCrankBounties", () => {
+  it("uses only the matching pool and lifecycle round", () => {
+    const bountyLog = (
+      address: Address,
+      roundId: bigint,
+      amount: bigint,
+    ) => ({
+      address,
+      topics: encodeEventTopics({
+        abi: poolAbi,
+        eventName: "CrankBountyPaid",
+        args: {
+          roundId,
+          cranker: CALLER,
+        },
+      }) as [Hex, ...Hex[]],
+      data: encodeAbiParameters(
+        parseAbiParameters("uint256"),
+        [amount],
+      ),
+    });
+
+    expect(
+      aggregatePoolCrankBounties(
+        [
+          bountyLog(POOL, 302n, 800n),
+          bountyLog(POOL, 302n, 400n),
+          bountyLog(POOL, 301n, 900n),
+          bountyLog(ORDER_A, 302n, 1_000n),
+          {
+            address: POOL,
+            topics: ["0x1234"] as readonly Hex[],
+            data: "0x" as Hex,
+          },
+        ],
+        POOL,
+        302n,
+      ),
+    ).toBe(1_200n);
   });
 });

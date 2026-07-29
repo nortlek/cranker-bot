@@ -11,6 +11,7 @@ import {
 
 import {
   factoryAbi,
+  poolAbi,
   standingOrderAbi,
   vaultFactoryAbi,
 } from "./abi.js";
@@ -18,6 +19,9 @@ import type { PrivateBatchOutcome } from "./keeper.js";
 
 const crankedEvent = parseAbiItem(
   "event Cranked(uint256 indexed roundId, uint32 tickets, uint256 cost, uint256 fee, address indexed caller)",
+);
+const pulledEvent = parseAbiItem(
+  "event Pulled(uint256 indexed roundId, uint256 fwaRequestId, uint256 spent, address indexed cranker)",
 );
 const BPS = 10_000n;
 
@@ -41,6 +45,22 @@ export interface WinningBidObservation {
   readonly directBeneficiaryPayment: bigint;
   readonly totalBuilderPayment: bigint;
   readonly winningBidBps: bigint;
+}
+
+export interface WinningPoolPullBidObservation {
+  readonly transactionHash: Hash;
+  readonly roundId: bigint;
+  readonly cranker: Address;
+  readonly grossPoolReward: bigint;
+  readonly priorityPayment: bigint;
+  readonly directBeneficiaryPayment: bigint;
+  readonly totalBuilderPayment: bigint;
+  /**
+   * This is an upper bound when the same transaction earned rewards outside
+   * PullPool, so it is recorded as evidence and is not fed into adaptive
+   * bidding automatically.
+   */
+  readonly winningBidBpsUpperBound: bigint;
 }
 
 export interface CompetitionTraceConfig {
@@ -100,6 +120,39 @@ export function aggregateKnownCrankFees(
     }
   }
   return { orderCount, totalCrankFees };
+}
+
+export function aggregatePoolCrankBounties(
+  logs: readonly {
+    readonly address: Address;
+    readonly data: Hex;
+    readonly topics: readonly Hex[];
+  }[],
+  pool: Address,
+  roundId: bigint,
+): bigint {
+  let total = 0n;
+  for (const entry of logs) {
+    if (entry.address.toLowerCase() !== pool.toLowerCase()) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: poolAbi,
+        data: entry.data,
+        topics: entry.topics as
+          | []
+          | [Hex, ...Hex[]],
+      });
+      if (
+        decoded.eventName === "CrankBountyPaid" &&
+        decoded.args.roundId === roundId
+      ) {
+        total += decoded.args.amount;
+      }
+    } catch {
+      // PullPool emits unrelated lifecycle events in the same receipt.
+    }
+  }
+  return total;
 }
 
 function ceilDivide(numerator: bigint, denominator: bigint): bigint {
@@ -303,6 +356,85 @@ export async function observeWinningCrankBids(
         directBeneficiaryPayment: directPayment,
         totalBuilderPayment: calculated.totalBuilderPayment,
         winningBidBps: calculated.winningBidBps,
+      };
+    }),
+  );
+}
+
+export async function observeWinningPoolPullBids(
+  publicClient: PublicClient<Transport, Chain>,
+  parameters: {
+    readonly targetBlock: bigint;
+    readonly pool: Address;
+    readonly ourTransactionHashes: readonly Hash[];
+    readonly traceConfig: CompetitionTraceConfig;
+  },
+): Promise<readonly WinningPoolPullBidObservation[]> {
+  const [block, pulledLogs] = await Promise.all([
+    publicClient.getBlock({
+      blockNumber: parameters.targetBlock,
+    }),
+    publicClient.getLogs({
+      address: parameters.pool,
+      event: pulledEvent,
+      fromBlock: parameters.targetBlock,
+      toBlock: parameters.targetBlock,
+      strict: true,
+    }),
+  ]);
+  const ourHashes = new Set(
+    parameters.ourTransactionHashes.map((hash) =>
+      hash.toLowerCase(),
+    ),
+  );
+  const competitorPulls = pulledLogs.filter(
+    (
+      entry,
+    ): entry is typeof entry & {
+      readonly transactionHash: Hash;
+    } =>
+      entry.transactionHash !== null &&
+      !ourHashes.has(entry.transactionHash.toLowerCase()),
+  );
+  const baseFeePerGas = block.baseFeePerGas ?? 0n;
+  return Promise.all(
+    competitorPulls.map(async (entry) => {
+      const [receipt, directPayment] = await Promise.all([
+        publicClient.getTransactionReceipt({
+          hash: entry.transactionHash,
+        }),
+        directBeneficiaryPayment(
+          entry.transactionHash,
+          block.miner,
+          parameters.traceConfig,
+        ),
+      ]);
+      const grossPoolReward = aggregatePoolCrankBounties(
+        receipt.logs,
+        parameters.pool,
+        entry.args.roundId,
+      );
+      if (grossPoolReward <= 0n) {
+        throw new Error(
+          `competitor pool pull ${entry.transactionHash} emitted no round-${entry.args.roundId} crank bounty`,
+        );
+      }
+      const calculated = calculateWinningBidBps({
+        totalCrankFees: grossPoolReward,
+        gasUsed: receipt.gasUsed,
+        effectiveGasPrice: receipt.effectiveGasPrice,
+        baseFeePerGas,
+        directBeneficiaryPayment: directPayment,
+      });
+      return {
+        transactionHash: entry.transactionHash,
+        roundId: entry.args.roundId,
+        cranker: entry.args.cranker,
+        grossPoolReward,
+        priorityPayment: calculated.priorityPayment,
+        directBeneficiaryPayment: directPayment,
+        totalBuilderPayment: calculated.totalBuilderPayment,
+        winningBidBpsUpperBound: calculated.winningBidBps,
       };
     }),
   );

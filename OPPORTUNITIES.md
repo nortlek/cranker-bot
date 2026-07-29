@@ -18,10 +18,13 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 15:51 America/Denver, the
-verified snapshot was **$161.91794074 net**, or **64.76%** of the goal, with
-`latest == pending == 528` and net ETH equivalent of
-`0.08582116868446094`. The four receipts at nonces 524–527 increased the
+2026-07-30 23:59 America/Denver**. At 2026-07-29 16:09 America/Denver, the
+verified snapshot was **$164.53681989 net**, or **65.81%** of the goal, with
+`latest == pending == 532` and net ETH equivalent of
+`0.086295005374831518`. Round 302's complete ready chain at nonces 529–531
+retained `0.000469645281310683 ETH` after `0.000724749017084498 ETH` of
+total gas. The immediately preceding standing order at nonce 528 retained
+`0.000004191409059895 ETH`. The four receipts at nonces 524–527 increased the
 wallet by `0.000826081536176772 ETH`; decoded receipt accounting matched
 within `0.000000000001 ETH`. Round 301's
 `processAcquisitions(5) -> syncFwaResult -> settle` chain retained
@@ -112,6 +115,43 @@ Acceptance:
 - if it misses, require the prerequisite to have landed and inspect the
   competing `Pulled` event before changing the 1000-bps bid
 - compare several captured and missed events before enabling adaptive bidding
+
+### P0 — Measure PoolPull clearing prices independently
+
+Status: implementation validated locally; production rollout pending.
+
+The ordinary PoolPull lane had durable bid quotes and expiration events but no
+corresponding clearing-price observation. Its only recent win was a
+cross-subsidized `standing_order -> standing_order -> pool_pull` bundle that
+cleared at an aggregate `2,581 bps`; that aggregate price is not evidence that
+the standalone pool lane itself needed the same bid. The most recent standalone
+attempts at effective `2,001 bps` and later `1,001 bps` expired without
+inclusion, but the bot did not persist whether a competitor pulled in the
+target block or what it paid.
+
+A read-only reconstruction of the last 20 non-keeper pulls across rounds
+281–301 found a bimodal direct-payment market. Eleven cleared at or below
+`940 bps`, two narrowly cleared at `1,002` and `1,004 bps`, and the remaining
+sample included `2,583`, `4,085`, `7,056`, `7,368`, and `7,739 bps`. One
+`15,615 bps` transaction appears cross-subsidized or irrational because its
+direct payment exceeded its PullPool reward and is not usable as standalone
+price evidence. The configured `1,000 bps` quote currently becomes an
+effective `1,001 bps`; raising it would be a bid-ceiling change and is not
+justified from historical reconstruction alone.
+
+After each missed ordinary pool pull, the keeper now reads the exact target
+block's canonical `Pulled` and same-round `CrankBountyPaid` events, receipt,
+base fee, and direct block-beneficiary transfers. It durably records the
+competitor transaction, round, cranker, gross pool reward, priority payment,
+direct payment, and a pool-reward-normalized winning-bid upper bound. The
+measurement is deliberately record-only: a competitor transaction may contain
+rewards outside PullPool, so this upper bound cannot automatically contaminate
+standing-order learning or raise the pool bid.
+
+Next action: compare repeated live observations with the `1,001 bps` misses.
+Only add a separate durable PoolPull controller after exact observations prove
+that a bounded change improves expected retained profit across both the cheap
+and aggressive regimes.
 
 ### P0 — Capture same-block standing-order funding backruns
 
