@@ -17,6 +17,7 @@ import {
 } from "./constants.js";
 
 export const ETHEREUM_TRANSACTION_GAS_LIMIT = 16_777_216;
+export const FWA_PROCESS_DISCOVERY_MAX_COUNT = 50;
 
 export interface KeeperConfig {
   readonly rpcUrl: string;
@@ -538,8 +539,8 @@ export function loadConfig(): KeeperConfig {
     ),
     fwaProcessMaxCount: integerEnv(
       "FWA_PROCESS_MAX_COUNT",
-      5,
-      { min: 1, max: 50 },
+      FWA_PROCESS_DISCOVERY_MAX_COUNT,
+      { min: 1, max: FWA_PROCESS_DISCOVERY_MAX_COUNT },
     ),
     buybackGasLimit: BigInt(
       integerEnv("BUYBACK_GAS_LIMIT", 700_000, {

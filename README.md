@@ -354,9 +354,10 @@ successful `crank` fees are sent to that keeper address.
   signed dependency-safe bundle is still exact-simulated and required to be
   profitable after actual simulated gas and builder payment.
 - `FWA_PROCESS_MAX_COUNT`: maximum ready acquisition sequence prefix the
-  keeper may clear to reach its pool request. The default is `5`; the call must
-  report that the full prefix processed before it can be bundled with
-  `syncFwaResult`.
+  keeper searches to reach its pool request. The default is `50`; the call
+  must report that the full required prefix processed, remain under Ethereum's
+  transaction gas cap, and pass exact bundle economics before it can be
+  bundled with `syncFwaResult`.
 - `BUYBACK_GAS_LIMIT`: safety ceiling for the separately estimated buyback.
 - `LIVE_BID_SWEEP_GAS_LIMIT`: adapter safety ceiling; the default 250k is well
   above its observed roughly 83k–96k gas usage.

@@ -1068,6 +1068,8 @@ async function main(): Promise<void> {
     liveBidAdapter: config.liveBidAdapterAddress,
     poolBountyEstimateBps:
       config.poolBountyEstimateBps.toString(),
+    fwaProcessGasLimit: config.fwaProcessGasLimit.toString(),
+    fwaProcessMaxCount: config.fwaProcessMaxCount,
     discordNotifications: discordNotifier !== undefined,
     durableTelemetry: telemetrySink !== undefined,
     sourceRevision: sourceRevision ?? "",

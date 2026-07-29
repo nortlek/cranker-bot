@@ -102,7 +102,8 @@ Live prerequisites:
 
 ### P0 — Replace the standing-order bid floor with bounded price discovery
 
-Status: deployed and measuring; follow-up correction validated locally.
+Status: deployed and measuring; provider-race correction deployed in Railway
+deployment `b18df13b-45b3-487d-9221-f5ce9f5309ed`.
 
 The previous per-order controller started at `8,644 bps` and could learn upward,
 but its downward decay stopped at that same value. In the 24 hours ending
@@ -205,12 +206,12 @@ bounded at `2,000 bps`. Repricing all 48 historical quotes at that level left a
 minimum expected profit of `0.00069927 ETH` and a median of
 `0.00095048 ETH`. Ready and fulfilled lifecycle bids remain unchanged.
 
-### P0 — Remove the arbitrary FWA processor gas cutoff
+### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 
-Status: deployed to production on 2026-07-29 in Railway deployment
+Status: gas cutoff deployed to production on 2026-07-29 in Railway deployment
 `907570f9-3c4c-4faf-9b50-7ace142d8fd8` from commit
-`f18cc0eb72b180275e78acb3f013d7f6c740e378`; monitor the next high-count ready
-cycle.
+`f18cc0eb72b180275e78acb3f013d7f6c740e378`; wider queue discovery validated
+locally and pending deployment.
 
 The ready-cycle planner previously rejected a directly estimated
 `processAcquisitions` call when its buffered gas exceeded `3,000,000`, before
@@ -228,6 +229,18 @@ submission. The default processor ceiling is therefore Ethereum's
 signer-balance gate, exact signed-prefix simulation, aggregate profit gate, and
 private one-block expiry remain unchanged. Estimates above the protocol cap
 still fail closed.
+
+The same planner searched only the first five queued request IDs. A 20,000
+block event reconstruction matched 285 PullPool requests to their
+`AcquisitionProcessed` sequence positions: 13 were beyond position five, with
+a maximum position of ten. Seven recent ready rounds—259, 260, 261, 263, 264,
+270, and 272—were at positions six through nine and therefore could not reach
+simulation under the old default. Exact historical replay at each last
+eligible block processed the full required prefix, with buffered gas from
+`2,248,056` through `9,696,305`, all below the protocol cap. The discovery
+window is now 50. That is only a read/simulation bound: the required count,
+complete return value, protocol gas cap, signed-prefix simulation, signer
+balance, and aggregate profitability still fail closed before submission.
 
 ### P0 — Replace polling and synchronous full scans on the hot path
 
