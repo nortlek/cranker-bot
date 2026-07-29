@@ -3181,9 +3181,43 @@ async function planJobs(parameters: {
         skipped,
       }),
   );
+  const fundingPrimaryPromise = trackPlanner(
+    "fundingPrimary",
+    async () => {
+      const [candidates, fundingRound] = await Promise.all([
+        candidatesPromise,
+        fundingRoundPromise,
+      ]);
+      let fundingPrimary:
+        | Awaited<ReturnType<typeof planPrimaryJobs>>
+        | undefined;
+      if (
+        routing.fundingRoundId !== undefined &&
+        routing.fundingRoundId !== routing.lifecycleRoundId &&
+        fundingRound !== undefined
+      ) {
+        fundingPrimary = await planPrimaryJobs({
+          ...plannerBase,
+          candidates,
+          roundCount: routing.fundingRoundId,
+          round: fundingRound,
+        });
+      } else if (
+        routing.lifecycleRoundId === undefined &&
+        routing.fundingRoundId === undefined
+      ) {
+        fundingPrimary = await planPrimaryJobs({
+          ...plannerBase,
+          candidates,
+          roundCount: 0n,
+          round: undefined,
+        });
+      }
+      return { candidates, fundingPrimary };
+    },
+  );
   const [
-    candidates,
-    fundingRound,
+    { candidates, fundingPrimary },
     liquity,
     convex,
     convexKick,
@@ -3192,8 +3226,7 @@ async function planJobs(parameters: {
     buyback,
     liveBidSweep,
   ] = await Promise.all([
-      candidatesPromise,
-      fundingRoundPromise,
+      fundingPrimaryPromise,
       liquityPromise,
       convexPromise,
       convexKickPromise,
@@ -3225,32 +3258,6 @@ async function planJobs(parameters: {
     ...plannerDurations,
   });
   lastKnownOrderCount = candidates.length;
-
-  let fundingPrimary:
-    | Awaited<ReturnType<typeof planPrimaryJobs>>
-    | undefined;
-  if (
-    routing.fundingRoundId !== undefined &&
-    routing.fundingRoundId !== routing.lifecycleRoundId &&
-    fundingRound !== undefined
-  ) {
-    fundingPrimary = await planPrimaryJobs({
-      ...plannerBase,
-      candidates,
-      roundCount: routing.fundingRoundId,
-      round: fundingRound,
-    });
-  } else if (
-    routing.lifecycleRoundId === undefined &&
-    routing.fundingRoundId === undefined
-  ) {
-    fundingPrimary = await planPrimaryJobs({
-      ...plannerBase,
-      candidates,
-      roundCount: 0n,
-      round: undefined,
-    });
-  }
 
   const alternatives: Array<{
     readonly jobs: readonly KeeperJob[];
