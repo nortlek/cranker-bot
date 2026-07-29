@@ -40,10 +40,14 @@ import {
   setLogSink,
   withLogContext,
 } from "./format.js";
-import { LatestHeadSignal } from "./heads.js";
+import {
+  LatestHeadSignal,
+  retryTransientRead,
+} from "./heads.js";
 import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
   estimatedJobReward,
+  isFreshBlockStateUnavailable,
   runKeeperPass,
   scheduleColdPlannerRefresh,
   type StrategyContext,
@@ -828,23 +832,42 @@ async function main(): Promise<void> {
           const observedBidsByOrder = new Map<string, bigint>();
           if (!fullWin) {
             try {
-              const observations = await observeWinningCrankBids(
-                publicClient,
-                outcome,
-                {
-                  url: config.competitorTraceUrl,
-                  timeoutMs: config.competitorTraceTimeoutMs,
-                  retries: config.competitorTraceRetries,
-                  retryDelayMs:
-                    config.competitorTraceRetryDelayMs,
-                },
-                {
-                  factoryAddress: config.factoryAddress,
-                  vaultFactoryAddress: config.enableVaults
-                    ? config.vaultFactoryAddress
-                    : undefined,
-                },
-              );
+              const observationRead = await retryTransientRead({
+                read: () =>
+                  observeWinningCrankBids(
+                    publicClient,
+                    outcome,
+                    {
+                      url: config.competitorTraceUrl,
+                      timeoutMs:
+                        config.competitorTraceTimeoutMs,
+                      retries: config.competitorTraceRetries,
+                      retryDelayMs:
+                        config.competitorTraceRetryDelayMs,
+                    },
+                    {
+                      factoryAddress: config.factoryAddress,
+                      vaultFactoryAddress: config.enableVaults
+                        ? config.vaultFactoryAddress
+                        : undefined,
+                    },
+                  ),
+                shouldRetry: isFreshBlockStateUnavailable,
+                maxAttempts: 11,
+                retryDelayMs: 100,
+              });
+              if (observationRead.attempts > 1) {
+                log(
+                  "info",
+                  "competitor_bid_state_availability_waited",
+                  {
+                    targetBlock: outcome.targetBlock.toString(),
+                    readAttempts: observationRead.attempts,
+                    availabilityWaitMs: observationRead.waitedMs,
+                  },
+                );
+              }
+              const observations = observationRead.value;
               for (const observation of observations) {
                 log("info", "competitor_bid_observed", {
                   targetBlock: outcome.targetBlock.toString(),

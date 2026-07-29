@@ -227,6 +227,19 @@ most ten 100 ms waits. It never changes the block or provider, and unrelated or
 persistent invalid-parameter failures still fail closed. Successful waits emit
 `planning_state_availability_waited` and planning attempt/wait fields.
 
+The same state-publication race also applies immediately after a target block.
+At block `25639870`, all four relay paths accepted every safe prefix of a
+six-order `6,988 bps` batch, but none landed. The post-block competitor
+observer immediately queried the exact block and received the same nested
+invalid-parameters error, so the adaptive controller lacked clearing-price
+evidence. Re-reading the identical block later succeeded and found no
+competitor crank for the attempted orders; a two-order retry won the next
+block at `7,162 bps`. Competitor observation now applies the same narrow,
+same-provider, same-block maximum of ten 100 ms waits and emits
+`competitor_bid_state_availability_waited` when exercised. Persistent or
+unrelated errors still leave the batch unmeasured and do not alter a ceiling
+from invented evidence.
+
 Live timing then exposed a separate zero-submission delay. At block
 `25639710`, the exact ready-chain simulation correctly rejected the bundle
 because its `0.001134976261628922 ETH` gross reward could not cover

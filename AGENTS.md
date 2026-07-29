@@ -417,8 +417,11 @@ These constraints prevent expensive or unsafe regressions:
   authoritative HTTP RPC and pin core pool, lifecycle, order/vault, and
   prefilter reads to it; never substitute a later `"latest"` response. Discard
   the plan if the head changes before nonce gating, and never submit after its
-  target block arrives. Retry only a classified exact-block `BlockNotFound`
-  during the bounded publication-skew window.
+  target block arrives. Retry an exact header only for classified
+  `BlockNotFound`. Exact-block planning and post-block competitor-state reads
+  may retry only the observed nested RPC `-32602` detail
+  `Missing or invalid parameters.` against the same block and provider during
+  their bounded publication-skew windows.
 - The exact signed bundle and every economically safe prefix are simulated
   before submission.
 - Private one-block bundles are the default. A missed bundle expires and must
