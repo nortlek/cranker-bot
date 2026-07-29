@@ -62,7 +62,7 @@ describe("isFreshBlockStateUnavailable", () => {
     }
   });
 
-  it("recognizes the provider's exact -32000 publication-lag signature", () => {
+  it("recognizes viem's typed -32000 fresh-state error", () => {
     const requestError = new RpcRequestError({
       body: {
         method: "eth_call",
@@ -70,7 +70,7 @@ describe("isFreshBlockStateUnavailable", () => {
       },
       error: {
         code: InvalidInputRpcError.code,
-        message: "Missing or invalid parameters.",
+        message: "state backend has not indexed the block",
       },
       url: "https://example.invalid",
     });
@@ -106,7 +106,7 @@ describe("isFreshBlockStateUnavailable", () => {
       ),
     ).toBe(false);
 
-    const unrelatedInputError = new RpcRequestError({
+    const untypedInputError = new RpcRequestError({
       body: {
         method: "eth_call",
         params: [],
@@ -118,9 +118,7 @@ describe("isFreshBlockStateUnavailable", () => {
       url: "https://example.invalid",
     });
     expect(
-      isFreshBlockStateUnavailable(
-        new InvalidInputRpcError(unrelatedInputError),
-      ),
+      isFreshBlockStateUnavailable(untypedInputError),
     ).toBe(false);
   });
 });

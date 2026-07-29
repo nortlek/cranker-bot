@@ -578,11 +578,15 @@ those responses as `InvalidInputRpcError[-32000]` rather than
 `InvalidParamsRpcError[-32602]`. The identical block path recovered on a later
 pass, and the block-94 failure preceded a successful round-300 lifecycle
 submission at block 95. Exact fixed-block reads now include only that typed
-`-32000` class when its detail exactly matches the already observed
-publication-lag messages. Other `-32000` classes and messages remain immediate
-failures; retries remain pinned to the same provider and block for at most ten
-100 ms waits.
-The repair is live in Railway deployment
+`-32000` class; raw/untyped `-32000` errors remain immediate failures and
+retries remain pinned to the same provider and block for at most ten 100 ms
+waits. The first message-gated implementation did not catch block `25641158`:
+viem generated its generic short message at the typed wrapper while retaining
+a different provider detail underneath. That identical block succeeded two
+seconds later. The corrected boundary uses the typed class itself; a false
+classification can delay a read-only pass by at most one second and cannot
+authorize submission.
+The first message-gated repair was deployed in Railway deployment
 `68e5fc1f-4971-4773-9d87-eed977beb011` from exact source
 `daec80fda95b8d0fecfc063ec4bd93db22111cc4`. PostgreSQL showed one open run
 and one granted advisory signer lock after the rollout; the first subscribed

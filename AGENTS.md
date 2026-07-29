@@ -110,8 +110,8 @@ worker exits for a supervised restart instead of silently degrading to a
 second head path. Exact fixed-block state reads tolerate up to one second of
 publication skew by retrying only classified `BlockNotFound`, the observed
 provider `-32602` fresh-state messages, and viem's typed
-`InvalidInputRpcError[-32000]` when its detail is exactly one of those same
-messages; all other errors remain immediate failures. The same WebSocket
+`InvalidInputRpcError[-32000]`; raw or untyped `-32000` errors and all other
+classes remain immediate failures. The same WebSocket
 signal wakes private target-block receipt finalization, after which HTTP must
 serve that exact target block before receipts are classified. Never print
 either endpoint.
@@ -482,10 +482,9 @@ These constraints prevent expensive or unsafe regressions:
   after its target block arrives. Exact-block planning and post-block
   competitor-state reads may retry only classified `BlockNotFound`, the
   observed nested RPC `-32602` detail, or typed
-  `InvalidInputRpcError[-32000]` with the exact detail
-  `Missing or invalid parameters.` against the same block and provider during
-  their bounded publication-skew windows. Do not classify other `-32000`
-  errors or messages as publication lag.
+  `InvalidInputRpcError[-32000]` against the same block and provider during
+  their bounded publication-skew windows. Do not classify raw/untyped
+  `-32000` errors as publication lag.
 - The exact signed bundle and every economically safe prefix are simulated
   before submission.
 - Private one-block bundles are the default. A missed bundle expires and must

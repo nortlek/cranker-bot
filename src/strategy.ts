@@ -516,13 +516,15 @@ export function isFreshBlockStateUnavailable(
   error: unknown,
 ): boolean {
   if (!(error instanceof BaseError)) return false;
+  const invalidInput = error.walk(
+    (candidate) => candidate instanceof InvalidInputRpcError,
+  );
+  if (invalidInput instanceof InvalidInputRpcError) return true;
   const providerError = error.walk(
     (candidate) =>
       candidate instanceof InvalidParamsRpcError ||
-      candidate instanceof InvalidInputRpcError ||
       (candidate instanceof RpcRequestError &&
-        (candidate.code === InvalidParamsRpcError.code ||
-          candidate.code === InvalidInputRpcError.code)),
+        candidate.code === InvalidParamsRpcError.code),
   );
   if (!(providerError instanceof BaseError)) return false;
   const details = providerError.details ?? "";
