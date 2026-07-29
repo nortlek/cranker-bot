@@ -493,10 +493,15 @@ emitted once per pass as `keeper_planner_timing`.
 The first live WebSocket window also exposed cross-provider publication skew:
 three subscribed heads reached Alchemy before the public HTTP endpoint could
 serve the same numbered block, causing a full two-second pass retry. The
-authoritative fixed-block read now retries only viem's classified
-`BlockNotFound` error at 100 ms intervals for up to one second and emits
-`blockReadAttempts` plus `blockAvailabilityWaitMs`. It does not substitute
-`latest`, switch providers, or retry unrelated RPC failures.
+provider initially represented this as viem's classified `BlockNotFound`.
+Later, at blocks `25640490` and `25640617`, the exact header read instead
+returned RPC `-32602` with the already-observed provider detail
+`Missing or invalid parameters.`; the whole pass failed, then the identical
+block succeeded two seconds later. Both the authoritative head read and the
+post-target exact-block read now recognize those two narrowly classified
+fresh-state errors. They retry the same provider and same block at 100 ms
+intervals for at most ten waits and emit attempt and wait timing. They do not
+substitute `latest`, switch providers, or retry unrelated RPC failures.
 
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five

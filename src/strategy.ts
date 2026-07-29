@@ -523,6 +523,15 @@ export function isFreshBlockStateUnavailable(
   );
 }
 
+export function isFreshBlockReadUnavailable(
+  error: unknown,
+): boolean {
+  return (
+    isBlockNotFound(error) ||
+    isFreshBlockStateUnavailable(error)
+  );
+}
+
 async function getOrderCandidates(
   client: PublicClient<Transport, Chain>,
   factoryAddress: Address,
@@ -3464,7 +3473,7 @@ export async function runKeeperPass(
         context.publicClient.getBlock({
           blockNumber: context.headBlockNumber,
         }),
-      shouldRetry: isBlockNotFound,
+      shouldRetry: isFreshBlockReadUnavailable,
       maxAttempts: 11,
       retryDelayMs: 100,
     }),
@@ -3934,7 +3943,7 @@ export async function runKeeperPass(
         context.publicClient.getBlock({
           blockNumber: privateTargetBlock,
         }),
-      shouldRetry: isBlockNotFound,
+      shouldRetry: isFreshBlockReadUnavailable,
       maxAttempts: 11,
       retryDelayMs: 100,
     });

@@ -1,4 +1,5 @@
 import {
+  BlockNotFoundError,
   InvalidParamsRpcError,
   RpcRequestError,
 } from "viem";
@@ -6,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   highestPositiveClaimableIndexes,
+  isFreshBlockReadUnavailable,
   isFreshBlockStateUnavailable,
   estimatedJobReward,
   maximumFundableGasEnvelope,
@@ -18,6 +20,14 @@ const POOL =
   "0x1111111111111111111111111111111111111111" as const;
 
 describe("isFreshBlockStateUnavailable", () => {
+  it("recognizes viem's ordinary exact-block publication lag", () => {
+    expect(
+      isFreshBlockReadUnavailable(
+        new BlockNotFoundError({ blockNumber: 25_640_617n }),
+      ),
+    ).toBe(true);
+  });
+
   it("recognizes the provider race observed after a fresh header", () => {
     for (const message of [
       "Missing or invalid parameters.",
@@ -37,6 +47,11 @@ describe("isFreshBlockStateUnavailable", () => {
 
       expect(
         isFreshBlockStateUnavailable(
+          new InvalidParamsRpcError(requestError),
+        ),
+      ).toBe(true);
+      expect(
+        isFreshBlockReadUnavailable(
           new InvalidParamsRpcError(requestError),
         ),
       ).toBe(true);
