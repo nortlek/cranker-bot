@@ -16,6 +16,7 @@
     "inspect": "tsx src/inspect.ts",
     "inspect:aura-earmarks": "tsx scripts/inspect-aura-earmarks.ts",
     "inspect:maker-barks": "tsx scripts/inspect-maker-barks.ts",
+    "inspect:robinhood": "tsx scripts/inspect-robinhood-stonkpit.ts",
     "start": "tsx src/main.ts",
     "start:prod": "node dist/main.js",
     "test": "vitest run",

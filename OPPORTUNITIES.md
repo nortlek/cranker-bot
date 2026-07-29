@@ -41,6 +41,65 @@ before reporting progress or deploying.
 
 ## Immediate engineering queue
 
+### P0 — StonkPit fee-collection crank on Robinhood Chain
+
+Status: target, ABI, payout, history, and competition verified; read-only
+inspector implemented. Live execution remains disabled.
+
+Robinhood Chain mainnet is an Arbitrum Nitro L2 with chain ID `4663`, ETH as
+its gas token, the public RPC `https://rpc.mainnet.chain.robinhood.com`, and
+Blockscout at `https://robinhoodchain.blockscout.com`. Its documented
+first-come-first-served ordering means a higher fee cannot bypass an earlier
+transaction. Latency, stale-state protection, and expected value matter here;
+Ethereum builder bidding does not.
+
+The permissionless entrypoint is
+`StonkPitLocker.collect(address tipTo)` (`0x06ec16f8`) at
+`0xDeb8d589251717e367d0f3E9dDE5D4dB63968B40`. The user-supplied
+`0xe934e36a439c94017b64a3fece66af12099abf50` is the StonkBroker collection
+token, not the crank target. The locker pays `tipTo` 1% of collected native
+ETH, sends the post-tip ETH 70/30 to the merchant/treasury, and refills the
+green/blue mines with the collected DERP token in a 5:1 ratio.
+
+`collect` reverts only when both ETH and DERP collection are zero. A DERP-only
+or tiny-ETH collection can therefore succeed while losing gas. The user-linked
+transaction `0x8ff04cc39b1dac6bb16a02e5910a5216946ead38ca76a692b2ea6aa00502dd35`
+collected `0.000711473512236046 ETH`, paid a
+`0.000007114735122360 ETH` tip, spent `0.000004978334942 ETH` in gas, and
+netted only `0.000002136400180360 ETH`.
+
+A scan from the first observed successful collection through block `22635502`
+found 273 successes: 176 profitable and 97 unprofitable after receipt gas.
+Gross tips were `0.013750746559413902 ETH`, successful gas was
+`0.001378067039562 ETH`, and successful-only net was
+`0.012372679519851902 ETH` before failed-race gas. Blockscout also showed 23
+failed crank transactions costing `0.000072785051656 ETH`. The distribution is
+highly skewed by early outliers; recent samples are much thinner. In the eight
+user-supplied clue blocks plus the linked transaction, aggregate net was just
+`0.000047302406830197 ETH`, and one of nine calls lost money.
+
+Use `npm run inspect:robinhood` for a current read-only simulation and bounded
+history/competitor sample. Optional knobs are `ROBINHOOD_RPC_URL`,
+`ROBINHOOD_LOOKBACK_BLOCKS`, `ROBINHOOD_MAX_RECEIPTS`, and
+`ROBINHOOD_MAX_BLOCKSCOUT_PAGES`.
+
+Live prerequisites:
+
+1. Add a minimal immutable guard contract that calls the locker with the EOA
+   as `tipTo` and reverts unless returned `ethTotal` meets a caller-supplied
+   minimum. This prevents successful token-only/tiny-tip losses but cannot
+   avoid gas spent losing a stale race.
+2. Run an observer to measure signal-to-inclusion latency, contemporaneous
+   competitor win rate, and expected profit after both successful and failed
+   calls. Gate on expected value rather than simulated profit alone.
+3. Use a separate Railway worker and dedicated gas-only signer, with explicit
+   Robinhood chain configuration and chain-scoped lease/telemetry identity.
+   Do not mix this public FCFS lane into the Ethereum/Flashbots signer.
+4. Obtain explicit authorization for public sequencer submission and signer
+   funding before enabling it. No private Robinhood submission path has been
+   verified, and the current operating boundary forbids switching to public
+   submission.
+
 ### P0 — Replace the standing-order bid floor with bounded price discovery
 
 Status: deployed and measuring; follow-up correction validated locally.
