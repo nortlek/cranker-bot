@@ -566,8 +566,8 @@ At the last handoff, the configured policy was approximately:
 | Standing-order learned maximum in use | 94.54% |
 | Pending-funding standing-order backrun | 10% |
 | Pool pull | 10% |
-| Pool acquisition ready | 5% |
-| Pool acquisition fulfilled | 5% |
+| Pool acquisition ready | 3% |
+| Pool acquisition fulfilled | 3% |
 | LiveBid sweep | 1% |
 | Liquity V2 | 81% |
 | Convex | 10% |

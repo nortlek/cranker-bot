@@ -178,10 +178,13 @@ describe("direct coinbase payments", () => {
 });
 
 describe("ready acquisition bidding", () => {
-  it("defaults to the evidence-backed five-percent builder bid", () => {
+  it("defaults just above the observed incumbent bid", () => {
     delete process.env.POOL_BUILDER_BID_BPS;
+    delete process.env.POOL_FULFILLED_BUILDER_BID_BPS;
 
-    expect(loadConfig().poolBuilderBidBps).toBe(500n);
+    const config = loadConfig();
+    expect(config.poolBuilderBidBps).toBe(300n);
+    expect(config.poolFulfilledBuilderBidBps).toBe(300n);
   });
 });
 

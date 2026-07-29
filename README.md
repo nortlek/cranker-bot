@@ -263,7 +263,8 @@ successful `crank` fees are sent to that keeper address.
 - `BUILDER_BID_BPS`: starting bid and lower bound for every order. The default
   is `8100` (81%).
 - `POOL_BUILDER_BID_BPS`: builder share for a ready
-  `processAcquisitions → sync → settle` chain. The default is `500` (5%).
+  `processAcquisitions → sync → settle` chain. The default is `300` (3%),
+  just above the incumbent's observed 2.5% direct Titan payment.
 - `POOL_PULL_BUILDER_BID_BPS`: independent builder share for `pull`. The
   default is `1000` (10%). Exact standalone-pull traces show this clears the
   low-bid cluster without paying into the near-zero-margin high-bid cluster.

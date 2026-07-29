@@ -1137,6 +1137,18 @@ lanes independent. This is a bounded retention improvement, not a bid-ceiling
 increase; exact signed-bundle simulation and the positive-profit floor remain
 unchanged.
 
+The subsequent 24-hour durable sample contained 82 successful public
+processors and 82 sync receipts. Successful lifecycle receipts paid
+`0.092500772128840316 ETH` gross and retained
+`0.067371634907351517 ETH` after processor, sync, and settle gas. The direct
+relay sample still contains no evidenced ready-cycle clearing price above the
+incumbent's `250 bps`; all eight previously measured cycles won, including the
+profit-capped `435 bps` bundle. Ready and fulfilled policies are therefore
+reduced together from `500` to **`300 bps`**, preserving a 50-bps margin over
+the incumbent. At the sampled volume, retaining the additional two percentage
+points is about `0.001850015442576806 ETH` per day if inclusion is unchanged.
+The separately reconstructed standalone-pull market remains at `1,000 bps`.
+
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the
 decoded `AcquisitionsSponsored` reimbursement. Never attempt the service call
