@@ -77,7 +77,7 @@ changing the hard minimum or the existing maximum.
 Competitor observations must use every known `Cranked` fee in the winning
 transaction, not only fees for orders that happened to be present in our
 losing batch. At block `25639742`, competitor transaction
-`0x127b5d66a90ab352be089a9ee55bdc0fe6386994dbc08e77ac56b15a2fb14bd8`
+`0x127b5dfbcfb9c593cc6039873fb9282cbde0299a9b5823a474514991df6ddbf8`
 cranked two known orders for `0.0006 ETH` total fees and paid
 `0.000460659240652228 ETH` to the builder. The old observer saw only the
 attempted order's `0.0003 ETH` fee, reported an impossible `15,356 bps`, and
