@@ -294,6 +294,7 @@ export interface PoolPullBatchOutcome {
 export interface StrategyContext {
   readonly publicClient: PublicClient<Transport, Chain>;
   readonly discoveryClient?: PublicClient<Transport, Chain>;
+  readonly exactStateTransport?: "http" | "websocket";
   readonly headBlockNumber: bigint;
   readonly observedHead?: KeeperObservedHead;
   readonly account: Account | Address;
@@ -3942,6 +3943,8 @@ export async function runKeeperPass(
     durationMs: performance.now() - headAndFeesStartedAt,
     planningHeaderSource: planningBlockRead.source,
     feeQuoteSource: feeQuote.source,
+    exactStateTransport:
+      context.exactStateTransport ?? "unspecified",
     blockReadAttempts: planningBlockRead.attempts,
     blockAvailabilityWaitMs: planningBlockRead.waitedMs,
     planningBlock: latestBlock.number.toString(),
@@ -4001,6 +4004,8 @@ export async function runKeeperPass(
       planningBlock: latestBlock.number.toString(),
       planningReadAttempts: planningRead.attempts,
       planningAvailabilityWaitMs: planningRead.waitedMs,
+      exactStateTransport:
+        context.exactStateTransport ?? "unspecified",
     });
   }
   log("info", "keeper_pass_stage_timing", {
@@ -4009,6 +4014,8 @@ export async function runKeeperPass(
     planningBlock: latestBlock.number.toString(),
     planningReadAttempts: planningRead.attempts,
     planningAvailabilityWaitMs: planningRead.waitedMs,
+    exactStateTransport:
+      context.exactStateTransport ?? "unspecified",
     plannedJobs: plan.jobs.length,
     minimumViablePrefix: plan.minimumViablePrefix,
   });

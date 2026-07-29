@@ -61,6 +61,7 @@ import {
 } from "./format.js";
 import {
   LatestHeadSignal,
+  parseNewHeadsPayload,
   retryTransientRead,
 } from "./heads.js";
 import { executePendingFundingBackrun } from "./pending-funding-backrun.js";
@@ -258,6 +259,9 @@ async function main(): Promise<void> {
       timeout: 20_000,
     }),
   });
+  let exactStateClient: StrategyContext["publicClient"] =
+    publicClient;
+  let exactStateTransport: "http" | "websocket" = "http";
   const discoveryClient =
     config.discoveryRpcUrl === config.rpcUrl
       ? publicClient
@@ -296,37 +300,58 @@ async function main(): Promise<void> {
       chain: mainnet,
       transport: headTransport,
     });
-    const unwatch = headClient.watchBlocks({
-      poll: false,
-      onBlock: (block) => {
-        latestSubscribedHead = {
-          number: block.number,
-          hash: block.hash,
-          timestamp: block.timestamp,
-          baseFeePerGas: block.baseFeePerGas,
-        };
-        headSignal.observe(block.number);
-        signerCoordinator.observeHead(block.number);
-        log("debug", "head_subscription_observed", {
-          block: block.number.toString(),
-          blockHash: block.hash,
-          headTimestamp: block.timestamp.toString(),
-          headAgeMs:
-            Date.now() - Number(block.timestamp) * 1_000,
-        });
-      },
-      onError: (error) => {
-        log("warn", "head_subscription_failed", {
-          errorClass: relayFailureClass(errorMessage(error)),
-          action: "reconnecting_or_watchdog_restart",
-        });
-      },
-    });
+    exactStateClient = headClient;
+    exactStateTransport = "websocket";
+    const headSubscription =
+      await headClient.transport.subscribe({
+        params: ["newHeads"],
+        onData: (data) => {
+          let block: KeeperObservedHead;
+          try {
+            block = parseNewHeadsPayload(data.result);
+          } catch (error) {
+            log("warn", "head_subscription_payload_invalid", {
+              ...errorFingerprint(error),
+              action: "ignored_malformed_head",
+            });
+            return;
+          }
+          latestSubscribedHead = {
+            number: block.number,
+            hash: block.hash,
+            timestamp: block.timestamp,
+            baseFeePerGas: block.baseFeePerGas,
+          };
+          headSignal.observe(block.number);
+          signerCoordinator.observeHead(block.number);
+          log("debug", "head_subscription_observed", {
+            block: block.number.toString(),
+            blockHash: block.hash,
+            headTimestamp: block.timestamp.toString(),
+            headAgeMs:
+              Date.now() -
+              Number(block.timestamp) * 1_000,
+          });
+        },
+        onError: (error) => {
+          log("warn", "head_subscription_failed", {
+            errorClass: relayFailureClass(
+              errorMessage(error),
+            ),
+            ...errorFingerprint(error),
+            action: "reconnecting_or_watchdog_restart",
+          });
+        },
+      });
     let headSubscriptionClosed = false;
     closeHeadSubscription = async (): Promise<void> => {
       if (headSubscriptionClosed) return;
       headSubscriptionClosed = true;
-      unwatch();
+      try {
+        await headSubscription.unsubscribe();
+      } catch {
+        // A disconnected socket has no live subscription to remove.
+      }
       headSignal.close();
       try {
         const rpcClient = await headClient.transport.getRpcClient();
@@ -2035,6 +2060,7 @@ async function main(): Promise<void> {
     fwaProcessMaxCount: config.fwaProcessMaxCount,
     discordNotifications: discordNotifier !== undefined,
     durableTelemetry: telemetrySink !== undefined,
+    exactStateTransport,
     sourceRevision: sourceRevision ?? "",
     deploymentId: deploymentId ?? "",
   });
@@ -2108,9 +2134,10 @@ async function main(): Promise<void> {
               await assertSignerLeaseHeld();
             }
             const passResult = await runKeeperPass({
-              publicClient,
+              publicClient: exactStateClient,
               discoveryClient,
               headBlockNumber: block,
+              exactStateTransport,
               ...(observedHead === undefined
                 ? {}
                 : { observedHead }),

@@ -2,8 +2,50 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   LatestHeadSignal,
+  parseNewHeadsPayload,
   retryTransientRead,
 } from "../src/heads.js";
+
+describe("parseNewHeadsPayload", () => {
+  it("uses the raw subscription header without fetching the block", () => {
+    expect(
+      parseNewHeadsPayload({
+        number: "0x1872f30",
+        hash:
+          "0x1111111111111111111111111111111111111111111111111111111111111111",
+        timestamp: "0x68d4a25f",
+        baseFeePerGas: "0x59682f00",
+        transactionsRoot:
+          "0x2222222222222222222222222222222222222222222222222222222222222222",
+      }),
+    ).toEqual({
+      number: 25_636_656n,
+      hash:
+        "0x1111111111111111111111111111111111111111111111111111111111111111",
+      timestamp: 1_758_765_663n,
+      baseFeePerGas: 1_500_000_000n,
+    });
+  });
+
+  it("fails closed on an incomplete or malformed header", () => {
+    expect(() =>
+      parseNewHeadsPayload({
+        number: "0x10",
+        hash: "0x1234",
+        timestamp: "0x20",
+        baseFeePerGas: "0x30",
+      }),
+    ).toThrow("invalid hash");
+    expect(() =>
+      parseNewHeadsPayload({
+        number: "0x10",
+        hash:
+          "0x1111111111111111111111111111111111111111111111111111111111111111",
+        baseFeePerGas: "0x30",
+      }),
+    ).toThrow("invalid timestamp");
+  });
+});
 
 describe("LatestHeadSignal", () => {
   it("keeps only the newest observed head", () => {

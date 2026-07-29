@@ -626,9 +626,16 @@ fetched is retried; a plan is discarded if a newer head exists before nonce
 gating, and a bundle is discarded if its target block arrives before relay
 submission.
 
-`WS_URL` now drives the production head wake-up while the public HTTP endpoint
-continues to fetch authoritative exact blocks and perform every simulation and
-staleness check. This is deliberately not a silent polling fallback: after
+`WS_URL` now drives the production head wake-up. A four-head exact-state
+comparison found the announcing WebSocket returned the same pinned
+`roundCount()` call in `65–81 ms`, while HTTP took `225–251 ms`. The foreground
+planner therefore uses the same WebSocket client for exact contract state,
+simulation, nonce, and balance gates instead of waiting for a separate HTTP
+backend to publish the new state. The head listener consumes and validates the
+raw `newHeads` header directly; viem's `watchBlocks` helper was removed because
+it implicitly fetched the same block again before invoking the callback.
+There is no HTTP planning fallback; HTTP remains responsible for startup,
+receipt/competition observation, and the staleness assertion. After
 `HEAD_STALE_TIMEOUT_MS`, HTTP asserts liveness; if it proves the chain advanced
 without a subscribed head, the worker exits for Railway to restart it. A local
 three-head validation observed the subscribed heads and began their planning
@@ -723,7 +730,10 @@ callback and a regression test requires all 85 candidates to be canonical and
 unique. A read-only exact-block rerun with the normalized list returned all 85
 balances successfully, found 79 nominally unlockable accounts, excluded 61
 typed `no exp locks` estimates, and retained 18 accounts for hot exact
-revalidation.
+revalidation. Railway deployment
+`f191f5ab-762b-4430-9fbd-cbe42ce4adf5` from exact source
+`0a7d76c7886892e78dfe870c1bac46b214a1da36` reproduced those counts with
+zero balance-read failures under the single signer lease.
 
 The first live WebSocket window also exposed cross-provider publication skew:
 three subscribed heads reached Alchemy before the public HTTP endpoint could

@@ -97,19 +97,25 @@ fail-closed. The worker verifies the exact lock before each live pass and
 immediately before submission; a lost lease stops the signer. Live mode
 requires `DATABASE_URL`. Telemetry after startup is fail-open.
 
-`WS_URL`, when configured, supplies the production `newHeads` wake-up.
-The keeper retains the subscribed block number, hash, timestamp, and base fee
-and starts planning from that header without fetching a duplicate HTTP block.
+`WS_URL`, when configured, supplies the production raw `newHeads` wake-up.
+The keeper validates and retains the notification's block number, hash,
+timestamp, and base fee and starts planning from that header without viem's
+implicit `eth_getBlockByNumber` or a duplicate HTTP block fetch.
 For private bundles targeting the immediate child, derive the EIP-1559 fee
 envelope directly from the subscribed parent base fee; do not call a provider
 fee estimator that implicitly fetches another `"latest"` block. The immediate
 child base fee cannot exceed the parent base fee plus
 `max(parentBaseFee / 8, 1)`.
-`RPC_URL` remains authoritative for contract state, simulations, nonce and
-balance gates, and receipt accounting; every state read is pinned to the
-subscribed block number. Before the first subscribed head at process startup,
-the initial pass obtains its complete header over HTTP. HTTP also asserts
-subscription liveness after
+The same WebSocket client that announces a head is authoritative for
+latency-sensitive foreground contract state, simulations, nonce, and balance
+gates; every state read is pinned to the subscribed block number. This avoids
+cross-backend publication skew without substituting a later `"latest"` state
+or maintaining an HTTP planning fallback. `RPC_URL` remains the startup,
+receipt-accounting, relay-observation, and subscription-liveness client, while
+`DISCOVERY_RPC_URL` remains the bulk/background client. Before the first
+subscribed head at process startup, the initial pass obtains its complete
+header over RPC and reads its exact state through the configured foreground
+client. HTTP asserts subscription liveness after
 `HEAD_STALE_TIMEOUT_MS`; if the chain advanced without a subscribed head, the
 worker exits for a supervised restart instead of silently degrading to a
 second head path. Exact fixed-block state reads tolerate up to one second of
@@ -506,8 +512,8 @@ These constraints prevent expensive or unsafe regressions:
   do not wait for a duplicate HTTP block object or provider fee estimate.
   Derive a private immediate-child fee envelope from the subscribed parent
   base fee. Pin core pool, lifecycle, order/vault, and prefilter state reads to
-  that exact block number on the authoritative HTTP RPC; never substitute a
-  later `"latest"` response.
+  that exact block number on the same foreground WebSocket client; never
+  substitute a later `"latest"` response or retry against HTTP.
   Discard the plan if the head changes before nonce gating, and never submit
   after its target block arrives. Exact-block planning and post-block
   competitor-state reads may retry only classified `BlockNotFound`, the

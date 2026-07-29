@@ -1,3 +1,69 @@
+import {
+  hexToBigInt,
+  isHash,
+  isHex,
+  type Hash,
+  type Hex,
+} from "viem";
+
+export interface SubscribedHead {
+  readonly number: bigint;
+  readonly hash: Hash;
+  readonly timestamp: bigint;
+  readonly baseFeePerGas: bigint | null;
+}
+
+function requiredQuantity(
+  value: unknown,
+  field: string,
+): bigint {
+  if (
+    typeof value !== "string" ||
+    !isHex(value) ||
+    value.length <= 2
+  ) {
+    throw new Error(
+      `newHeads payload has invalid ${field}`,
+    );
+  }
+  return hexToBigInt(value as Hex);
+}
+
+export function parseNewHeadsPayload(
+  value: unknown,
+): SubscribedHead {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new Error("newHeads payload must be an object");
+  }
+  const payload = value as Record<string, unknown>;
+  if (
+    typeof payload.hash !== "string" ||
+    !isHash(payload.hash)
+  ) {
+    throw new Error("newHeads payload has invalid hash");
+  }
+  return {
+    number: requiredQuantity(payload.number, "number"),
+    hash: payload.hash,
+    timestamp: requiredQuantity(
+      payload.timestamp,
+      "timestamp",
+    ),
+    baseFeePerGas:
+      payload.baseFeePerGas === null ||
+      payload.baseFeePerGas === undefined
+        ? null
+        : requiredQuantity(
+            payload.baseFeePerGas,
+            "baseFeePerGas",
+          ),
+  };
+}
+
 interface HeadWaiter {
   readonly afterBlock: bigint;
   readonly resolve: (observed: boolean) => void;
