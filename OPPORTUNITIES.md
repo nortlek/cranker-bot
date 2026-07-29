@@ -406,8 +406,8 @@ none when no exact prefix is profitable.
 
 Status: the gas cutoff, wider queue discovery, and exact-simulation deferral
 are deployed. The latest implementation is Railway deployment
-`68e5fc1f-4971-4773-9d87-eed977beb011` from exact source
-`daec80fda95b8d0fecfc063ec4bd93db22111cc4`.
+`c3740155-b3c7-4722-be74-21cd4b160be4` from exact source
+`bcd29480fbdd3f9602a64c2bec614e4b36ff7095`.
 
 The ready-cycle planner previously rejected a directly estimated
 `processAcquisitions` call when its buffered gas exceeded `3,000,000`, before
@@ -591,6 +591,12 @@ The first message-gated repair was deployed in Railway deployment
 `daec80fda95b8d0fecfc063ec4bd93db22111cc4`. PostgreSQL showed one open run
 and one granted advisory signer lock after the rollout; the first subscribed
 pass completed normally with no duplicate HTTP block read.
+The corrected typed-class boundary is live in Railway deployment
+`c3740155-b3c7-4722-be74-21cd4b160be4` from exact source
+`bcd29480fbdd3f9602a64c2bec614e4b36ff7095`. The replacement acquired one
+signer lease and completed its initial and first subscribed passes normally.
+Keep monitoring for `planning_state_availability_waited` to verify the next
+real typed `-32000` occurrence is absorbed.
 
 The subscribed-head investigation then found that the worker already received
 the block number, hash, timestamp, and base fee in each `newHeads` notification
@@ -708,7 +714,7 @@ durable stream contained no pending-candidate event. A hash that resolved only
 after mining was silently discarded, so provider non-delivery and late local
 resolution could not be distinguished.
 
-Deployment `68e5fc1f-4971-4773-9d87-eed977beb011` now emits subscription
+Deployment `c3740155-b3c7-4722-be74-21cd4b160be4` now emits subscription
 generation readiness, immediate hash observation with queue depth, validated
 pending candidates, mined-late candidates with raw-availability and resolution
 timing, duplicates, and sanitized resolution failures. Raw transactions,
@@ -827,7 +833,7 @@ exact-simulated, versioned V2 adapter is validated.
 
 Status: lifecycle-first routing is deployed. Processor correctness and gas
 economics are now deferred to mandatory exact private bundle simulation in
-Railway deployment `68e5fc1f-4971-4773-9d87-eed977beb011`; measure the next
+Railway deployment `c3740155-b3c7-4722-be74-21cd4b160be4`; measure the next
 ready lifecycle.
 
 The ready acquisition path has a short competitive window. `planJobs` should
