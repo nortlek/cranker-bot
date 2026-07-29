@@ -18,10 +18,15 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 14:39 America/Denver, the
-verified snapshot was **$156.78396073 net**, or **62.71%** of the goal, with
-`latest == pending == 504` and net ETH equivalent of
-`0.08308195683318632`. Since the nonce-488 snapshot, ten standing orders and
+2026-07-30 23:59 America/Denver**. At 2026-07-29 15:51 America/Denver, the
+verified snapshot was **$161.91794074 net**, or **64.76%** of the goal, with
+`latest == pending == 528` and net ETH equivalent of
+`0.08582116868446094`. The four receipts at nonces 524–527 increased the
+wallet by `0.000826081536176772 ETH`; decoded receipt accounting matched
+within `0.000000000001 ETH`. Round 301's
+`processAcquisitions(5) -> syncFwaResult -> settle` chain retained
+`0.000823409901955356 ETH`, and the preceding standing order retained
+`0.000002671635221416 ETH`. Since the nonce-488 snapshot, ten standing orders and
 rounds 296–297 increased the wallet by `0.001998175837659669 ETH`. Round
 297's `processAcquisitions(1) -> syncFwaResult -> settle` chain retained
 `0.000928138441187552 ETH` after `0.000297072306606 ETH` of total gas. The
@@ -59,6 +64,50 @@ npx tsx scripts/goal-status.ts
 before reporting progress or deploying.
 
 ## Immediate engineering queue
+
+### P0 — Backrun a final direct ticket purchase with `pull`
+
+Status: live in Railway deployment
+`5d4c1eba-6e59-4830-84ea-caa4932b762f` from exact source
+`09ea222ff21dff1b1cfbbf2a1676516a4b2f9d09`. Startup verified one signer
+lease and a hash-only filtered pending subscription covering 68 canonical
+targets, including the PullPool. Awaiting the first live final-ticket
+candidate, exact simulation, submission, and reconciled receipt.
+
+Block `25641238` proved a confirmed-head blind spot. Transaction
+`0xa4a0ed080276524cf88662a7bab29a7efc13e9ebd322a988043cc5f5d3971a4c`
+bought the final six round-301 tickets at transaction index 114. Transaction
+`0xa5d5cc0d543bddd43f6e48dbe8303558fc4c037498ee6080287303a0e55f00de`
+immediately followed at index 115 and pulled the round through a private
+executor. It earned `0.000801911522533836 ETH`, spent
+`0.000059524847433732 ETH` of gas, and paid
+`0.000019967596911092 ETH` directly to the block beneficiary, retaining about
+`0.000722419 ETH`. The direct payment was about 249 bps of gross reward; the
+new lane deliberately inherits the existing independent pool-pull policy of
+1000 bps rather than the standing-order controller.
+
+The implementation extends the already-live raw-prerequisite pipeline. It
+accepts only legacy/EIP-2930/EIP-1559 Ethereum-mainnet transactions whose raw
+hash, recovered sender, nonce, RPC representation, pool target, positive
+value, and exact `buyTickets(uint256,uint32,address)` calldata all match. It
+rejects every other pool call. Before submission it requires the referenced
+round to remain the current open funding round with no older lifecycle active,
+then exact-simulates `[raw purchase, preliminary pull]`. Non-final purchases
+fail `NotCovered` and are not submitted. The keeper pull is reward-priced from
+its simulated gas, the round's pinned bounty terms, a conservative
+next-block-base-fee floor, and the lane-specific pool bid. The competitively
+signed pair is exact-simulated again, the raw purchase and pending nonce are
+revalidated, and only the atomic pair is sent privately. The user purchase is
+never sent alone and is excluded from keeper gas/P&L accounting.
+
+Acceptance:
+
+- inspect the first `pending_pool_pull_opportunity` and both exact simulations
+- require the prerequisite to remain pending immediately before submission
+- reconcile only the keeper pull's `CrankBountyPaid` reward and receipt gas
+- if it misses, require the prerequisite to have landed and inspect the
+  competing `Pulled` event before changing the 1000-bps bid
+- compare several captured and missed events before enabling adaptive bidding
 
 ### P0 — Capture same-block standing-order funding backruns
 

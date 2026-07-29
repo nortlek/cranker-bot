@@ -118,10 +118,10 @@ either endpoint.
 
 When `ENABLE_PENDING_FUNDING_BACKRUNS=true`, the worker opens a second,
 hash-only Alchemy filtered subscription on the same `WS_URL` for current
-canonical order/vault recipients. It reconnects through that same mechanism
-and has no polling or unfiltered alternative. Exact raw transactions are
-fetched through `DISCOVERY_RPC_URL`; never log either the raw bytes or either
-endpoint.
+canonical order/vault recipients and the PullPool. It reconnects through that
+same mechanism and has no polling or unfiltered alternative. Exact raw
+transactions are fetched through `DISCOVERY_RPC_URL`; never log either the raw
+bytes or either endpoint.
 
 Pending delivery telemetry distinguishes provider visibility from local
 resolution latency:
@@ -182,6 +182,9 @@ jq -c 'select(
   .event == "pending_funding_backrun_opportunity" or
   .event == "pending_funding_backrun_submitted" or
   .event == "pending_funding_backrun_complete" or
+  .event == "pending_pool_pull_opportunity" or
+  .event == "pending_pool_pull_submitted" or
+  .event == "pending_pool_pull_backrun_complete" or
   .event == "acquisition_status" or
   .event == "competitor_bid_observed"
 )'
@@ -473,6 +476,15 @@ These constraints prevent expensive or unsafe regressions:
   actually emitted `Cranked`. Keep this lane's static bid independent from
   confirmed-head standing-order adaptive state until it has enough live
   outcomes to justify its own durable policy.
+- A pending final-ticket backrun is always the exact two-transaction bundle
+  `[public buyTickets, keeper pull]`. In addition to the raw-transaction gates
+  above, prove the canonical pool target and exact
+  `buyTickets(uint256,uint32,address)` calldata, require the referenced round
+  to remain the current open funding round with no older lifecycle active,
+  and let complete-pair simulation reject purchases that do not finish
+  coverage. Revalidate the prerequisite immediately before private
+  submission, price only the pull under the independent pool-pull bid, account
+  only the pull receipt, and never submit the public purchase alone.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
   do not wait for a duplicate HTTP block object. Pin core pool, lifecycle,
@@ -553,6 +565,8 @@ Production currently evaluates:
 - optional exact-pair backruns of public ETH funding transfers to canonical
   orders/vaults; private-only and default-off unless production enables
   `ENABLE_PENDING_FUNDING_BACKRUNS`
+- exact-pair backruns of a final public PullPool `buyTickets` transaction with
+  the permissionless `pull`; private-only under the same pending subscription
 - PullPool funding and acquisition lifecycle
 - public FWA acquisition processing
 - FWAToken `buyback()`
