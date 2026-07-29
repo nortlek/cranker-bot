@@ -18,14 +18,16 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 14:17 America/Denver, the
-verified snapshot was **$153.06036764 net**, or **61.22%** of the goal, with
-`latest == pending == 488` and net ETH equivalent of
-`0.081083780995526651`. Since the nonce-470 snapshot, successful receipts
-increased the wallet by another `0.001889184800661981 ETH`. The last three
-were round 295's `processAcquisitions(10) -> syncFwaResult -> settle` chain,
-which retained `0.000578034549989178 ETH` after every receipt's gas and
-builder payment. The preceding round-291
+2026-07-30 23:59 America/Denver**. At 2026-07-29 14:28 America/Denver, the
+verified snapshot was **$154.78401631 net**, or **61.91%** of the goal, with
+`latest == pending == 493` and net ETH equivalent of
+`0.081996884451654752`. Since the nonce-488 snapshot, two standing orders and
+round 296 increased the wallet by `0.000913103456128101 ETH`. Round 296's
+`processAcquisitions(4) -> syncFwaResult -> settle` chain retained
+`0.000866398031093311 ETH` after `0.000381882886751153 ETH` of total gas;
+the two orders retained `0.000046705425034790 ETH`. The preceding round 295
+chain processed ten acquisitions and retained `0.000578034549989178 ETH`
+after every receipt's gas and builder payment. Round 291's
 `processAcquisitions(2) -> syncFwaResult -> settle` chain earned
 `0.001326643737918444 ETH` gross, spent `0.000404057653338204 ETH` of base gas
 and `0.000057725256565197 ETH` of priority-fee builder payment, and retained
@@ -107,12 +109,15 @@ Remaining acceptance criteria:
 
 ### P0 — Express fee-capped standing-order bids with direct coinbase payment
 
-Status: live in Railway deployment
-`0158144d-cf56-4661-a251-026d868bf229` from exact source
-`32ef07341c94d1059d2088cc248050ed43db36cf`. Startup verified the pinned
+Status: implemented in exact source
+`32ef07341c94d1059d2088cc248050ed43db36cf` and currently live in Railway
+deployment `d5535d93-c078-4308-8114-e586a5dca353` from source
+`f23e6da510603b3012a0fbc609bdcb2eed7efdab`. Startup verified the pinned
 helper runtime, enabled the feature, acquired exactly one signer lease, and
 continued healthy passes without warnings. Awaiting the first fee-capped
-standing-order candidate and reconciled helper receipt.
+standing-order candidate that needs a direct payment and its reconciled helper
+receipt; the first two post-deploy `0.0001 ETH` wins did not need or have enough
+margin for the helper.
 
 The existing `5 gwei` maximum fee protects the signer from unbounded gas-price
 exposure, but it also prevented the priority-fee-only bundle from expressing
@@ -502,6 +507,16 @@ post-target exact-block read now recognize those two narrowly classified
 fresh-state errors. They retry the same provider and same block at 100 ms
 intervals for at most ten waits and emit attempt and wait timing. They do not
 substitute `latest`, switch providers, or retry unrelated RPC failures.
+This exact-block repair is live in Railway deployment
+`d5535d93-c078-4308-8114-e586a5dca353` from source
+`f23e6da510603b3012a0fbc609bdcb2eed7efdab`; PostgreSQL showed one open run and
+one advisory signer lock after the rollout. Its first production exercise at
+block `25640871` waited `300 ms` across four same-block read attempts and then
+completed the pass normally. Before the fix, block `25640744` reached the
+header stage but then failed with the same externally rendered message; the
+persisted error is too coarse to prove which nested provider class escaped.
+If that pattern recurs, add a secret-free nested error-class/code fingerprint
+before broadening any retry classifier.
 
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five
