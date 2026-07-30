@@ -5,18 +5,19 @@ competes for compatible PullStandingOrder and PullVault `crank()` fees, the
 PullPool lifecycle bounties
 paid by `pull`, `syncFwaResult`, `settle`, and `settleForcedEth`, the public
 FWA acquisition processor when it unlocks those bounties, and the FWAToken
-`buyback()` caller reward. It also watches LiveBidAdapter's independently paid
-`sweep()` lane and the official Liquity V2 WETH, wstETH, and rETH branches for
-permissionless liquidations. It also prices Convex pool `earmarkRewards`
-caller incentives and expired vlCVX lock `kickExpiredLocks` rewards. Every
-candidate or dependent sequence is simulated and priced before private
-submission. An optional private-only lane also batches profitable Stake DAO v4
-Curve Accountant harvests for their CRV caller fee. A second default-off,
+`buyback()` caller reward. It watches the official Liquity V2 WETH, wstETH,
+and rETH branches for permissionless liquidations and prices Convex pool
+`earmarkRewards` caller incentives and expired vlCVX lock
+`kickExpiredLocks` rewards. Every candidate or dependent sequence is simulated
+and priced before private submission. A disabled LiveBidAdapter `sweep()` lane
+is retained for research but is unsafe to enable without an atomic nonzero
+reward guard. An optional private-only lane also batches profitable Stake DAO
+v4 Curve Accountant harvests for their CRV caller fee. A second default-off,
 private-only lane watches canonical Inverse FiRM markets for capital-free,
-DOLA-paid forced DBR replenishments. An opt-in private pending-funding lane can
-also copy a public ETH transfer to a canonical standing order into the same
-bundle as the dependent `crank`, allowing the keeper to compete when an order
-becomes funded between confirmed heads.
+DOLA-paid forced DBR replenishments. An opt-in private pending-funding lane
+can also copy a public ETH transfer to a canonical standing order into the
+same bundle as the dependent `crank`, allowing the keeper to compete when an
+order becomes funded between confirmed heads.
 
 ## Examined transaction
 
@@ -103,8 +104,8 @@ Each new block, the keeper:
    profitability.
 6. Compares the conservative net value of the PullPool/order plan, Liquity
    liquidation, Convex `earmarkRewards`, Stake DAO Curve harvest, FiRM forced
-   replenishment, FWAToken `buyback()`, and LiveBidAdapter `sweep()`, then
-   selects the best currently executable plan.
+   replenishment, FWAToken `buyback()`, and any explicitly enabled optional
+   lane, then selects the best currently executable plan.
 7. In live mode, reads the account's `latest` and `pending` transaction counts
    and assigns an explicit contiguous nonce range.
 8. Signs the generic call sequence locally, simulates it in nonce order, and
@@ -384,8 +385,11 @@ successful `crank` fees are sent to that keeper address.
   balance, and is included in receipt P&L. Startup verifies the helper runtime
   hash; exact bundle simulation must report the intended direct and aggregate
   coinbase payments. It defaults to `false` and requires private submission.
-- `ENABLE_LIVE_BID_SWEEP`: enables the independently paid LiveBidAdapter
-  fallback. `LIVE_BID_ADAPTER_ADDRESS` selects the verified adapter.
+- `ENABLE_LIVE_BID_SWEEP`: retains the independently paid LiveBidAdapter lane
+  for controlled research, but defaults to `false`. Its `sweep()` succeeds
+  with zero reward when another transaction empties the adapter earlier in the
+  same block, which a parent-state bundle simulation cannot reject. Do not
+  enable it without an atomic nonzero-reward guard.
 - `ENABLE_LIQUITY_LIQUIDATIONS`: scans the three official Liquity V2 Ethereum
   collateral branches and enables exact-simulated private liquidations.
 - `ENABLE_CONVEX_EARMARKS`: refreshes the active pool registry and the 32

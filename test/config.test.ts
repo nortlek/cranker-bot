@@ -15,6 +15,8 @@ const originalPendingFundingBackruns =
   process.env.ENABLE_PENDING_FUNDING_BACKRUNS;
 const originalDirectCoinbasePayments =
   process.env.ENABLE_DIRECT_COINBASE_PAYMENTS;
+const originalLiveBidSweep =
+  process.env.ENABLE_LIVE_BID_SWEEP;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
 const originalPoolBuilderBidBps =
@@ -53,6 +55,12 @@ afterEach(() => {
     process.env.ENABLE_DIRECT_COINBASE_PAYMENTS =
       originalDirectCoinbasePayments;
   }
+  if (originalLiveBidSweep === undefined) {
+    delete process.env.ENABLE_LIVE_BID_SWEEP;
+  } else {
+    process.env.ENABLE_LIVE_BID_SWEEP =
+      originalLiveBidSweep;
+  }
   if (originalPendingFundingBuilderBidBps === undefined) {
     delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
   } else {
@@ -90,6 +98,20 @@ afterEach(() => {
     process.env.FLASHBOTS_BUILDERS =
       originalFlashbotsBuilders;
   }
+});
+
+describe("LiveBid sweep", () => {
+  it("defaults off because a same-block winner can make sweep a no-op", () => {
+    delete process.env.ENABLE_LIVE_BID_SWEEP;
+
+    expect(loadConfig().enableLiveBidSweep).toBe(false);
+  });
+
+  it("can only be enabled explicitly", () => {
+    process.env.ENABLE_LIVE_BID_SWEEP = "true";
+
+    expect(loadConfig().enableLiveBidSweep).toBe(true);
+  });
 });
 
 describe("FWA processor gas limit", () => {

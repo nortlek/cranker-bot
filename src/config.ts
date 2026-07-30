@@ -537,7 +537,7 @@ export function loadConfig(): KeeperConfig {
     enableBuyback: booleanEnv("ENABLE_BUYBACK", true),
     enableLiveBidSweep: booleanEnv(
       "ENABLE_LIVE_BID_SWEEP",
-      true,
+      false,
     ),
     enableLiquityLiquidations: booleanEnv(
       "ENABLE_LIQUITY_LIQUIDATIONS",

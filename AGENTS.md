@@ -558,9 +558,11 @@ These constraints prevent expensive or unsafe regressions:
   before submission.
 - Private one-block bundles are the default. A missed bundle expires and must
   not leak into the public mempool.
-- Pool lifecycle, pool pull, standing orders, LiveBid sweep, Liquity, and
-  Convex each have independent bidding policies. Do not apply the standing
-  order's high bid to a thin-margin lane.
+- Pool lifecycle, pool pull, standing orders, the default-off LiveBid sweep,
+  Liquity, and Convex each have independent bidding policies. Do not apply the
+  standing order's high bid to a thin-margin lane. LiveBid bidding is not a
+  safety control: its `sweep()` can succeed with zero reward after another
+  transaction empties the adapter earlier in the same block.
 - Standing-order targets start at `BUILDER_BID_BPS`, but durable per-target
   price discovery may bid lower after repeated wins. Its bracket must learn
   from the exact bundle-effective bid after profit and fee caps, not just the
@@ -602,7 +604,7 @@ At the last handoff, the configured policy was approximately:
 | Pool pull | 10% |
 | Pool acquisition ready | 3% |
 | Pool acquisition fulfilled | 72.5% |
-| LiveBid sweep | 1% |
+| LiveBid sweep | 1% (feature default-off) |
 | Liquity V2 | 81% |
 | Convex | 10% |
 | Stake DAO Curve harvest | 10% |
@@ -629,7 +631,9 @@ Production currently evaluates:
 - PullPool funding and acquisition lifecycle
 - public FWA acquisition processing
 - FWAToken `buyback()`
-- LiveBidAdapter `sweep()`
+- optional LiveBidAdapter `sweep()`; production-disabled because a same-block
+  earlier sweep turns the call into a successful zero-reward no-op that
+  parent-state simulation cannot reject
 - official Liquity V2 WETH, wstETH, and rETH liquidations
 - Convex `earmarkRewards` and expired vlCVX lock kicks
 - optional Stake DAO v4 Curve Accountant harvests; the code is validated but

@@ -1745,10 +1745,29 @@ latency.
 
 ### LiveBidAdapter sweep
 
-Status: live.
+Status: implemented, production-disabled after a realized same-block race.
 
-Historical sweep winners paid nearly zero priority fee. It therefore has an
+Historical sweep winners paid nearly zero priority fee, so the lane has an
 independent low builder bid and must not inherit the standing-order bid.
+Bid tuning does not solve its safety problem, however.
+
+In block `25,648,098`, transaction
+`0xe79c4bc07efb64832ee2abbf305ac79f5cb105defe5aa4b5a89ab577d1855efb`
+called the adapter at transaction index 56 and received the entire
+`0.00007549698 ETH` reward. Our later transaction
+`0x0f83d1099abc227bc04568e0cc221d61d5f6c2ecec2515edfb3cd176daccfba0`
+landed at index 216, succeeded with no reward or logs, and spent
+`0.000004400367499418 ETH` on gas. The exact parent-state simulations were
+correct for their state, but could not predict another bundle being ordered
+first in the target block.
+
+The verified adapter returns success when its ETH balance is zero. Therefore
+neither a higher bid nor another parent-state simulation can make the call
+safe. `ENABLE_LIVE_BID_SWEEP` now defaults to `false`, and production is
+explicitly disabled. Re-enabling requires an atomic wrapper that calls
+`sweep()`, requires a nonzero or minimum reward, and forwards the reward in
+the same transaction. Such a wrapper crosses the current contract deployment
+and transient-custody boundary and requires explicit review before deployment.
 
 ### Liquity V2 liquidations
 
