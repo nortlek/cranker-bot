@@ -28,7 +28,7 @@ const crankBountyPaidEvent = parseAbiItem(
 );
 const BPS = 10_000n;
 
-interface InternalOperation {
+export interface InternalOperation {
   readonly txHash?: string;
   readonly to?: string;
   readonly value?: string;
@@ -302,6 +302,30 @@ async function delay(milliseconds: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+export function directBeneficiaryPaymentFromOperations(parameters: {
+  readonly operations: readonly InternalOperation[];
+  readonly transactionHash: Hash;
+  readonly beneficiary: Address;
+}): bigint | undefined {
+  const requestedHash = parameters.transactionHash.toLowerCase();
+  const relevant = parameters.operations.filter(
+    (operation) =>
+      operation.txHash?.toLowerCase() === requestedHash,
+  );
+  if (relevant.length === 0) return undefined;
+  return relevant.reduce((total, operation) => {
+    if (
+      operation.status !== false &&
+      operation.to?.toLowerCase() ===
+        parameters.beneficiary.toLowerCase() &&
+      operation.value !== undefined
+    ) {
+      return total + BigInt(operation.value);
+    }
+    return total;
+  }, 0n);
+}
+
 async function directBeneficiaryPayment(
   transactionHash: Hash,
   beneficiary: Address,
@@ -325,16 +349,13 @@ async function directBeneficiaryPayment(
       (await response.json()) as InternalOperationsResponse;
     const items = payload.items;
     if (items !== undefined && items.length > 0) {
-      return items.reduce((total, operation) => {
-        if (
-          operation.status !== false &&
-          operation.to?.toLowerCase() === beneficiary.toLowerCase() &&
-          operation.value !== undefined
-        ) {
-          return total + BigInt(operation.value);
-        }
-        return total;
-      }, 0n);
+      const payment =
+        directBeneficiaryPaymentFromOperations({
+          operations: items,
+          transactionHash,
+          beneficiary,
+        });
+      if (payment !== undefined) return payment;
     }
     if (attempt < config.retries) {
       await delay(config.retryDelayMs);

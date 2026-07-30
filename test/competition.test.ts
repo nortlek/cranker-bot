@@ -15,6 +15,7 @@ import {
   aggregatePoolCrankBounties,
   calculateWinningBidBps,
   competitionRegistryBlockNumber,
+  directBeneficiaryPaymentFromOperations,
   groupRelevantPoolLifecycleBounties,
   isTransientCompetitionObservationError,
 } from "../src/competition.js";
@@ -130,6 +131,76 @@ describe("calculateWinningBidBps", () => {
     expect(result.priorityPayment).toBe(20n);
     expect(result.totalBuilderPayment).toBe(520n);
     expect(result.winningBidBps).toBe(5_200n);
+  });
+});
+
+describe("directBeneficiaryPaymentFromOperations", () => {
+  const transactionHash =
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
+  const unrelatedHash =
+    "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as Hash;
+
+  it("ignores an unrelated near-head trace response", () => {
+    expect(
+      directBeneficiaryPaymentFromOperations({
+        transactionHash,
+        beneficiary: CALLER,
+        operations: [
+          {
+            txHash: unrelatedHash,
+            to: CALLER,
+            value: "900",
+            status: true,
+          },
+        ],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("sums only successful matching-transaction payments", () => {
+    expect(
+      directBeneficiaryPaymentFromOperations({
+        transactionHash,
+        beneficiary: CALLER,
+        operations: [
+          {
+            txHash: transactionHash.toUpperCase(),
+            to: CALLER.toLowerCase(),
+            value: "500",
+            status: true,
+          },
+          {
+            txHash: transactionHash,
+            to: CALLER,
+            value: "400",
+            status: false,
+          },
+          {
+            txHash: unrelatedHash,
+            to: CALLER,
+            value: "800",
+            status: true,
+          },
+        ],
+      }),
+    ).toBe(500n);
+  });
+
+  it("accepts an indexed matching transaction with no payment", () => {
+    expect(
+      directBeneficiaryPaymentFromOperations({
+        transactionHash,
+        beneficiary: CALLER,
+        operations: [
+          {
+            txHash: transactionHash,
+            to: ORDER_A,
+            value: "0",
+            status: true,
+          },
+        ],
+      }),
+    ).toBe(0n);
   });
 });
 

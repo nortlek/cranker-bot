@@ -8,7 +8,12 @@ import {
 } from "viem";
 import { mainnet } from "viem/chains";
 
-import { factoryAbi, poolAbi, standingOrderAbi } from "./abi.js";
+import {
+  factoryAbi,
+  fwaAbi,
+  poolAbi,
+  standingOrderAbi,
+} from "./abi.js";
 import { nextBlockBaseFeePerGas } from "./base-fee.js";
 import { quoteCompetitiveFees } from "./bidding.js";
 import {
@@ -19,6 +24,7 @@ import {
 } from "./constants.js";
 import { loadConfig } from "./config.js";
 import {
+  acquisitionStatusName,
   estimatePoolBounty,
   ROUND_STATE,
 } from "./lifecycle.js";
@@ -72,7 +78,7 @@ async function main(): Promise<void> {
       functionName: "POOL",
     }),
   );
-  const [orders, roundCount, ethPendingRound, paused, poolConfig] =
+  const [orders, roundCount, ethPendingRound, paused, poolConfig, fwa] =
     await Promise.all([
       client.readContract({
         address: config.factoryAddress,
@@ -99,6 +105,11 @@ async function main(): Promise<void> {
         abi: poolAbi,
         functionName: "config",
       }),
+      client.readContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: "FWA",
+      }),
     ]);
   const [ticketsNeeded, currentRound] =
     roundCount === 0n
@@ -117,6 +128,51 @@ async function main(): Promise<void> {
             args: [roundCount],
           }),
         ]);
+  let currentLifecycleAnalysis: Record<string, unknown> | undefined;
+  if (ethPendingRound !== 0n) {
+    try {
+      const lifecycleRound =
+        ethPendingRound === roundCount && currentRound !== undefined
+          ? currentRound
+          : await client.readContract({
+              address: pool,
+              abi: poolAbi,
+              functionName: "getRound",
+              args: [ethPendingRound],
+            });
+      if (lifecycleRound.fwaRequestId === 0n) {
+        currentLifecycleAnalysis = {
+          round: ethPendingRound.toString(),
+          fwa,
+          status: "missing_request_id",
+        };
+      } else {
+        const acquisition = await client.readContract({
+          address: fwa,
+          abi: fwaAbi,
+          functionName: "acquisitions",
+          args: [lifecycleRound.fwaRequestId],
+        });
+        currentLifecycleAnalysis = {
+          round: ethPendingRound.toString(),
+          fwa,
+          requestId: lifecycleRound.fwaRequestId.toString(),
+          purchaser: acquisition[0],
+          requestBlock: acquisition[1].toString(),
+          priceEscrowedEth: formatEther(acquisition[2]),
+          listingId: acquisition[3].toString(),
+          status: acquisitionStatusName(Number(acquisition[4])),
+          statusCode: acquisition[4],
+        };
+      }
+    } catch (error) {
+      currentLifecycleAnalysis = {
+        round: ethPendingRound.toString(),
+        fwa,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   let currentPullAnalysis: Record<string, unknown> | undefined;
   if (
     currentRound !== undefined &&
@@ -279,6 +335,7 @@ async function main(): Promise<void> {
         currentRound: roundCount.toString(),
         ticketsNeeded: ticketsNeeded.toString(),
         pendingLifecycleRound: ethPendingRound.toString(),
+        currentLifecycleAnalysis,
         currentPullAnalysis,
         currentRoundSnapshot:
           currentRound === undefined
