@@ -4,6 +4,7 @@ import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
   FWA_PROCESS_DISCOVERY_MAX_COUNT,
   loadConfig,
+  pendingFwaFulfillmentExecutionEnabled,
   pendingFundingExecutionEnabled,
 } from "../src/config.js";
 
@@ -13,6 +14,8 @@ const originalFwaProcessMaxCount =
   process.env.FWA_PROCESS_MAX_COUNT;
 const originalPendingFundingBackruns =
   process.env.ENABLE_PENDING_FUNDING_BACKRUNS;
+const originalPendingFwaFulfillmentBackruns =
+  process.env.ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS;
 const originalDirectCoinbasePayments =
   process.env.ENABLE_DIRECT_COINBASE_PAYMENTS;
 const originalLiveBidSweep =
@@ -48,6 +51,15 @@ afterEach(() => {
   } else {
     process.env.ENABLE_PENDING_FUNDING_BACKRUNS =
       originalPendingFundingBackruns;
+  }
+  if (
+    originalPendingFwaFulfillmentBackruns === undefined
+  ) {
+    delete process.env
+      .ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS;
+  } else {
+    process.env.ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS =
+      originalPendingFwaFulfillmentBackruns;
   }
   if (originalDirectCoinbasePayments === undefined) {
     delete process.env.ENABLE_DIRECT_COINBASE_PAYMENTS;
@@ -188,6 +200,49 @@ describe("pending funding backruns", () => {
     expect(
       pendingFundingExecutionEnabled({
         enablePendingFundingBackruns: true,
+        dryRun: false,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("pending FWA fulfillment backruns", () => {
+  it("defaults disabled and shares the low ready-chain bid", () => {
+    delete process.env
+      .ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS;
+    delete process.env.POOL_BUILDER_BID_BPS;
+
+    const config = loadConfig();
+    expect(
+      config.enablePendingFwaFulfillmentBackruns,
+    ).toBe(false);
+    expect(config.poolBuilderBidBps).toBe(300n);
+  });
+
+  it("requires private submission and a WebSocket source", () => {
+    process.env.ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS =
+      "true";
+    delete process.env.WS_URL;
+
+    expect(() => loadConfig()).toThrow("requires WS_URL");
+
+    process.env.WS_URL = "wss://example.invalid";
+    process.env.SUBMISSION_MODE = "public";
+    expect(() => loadConfig()).toThrow(
+      "ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS requires SUBMISSION_MODE=flashbots",
+    );
+  });
+
+  it("cannot execute in dry-run mode", () => {
+    expect(
+      pendingFwaFulfillmentExecutionEnabled({
+        enablePendingFwaFulfillmentBackruns: true,
+        dryRun: true,
+      }),
+    ).toBe(false);
+    expect(
+      pendingFwaFulfillmentExecutionEnabled({
+        enablePendingFwaFulfillmentBackruns: true,
         dryRun: false,
       }),
     ).toBe(true);

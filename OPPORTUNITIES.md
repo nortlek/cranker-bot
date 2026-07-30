@@ -630,6 +630,67 @@ same conservative gas and profit floor. Private submission still
 exact-simulates and reward-weighted-reprices every safe prefix, and submits
 none when no exact prefix is profitable.
 
+### P0 — Backrun same-block FWA VRF fulfillment
+
+Status: exact validator and private fulfillment/sync/settle lane implemented;
+production enablement awaits deployment validation.
+
+Round 355 exposed a confirmed-head state-transition blind spot. Chainlink VRF
+fulfillment transaction
+`0x591b4f032fe1c81803e63285c3cc4a59010a3a1d332f910ee7da6d9bb7d13b0b`
+landed at index 56 of block `25648139`. Its callback moved request
+`50122926248667946721162522793336820828918720156550601086430947954895331134129`
+from Pending through the FWA's callback-head self-processor to Fulfilled
+inside the same transaction. Competitor wrapper transaction
+`0x7c855068eedef6153b03ac99d0f560931662762b70ba6c7f90ca65de79604a3f`
+followed at index 57, called `syncFwaResult(355)` and `settle(355)`, earned
+`0.000842620574025888 ETH`, spent `0.000061184596560148 ETH`, paid no observed
+priority or direct beneficiary payment, and retained about
+`0.000781435977465740 ETH`. The confirmed-head keeper could not bid for state
+that never existed at a block boundary.
+
+The canonical coordinator entry point is
+`fulfillRandomWords(proof,requestCommitment,onlyPremium)`. The implementation
+recovers the signed raw transaction and requires mainnet chain/type/nonce,
+zero value, the coordinator returned by `FWA.vrfCoordinatorAndSubId()`, the
+same FWA consumer and subscription, and the exact pool request ID derived as
+`keccak256(abi.encode(keccak256(abi.encode(proof.pk)), proof.seed))`. It then
+requires `ethPendingRound`, pulling/unresolved round state, matching
+`fwaRequestId`, pool purchaser, and Pending acquisition at the exact parent.
+
+The only submitted shape is a bounded contiguous public coordinator nonce
+prefix ending in the target fulfillment, followed by keeper
+`syncFwaResult` and `settle`. Preliminary and competitively priced versions
+must simulate the complete prefix and both keeper transactions.
+Economics include only simulated sync/settle gas and both pool bounties; raw
+fulfillment cost/value never enters keeper P&L. The full bundle is mandatory,
+the two keeper nonces are contiguous, the signer lease/nonce/balance/head gates
+remain fail closed, and the raw prerequisite must still be pending immediately
+before private one-block submission. The lane starts with the 300-bps
+pool-ready bid because this observed winner paid zero ordering fee; it does not
+inherit the 7,250-bps ordinary fulfilled-state policy.
+
+Acceptance:
+
+- deploy with the feature disabled and verify the exact source, one lease, and
+  healthy confirmed-head passes
+- enable only after the isolated coordinator subscription reports ready
+- require a real `pending_fwa_candidate_validated` before any simulation
+- inspect both exact full-bundle simulations and reconcile both keeper receipts
+- treat a missed fulfillment as a lane-specific outcome; do not modify
+  confirmed-head fulfilled or standing-order bidding from one observation
+
+A local fork of parent block `25648138` exposed and validated the nonce-prefix
+requirement. The target oracle transaction used nonce `107356`, while the
+parent-state nonce was `107354`; fulfillment-only simulation could not execute.
+Including exact public nonces `107354`, `107355`, and target `107356`, followed
+by keeper sync and settle, made all five transactions succeed in one block.
+The keeper calls used `556,700` gas and emitted
+`0.001176131718521088 ETH` of pool bounties in that replay. Production
+therefore caches separately validated coordinator transactions and rejects a
+missing, replaced, mined, or greater-than-eight nonce prefix rather than
+assuming the target fulfillment is independently executable.
+
 ### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 
 Status: the gas cutoff, wider queue discovery, and exact-simulation deferral

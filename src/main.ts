@@ -16,6 +16,8 @@ import { mainnet } from "viem/chains";
 import { AdaptiveBidController } from "./adaptive-bidding.js";
 import {
   factoryAbi,
+  fwaAbi,
+  poolAbi,
   vaultFactoryAbi,
 } from "./abi.js";
 import {
@@ -38,6 +40,7 @@ import {
 } from "./constants.js";
 import {
   loadConfig,
+  pendingFwaFulfillmentExecutionEnabled,
   pendingFundingExecutionEnabled,
 } from "./config.js";
 import { DiscordWebhookNotifier } from "./discord.js";
@@ -68,7 +71,18 @@ import {
   readBeforeTargetBlock,
   retryTransientRead,
 } from "./heads.js";
-import { minimumLifecycleSubmissionPrefix } from "./lifecycle.js";
+import {
+  minimumLifecycleSubmissionPrefix,
+  ROUND_STATE,
+} from "./lifecycle.js";
+import { executePendingFwaBackrun } from "./pending-fwa-backrun.js";
+import {
+  PendingFwaFulfillmentValidationError,
+  VRF_FULFILL_RANDOM_WORDS_SELECTOR,
+  validatePendingFwaFulfillment,
+  type PendingFwaBundlePrerequisite,
+  type ValidatedPendingFwaFulfillment,
+} from "./pending-fwa-fulfillment.js";
 import { executePendingFundingBackrun } from "./pending-funding-backrun.js";
 import { executePendingPoolPullBackrun } from "./pending-pool-pull-backrun.js";
 import {
@@ -77,7 +91,9 @@ import {
   resolvePendingFundingHash,
   subscribeToAlchemyPendingFundingHashes,
   validatePendingFundingPrerequisite,
+  validateSignedPendingTransaction,
   type ValidatedPendingFundingPrerequisite,
+  type ValidatedSignedPendingTransaction,
 } from "./pending-funding.js";
 import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
@@ -126,6 +142,9 @@ let closeHeadSubscription: (() => Promise<void>) | undefined;
 let closePendingFundingRuntime:
   | (() => Promise<void>)
   | undefined;
+let closePendingFwaRuntime:
+  | (() => Promise<void>)
+  | undefined;
 
 class SignerLeaseLostError extends Error {
   constructor(cause: unknown) {
@@ -163,7 +182,10 @@ async function assertSignerLeaseHeld(): Promise<void> {
 
 async function closeRuntimeResources(): Promise<void> {
   try {
-    await closePendingFundingRuntime?.();
+    await Promise.all([
+      closePendingFundingRuntime?.(),
+      closePendingFwaRuntime?.(),
+    ]);
   } finally {
     try {
       await Promise.all([
@@ -274,6 +296,9 @@ async function main(): Promise<void> {
   let stopping = false;
   let requestStop: (() => void) | undefined;
   let activatePendingFundingExecution:
+    | (() => void)
+    | undefined;
+  let activatePendingFwaExecution:
     | (() => void)
     | undefined;
   const stopRequested = new Promise<void>((resolve) => {
@@ -2230,6 +2255,591 @@ async function main(): Promise<void> {
           fallback: "none",
         });
       }
+      if (pendingFwaFulfillmentExecutionEnabled(config)) {
+        const fwa = getAddress(
+          await publicClient.readContract({
+            address: poolAddress,
+            abi: poolAbi,
+            functionName: "FWA",
+          }),
+        );
+        const [vrfCoordinator, vrfSubId] =
+          await publicClient.readContract({
+            address: fwa,
+            abi: fwaAbi,
+            functionName: "vrfCoordinatorAndSubId",
+          });
+        const canonicalVrfCoordinator =
+          getAddress(vrfCoordinator);
+        const replacementTracker =
+          new PendingFundingReplacementTracker();
+        const executionController =
+          new PendingFundingExecutionController(false);
+        const resolutions = new Set<Promise<void>>();
+        const coordinatorTransactions = new Map<
+          string,
+          Map<number, ValidatedSignedPendingTransaction>
+        >();
+        let waitingCandidate:
+          | ValidatedPendingFwaFulfillment
+          | undefined;
+        let queuedCandidate:
+          | PendingFwaBundlePrerequisite
+          | undefined;
+
+        const executeQueuedCandidate = (): void => {
+          if (
+            !executionController.enabled ||
+            executionController.active ||
+            executionController.stopping
+          ) {
+            return;
+          }
+          const prerequisite = queuedCandidate;
+          if (prerequisite === undefined) return;
+          queuedCandidate = undefined;
+          const execution = executionController.start(
+            async (signal) => {
+              try {
+                const result = await executePendingFwaBackrun({
+                  publicClient: exactStateClient,
+                  pendingClient: discoveryClient,
+                  signer,
+                  prerequisite,
+                  pool: poolAddress,
+                  fwa,
+                  relays,
+                  builders: config.flashbotsBuilders,
+                  config,
+                  builderBidBps: config.poolBuilderBidBps,
+                  coordinator: signerCoordinator,
+                  assertSignerLeaseHeld,
+                  isPrerequisiteCurrent: () =>
+                    replacementTracker.isCurrent({
+                      hash: prerequisite.hash,
+                      sender: prerequisite.sender,
+                      nonce: prerequisite.nonce,
+                    }) &&
+                    prerequisite.prerequisiteTransactions.every(
+                      (transaction) =>
+                        coordinatorTransactions
+                          .get(
+                            transaction.sender.toLowerCase(),
+                          )
+                          ?.get(transaction.nonce)
+                          ?.hash.toLowerCase() ===
+                        transaction.hash.toLowerCase(),
+                    ),
+                  waitForTargetBlock: async (
+                    targetBlock,
+                    timeoutMs,
+                  ) => {
+                    const afterBlock = targetBlock - 1n;
+                    if (
+                      headSignal.latestAfter(afterBlock) !==
+                      undefined
+                    ) {
+                      return true;
+                    }
+                    return headSignal.waitForNewer(
+                      afterBlock,
+                      timeoutMs,
+                    );
+                  },
+                  readBeforeTargetBlock: ({
+                    targetBlock,
+                    timeoutMs,
+                    read,
+                  }) =>
+                    readBeforeTargetBlock({
+                      headSignal,
+                      targetBlock,
+                      timeoutMs,
+                      read,
+                    }),
+                  signal,
+                });
+                log(
+                  "info",
+                  "pending_fwa_backrun_complete",
+                  {
+                    prerequisiteHash: prerequisite.hash,
+                    requestId:
+                      prerequisite.requestId.toString(),
+                    status: result.status,
+                    reason: result.reason,
+                    targetBlock:
+                      result.targetBlock?.toString() ?? "",
+                    syncHash: result.syncHash ?? "",
+                    settleHash: result.settleHash ?? "",
+                    realizedProfit:
+                      result.realizedProfitWei === undefined
+                        ? ""
+                        : eth(result.realizedProfitWei),
+                  },
+                );
+              } catch (error) {
+                log("warn", "pending_fwa_backrun_failed", {
+                  prerequisiteHash: prerequisite.hash,
+                  requestId:
+                    prerequisite.requestId.toString(),
+                  reason: errorMessage(error),
+                  ...errorFingerprint(error),
+                });
+              } finally {
+                replacementTracker.forget({
+                  hash: prerequisite.hash,
+                  sender: prerequisite.sender,
+                  nonce: prerequisite.nonce,
+                });
+              }
+            },
+          );
+          void execution?.finally(() => {
+            executeQueuedCandidate();
+          });
+        };
+        activatePendingFwaExecution = () => {
+          if (!executionController.activate()) return;
+          executeQueuedCandidate();
+        };
+
+        const cacheCoordinatorTransaction = (
+          transaction: ValidatedSignedPendingTransaction,
+        ): void => {
+          const sender = transaction.sender.toLowerCase();
+          let byNonce = coordinatorTransactions.get(sender);
+          if (byNonce === undefined) {
+            byNonce = new Map();
+            coordinatorTransactions.set(sender, byNonce);
+          }
+          byNonce.set(transaction.nonce, transaction);
+          while (byNonce.size > 64) {
+            const oldestNonce = [...byNonce.keys()].sort(
+              (left, right) => left - right,
+            )[0];
+            if (oldestNonce === undefined) break;
+            byNonce.delete(oldestNonce);
+          }
+        };
+
+        const queueCompleteCandidate = async (
+          candidate: ValidatedPendingFwaFulfillment,
+        ): Promise<boolean> => {
+          const currentHead =
+            await exactStateClient.getBlockNumber();
+          const [lifecycleRound, senderNonce] =
+            await Promise.all([
+              exactStateClient.readContract({
+                address: poolAddress,
+                abi: poolAbi,
+                functionName: "ethPendingRound",
+                blockNumber: currentHead,
+              }),
+              exactStateClient.getTransactionCount({
+                address: candidate.sender,
+                blockNumber: currentHead,
+              }),
+            ]);
+          if (
+            lifecycleRound <= 0n ||
+            candidate.nonce < senderNonce
+          ) {
+            if (
+              waitingCandidate?.hash.toLowerCase() ===
+              candidate.hash.toLowerCase()
+            ) {
+              waitingCandidate = undefined;
+            }
+            return false;
+          }
+          const round =
+            await exactStateClient.readContract({
+              address: poolAddress,
+              abi: poolAbi,
+              functionName: "getRound",
+              args: [lifecycleRound],
+              blockNumber: currentHead,
+            });
+          if (
+            round.state !== ROUND_STATE.pulling ||
+            round.fwaResolved ||
+            round.fwaRequestId !== candidate.requestId
+          ) {
+            if (
+              waitingCandidate?.hash.toLowerCase() ===
+              candidate.hash.toLowerCase()
+            ) {
+              waitingCandidate = undefined;
+            }
+            return false;
+          }
+          const prerequisiteCount =
+            candidate.nonce - senderNonce + 1;
+          if (
+            prerequisiteCount < 1 ||
+            prerequisiteCount > 8
+          ) {
+            log(
+              "info",
+              "pending_fwa_prerequisite_chain_rejected",
+              {
+                hash: candidate.hash,
+                sender: candidate.sender,
+                senderNonce,
+                fulfillmentNonce: candidate.nonce,
+                prerequisiteCount,
+                reason: "nonce_chain_outside_bound",
+              },
+            );
+            waitingCandidate = undefined;
+            return false;
+          }
+          const byNonce = coordinatorTransactions.get(
+            candidate.sender.toLowerCase(),
+          );
+          const prerequisiteTransactions: ValidatedSignedPendingTransaction[] =
+            [];
+          for (
+            let nonce = senderNonce;
+            nonce <= candidate.nonce;
+            nonce += 1
+          ) {
+            const transaction = byNonce?.get(nonce);
+            if (transaction === undefined) {
+              waitingCandidate = candidate;
+              log(
+                "debug",
+                "pending_fwa_prerequisite_gap",
+                {
+                  hash: candidate.hash,
+                  sender: candidate.sender,
+                  missingNonce: nonce,
+                  fulfillmentNonce: candidate.nonce,
+                  prerequisiteCount,
+                  action:
+                    "wait_for_contiguous_coordinator_prefix",
+                },
+              );
+              return false;
+            }
+            prerequisiteTransactions.push(transaction);
+          }
+          const fulfillment =
+            prerequisiteTransactions.at(-1);
+          if (
+            fulfillment === undefined ||
+            fulfillment.hash.toLowerCase() !==
+              candidate.hash.toLowerCase()
+          ) {
+            waitingCandidate = undefined;
+            return false;
+          }
+          waitingCandidate = undefined;
+          const prerequisite: PendingFwaBundlePrerequisite = {
+            ...candidate,
+            prerequisiteTransactions,
+          };
+          const tracked = replacementTracker.observe({
+            hash: prerequisite.hash,
+            sender: prerequisite.sender,
+            nonce: prerequisite.nonce,
+          });
+          if (tracked.status === "duplicate") return false;
+          if (tracked.status === "replacement") {
+            log(
+              "info",
+              "pending_fwa_replacement_observed",
+              {
+                sender: prerequisite.sender,
+                nonce: prerequisite.nonce,
+                replacedHash: tracked.replacedHash,
+                hash: prerequisite.hash,
+              },
+            );
+          }
+          const displaced = queuedCandidate;
+          if (
+            displaced !== undefined &&
+            displaced.hash.toLowerCase() !==
+              prerequisite.hash.toLowerCase()
+          ) {
+            replacementTracker.forget({
+              hash: displaced.hash,
+              sender: displaced.sender,
+              nonce: displaced.nonce,
+            });
+          }
+          queuedCandidate = prerequisite;
+          log("info", "pending_fwa_candidate_queued", {
+            hash: prerequisite.hash,
+            requestId: prerequisite.requestId.toString(),
+            round: lifecycleRound.toString(),
+            sender: prerequisite.sender,
+            senderNonce,
+            fulfillmentNonce: prerequisite.nonce,
+            prerequisiteCount:
+              prerequisite.prerequisiteTransactions.length,
+          });
+          executeQueuedCandidate();
+          return true;
+        };
+
+        const subscription =
+          subscribeToAlchemyPendingFundingHashes({
+            url: config.headRpcUrl!,
+            targetAddresses: [canonicalVrfCoordinator],
+            onSubscribed: (connectionGeneration) => {
+              log(
+                "info",
+                "pending_fwa_subscription_ready",
+                {
+                  connectionGeneration,
+                  coordinator: canonicalVrfCoordinator,
+                  consumer: fwa,
+                },
+              );
+            },
+            onHash: (hash) => {
+              const observedAt = performance.now();
+              if (resolutions.size >= 32) {
+                log(
+                  "warn",
+                  "pending_fwa_resolution_saturated",
+                  {
+                    resolutionConcurrency:
+                      resolutions.size,
+                    action:
+                      "drop_unresolved_coordinator_hash",
+                  },
+                );
+                return;
+              }
+              log(
+                "debug",
+                "pending_fwa_hash_observed",
+                {
+                  hash,
+                  resolutionConcurrency:
+                    resolutions.size + 1,
+                },
+              );
+              let resolution: Promise<void>;
+              resolution = (async () => {
+                try {
+                  const resolved =
+                    await resolvePendingFundingHash({
+                      getRawTransaction: () =>
+                        discoveryClient.getRawTransaction({
+                          hash,
+                        }),
+                      getTransaction: async () => {
+                        const transaction =
+                          await discoveryClient.getTransaction({
+                            hash,
+                          });
+                        return {
+                          hash: transaction.hash,
+                          from: transaction.from,
+                          nonce: transaction.nonce,
+                          chainId: transaction.chainId,
+                          type: transaction.type,
+                          to: transaction.to,
+                          value: transaction.value,
+                          input: transaction.input,
+                          blockNumber:
+                            transaction.blockNumber,
+                        };
+                      },
+                    });
+                  if (resolved.status === "mined") {
+                    log(
+                      "info",
+                      "pending_fwa_candidate_late",
+                      {
+                        hash,
+                        block:
+                          resolved.transaction.blockNumber?.toString() ??
+                          "",
+                        rawAvailable:
+                          resolved.rawAvailable,
+                        observedToResolutionMs:
+                          performance.now() - observedAt,
+                      },
+                    );
+                    return;
+                  }
+                  const transaction = resolved.transaction;
+                  const rpcTransaction = {
+                    hash: transaction.hash,
+                    from: transaction.from,
+                    nonce: transaction.nonce,
+                    chainId: transaction.chainId,
+                    type: transaction.type,
+                    to: transaction.to,
+                    value: transaction.value,
+                    input: transaction.input,
+                  };
+                  const coordinatorTransaction =
+                    await validateSignedPendingTransaction({
+                      rawTransaction:
+                        resolved.rawTransaction,
+                      expectedHash: hash,
+                      rpcTransaction,
+                    });
+                  if (
+                    coordinatorTransaction.target.toLowerCase() !==
+                      canonicalVrfCoordinator.toLowerCase() ||
+                    coordinatorTransaction.value !== 0n ||
+                    coordinatorTransaction.input
+                      .slice(0, 10)
+                      .toLowerCase() !==
+                      VRF_FULFILL_RANDOM_WORDS_SELECTOR
+                  ) {
+                    return;
+                  }
+                  cacheCoordinatorTransaction(
+                    coordinatorTransaction,
+                  );
+                  if (waitingCandidate !== undefined) {
+                    await queueCompleteCandidate(
+                      waitingCandidate,
+                    );
+                  }
+
+                  const currentHead =
+                    await exactStateClient.getBlockNumber();
+                  const lifecycleRound =
+                    await exactStateClient.readContract({
+                      address: poolAddress,
+                      abi: poolAbi,
+                      functionName: "ethPendingRound",
+                      blockNumber: currentHead,
+                    });
+                  if (lifecycleRound <= 0n) {
+                    return;
+                  }
+                  const round =
+                    await exactStateClient.readContract({
+                      address: poolAddress,
+                      abi: poolAbi,
+                      functionName: "getRound",
+                      args: [lifecycleRound],
+                      blockNumber: currentHead,
+                    });
+                  if (
+                    round.state !== ROUND_STATE.pulling ||
+                    round.fwaResolved ||
+                    round.fwaRequestId <= 0n
+                  ) {
+                    return;
+                  }
+                  const prerequisite =
+                    await validatePendingFwaFulfillment({
+                      rawTransaction:
+                        resolved.rawTransaction,
+                      expectedHash: hash,
+                      rpcTransaction,
+                      expectedCoordinator:
+                        canonicalVrfCoordinator,
+                      expectedConsumer: fwa,
+                      expectedSubId: vrfSubId,
+                      expectedRequestId:
+                        round.fwaRequestId,
+                    });
+                  log(
+                    "info",
+                    "pending_fwa_candidate_validated",
+                    {
+                      hash: prerequisite.hash,
+                      requestId:
+                        prerequisite.requestId.toString(),
+                      round: lifecycleRound.toString(),
+                      sender: prerequisite.sender,
+                      nonce: prerequisite.nonce,
+                      observedToResolutionMs:
+                        performance.now() - observedAt,
+                    },
+                  );
+                  if (executionController.stopping) return;
+                  await queueCompleteCandidate(prerequisite);
+                } catch (error) {
+                  const validationError =
+                    error instanceof
+                      PendingFwaFulfillmentValidationError ||
+                    error instanceof
+                      PendingFundingValidationError;
+                  log(
+                    "debug",
+                    "pending_fwa_candidate_rejected",
+                    {
+                      hash,
+                      reason: validationError
+                        ? error.code
+                        : "rpc_resolution_failed",
+                      observedToResolutionMs:
+                        performance.now() - observedAt,
+                      ...(validationError
+                        ? {}
+                        : errorFingerprint(error)),
+                    },
+                  );
+                }
+              })().finally(() => {
+                resolutions.delete(resolution);
+              });
+              resolutions.add(resolution);
+            },
+            onError: (error) => {
+              log(
+                "warn",
+                "pending_fwa_subscription_failed",
+                {
+                  errorClass: error.code,
+                  action:
+                    "reconnecting_same_filtered_subscription",
+                },
+              );
+            },
+          });
+        try {
+          await Promise.race([
+            subscription.ready,
+            new Promise<never>((_, reject) => {
+              const timer = setTimeout(() => {
+                reject(
+                  new Error(
+                    "pending FWA subscription did not become ready",
+                  ),
+                );
+              }, 10_000);
+              timer.unref();
+            }),
+          ]);
+        } catch (error) {
+          subscription.close();
+          throw error;
+        }
+        closePendingFwaRuntime = async () => {
+          subscription.close();
+          queuedCandidate = undefined;
+          waitingCandidate = undefined;
+          coordinatorTransactions.clear();
+          replacementTracker.clear();
+          const drain =
+            executionController.stopAndDrain();
+          await Promise.allSettled([...resolutions]);
+          await drain;
+        };
+        log("info", "pending_fwa_subscription_started", {
+          coordinator: canonicalVrfCoordinator,
+          consumer: fwa,
+          hashesOnly: true,
+          transport: "websocket",
+          resolutionConcurrencyLimit: 32,
+          fallback: "none",
+        });
+      }
     }
   } else if (!config.dryRun) {
     throw new Error("PRIVATE_KEY is required when DRY_RUN=false");
@@ -2241,6 +2851,9 @@ async function main(): Promise<void> {
       pendingFundingReady:
         !pendingFundingExecutionEnabled(config) ||
         activatePendingFundingExecution !== undefined,
+      pendingFwaReady:
+        !pendingFwaFulfillmentExecutionEnabled(config) ||
+        activatePendingFwaExecution !== undefined,
     });
     signerLease = await acquireSignerLease({
       connectionString: config.databaseUrl!,
@@ -2254,6 +2867,7 @@ async function main(): Promise<void> {
         performance.now() - startupStartedAt,
     });
     activatePendingFundingExecution?.();
+    activatePendingFwaExecution?.();
   }
 
   const accountAddress =
@@ -2320,6 +2934,8 @@ async function main(): Promise<void> {
       config.enableFirmReplenishments,
     pendingFundingBackruns:
       pendingFundingExecutionEnabled(config),
+    pendingFwaFulfillmentBackruns:
+      pendingFwaFulfillmentExecutionEnabled(config),
     directCoinbasePayments:
       config.enableDirectCoinbasePayments,
     directCoinbasePaymentHelper:

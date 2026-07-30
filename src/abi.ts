@@ -66,10 +66,15 @@ export const fwaAbi = parseAbi([
   "function nextSequenceToProcess() view returns (uint64)",
   "function lastIssuedSequence() view returns (uint64)",
   "function requestIdAtSequence(uint64 sequence) view returns (uint256)",
+  "function vrfCoordinatorAndSubId() view returns (address coordinator, uint256 subId)",
   "function processAcquisitions(uint256 maxCount) returns (uint256 processed)",
   "event AcquisitionProcessed(uint256 indexed requestId, uint64 indexed sequence, uint8 status, address indexed processor)",
   "error AcquisitionStateLocked()",
   "error Reentrancy()",
+]);
+
+export const vrfCoordinatorAbi = parseAbi([
+  "function fulfillRandomWords((uint256[2] pk,uint256[2] gamma,uint256 c,uint256 s,uint256 seed,address uWitness,uint256[2] cGammaWitness,uint256[2] sHashWitness,uint256 zInv) proof,(uint64 blockNum,uint256 subId,uint32 callbackGasLimit,uint32 numWords,address sender,bytes extraArgs) rc,bool onlyPremium) returns (uint96 payment)",
 ]);
 
 export const fwaTokenAbi = parseAbi([

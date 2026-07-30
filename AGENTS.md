@@ -162,6 +162,16 @@ resolution latency:
   fingerprint. They never persist raw provider messages, RPC URLs, bodies, or
   transaction bytes.
 
+The FWA fulfillment lane uses a separate coordinator-filtered, hash-only
+subscription and bounded concurrent resolution so unrelated coordinator
+traffic cannot delay order-funding candidates. Its
+`pending_fwa_candidate_validated` event proves the raw hash, recovered sender,
+canonical coordinator, FWA consumer/subscription, and proof-derived request ID
+matched the current pool lifecycle. `pending_fwa_backrun_submitted` is always
+the bounded exact contiguous coordinator nonce prefix ending in the target
+fulfillment, followed by keeper sync and settle; only the two keeper receipts
+enter P&L.
+
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
 deploy the exact local committed source with the Railway CLI.
@@ -210,6 +220,9 @@ jq -c 'select(
   .event == "pending_pool_pull_opportunity" or
   .event == "pending_pool_pull_submitted" or
   .event == "pending_pool_pull_backrun_complete" or
+  .event == "pending_fwa_backrun_opportunity" or
+  .event == "pending_fwa_backrun_submitted" or
+  .event == "pending_fwa_backrun_complete" or
   .event == "acquisition_status" or
   .event == "competitor_bid_observed" or
   .event == "pool_competitor_bid_observed" or
@@ -549,6 +562,21 @@ These constraints prevent expensive or unsafe regressions:
   that do not finish coverage. Revalidate the prerequisite immediately before
   private submission, price only the pull under the independent pool-pull bid,
   account only the pull receipt, and never submit the public purchase alone.
+- A pending FWA fulfillment backrun is always the exact bounded bundle
+  `[contiguous public coordinator nonce prefix ending in the target
+  fulfillRandomWords, keeper syncFwaResult, keeper settle]`.
+  Prove the signed raw transaction targets the coordinator pinned by
+  `vrfCoordinatorAndSubId`, has zero value, decodes to the canonical FWA
+  consumer/subscription, and derives the pool round's exact `fwaRequestId`
+  from the proof key hash and seed. Starting at the coordinator sender's exact
+  parent-state nonce, require every raw fulfillment through the target nonce
+  to be present, signed, still pending, coordinator-targeted, zero-value, and
+  selector-matched; reject a chain longer than eight. Require the lifecycle
+  pointer, pulling state, unresolved round, and Pending acquisition at the
+  exact parent;
+  simulate and price the complete bundle twice, never offer a prerequisite or
+  sync-only prefix, and account only the keeper receipts. This lane uses the
+  low pool-ready bid, not the ordinary confirmed-head fulfilled bid.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
   do not wait for a duplicate HTTP block object or provider fee estimate.
@@ -668,6 +696,10 @@ The core control flow is:
   and the hash-only filtered subscription
 - `src/pending-funding-backrun.ts`: exact-pair simulation, crank-only
   economics, relay submission, receipt accounting, and adaptive outcome rules
+- `src/pending-fwa-fulfillment.ts`: raw VRF fulfillment proof and request
+  validation
+- `src/pending-fwa-backrun.ts`: exact fulfillment/sync/settle simulation,
+  private submission, and keeper-only receipt accounting
 - `src/signer-coordinator.ts`: per-target-block signer reservation shared by
   confirmed-head and pending-event lanes
 - `src/telemetry.ts`: PostgreSQL event persistence

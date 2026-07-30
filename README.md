@@ -133,6 +133,20 @@ counts the funder's value, gas, or priority fee as keeper P&L. A shared
 target-block reservation prevents this asynchronous lane and the confirmed
 head planner from making conflicting signer decisions.
 
+When `ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS=true`, another isolated
+hash-only subscription watches the canonical VRF coordinator. It accepts only
+an exact signed `fulfillRandomWords` whose decoded consumer, subscription, and
+proof-derived request ID match the pool's current pending FWA acquisition. The
+keeper exact-simulates and privately submits only
+`[contiguous public coordinator nonce prefix ending in the target fulfillment,
+syncFwaResult(round), settle(round)]`. The bounded prefix is necessary when
+the oracle has earlier pending fulfillments; it is never sent alone, and only
+the two keeper receipts enter P&L. This closes
+the same-block state transition where the callback self-processes the
+acquisition before a confirmed-head planner can observe `fulfilled`. The lane
+uses the low `POOL_BUILDER_BID_BPS` policy rather than the high ordinary
+fulfilled-state bid.
+
 Candidate gas estimates run with bounded concurrency and retain fee-ranked
 ordering. When `WS_URL` is configured, a raw `newHeads` subscription supplies
 the complete planning header and wakes the block loop immediately; no duplicate
@@ -357,6 +371,12 @@ successful `crank` fees are sent to that keeper address.
   recipients, fetches and validates the exact raw prerequisite through
   `DISCOVERY_RPC_URL`, and has no polling or unfiltered alternative. It
   defaults to `false`.
+- `ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS`: enables a separate hash-only
+  coordinator subscription for the pool's exact pending FWA request. It
+  derives the request ID from the fulfillment proof, verifies the canonical
+  consumer/subscription and raw signed transaction, and permits only the
+  atomic private `bounded contiguous coordinator prefix → sync → settle`
+  bundle. It requires `WS_URL` and private submission and defaults to `false`.
 - `PENDING_FUNDING_BUILDER_BID_BPS`: independent builder bid for the
   pending-funding lane. It defaults to 1000 bps and deliberately does not
   inherit or update the much higher confirmed-head standing-order adaptive
@@ -657,8 +677,10 @@ Use a supervised process, a dedicated RPC, and keeper-wallet balance alerts.
   different deployment.
 - **Eligibility timing:** the loop reacts to confirmed heads. It can compete
   immediately once a call is eligible and can create its own atomic
-  order-to-pull transition, but it does not yet backrun an unrelated pending
-  ticket purchase or FWA processor transaction in the same block.
+  order-to-pull transition. Separate exact pending lanes cover a final public
+  ticket purchase and the canonical VRF fulfillment that self-processes the
+  pool's FWA acquisition. Arbitrary public FWA processor calls outside those
+  validated dependencies are not backrun.
 - **Deliberate lifecycle scope:** the keeper executes only caller-paid
   lifecycle work, except that it may cross-subsidize FWA's public, unpaid
   acquisition processor when the same private bundle unlocks profitable pool

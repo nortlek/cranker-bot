@@ -64,6 +64,7 @@ export interface KeeperConfig {
   readonly liveBidAdapterAddress: Address;
   readonly enableDirectCoinbasePayments: boolean;
   readonly enablePendingFundingBackruns: boolean;
+  readonly enablePendingFwaFulfillmentBackruns: boolean;
   readonly enablePoolLifecycle: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
@@ -122,6 +123,18 @@ export function pendingFundingExecutionEnabled(
   >,
 ): boolean {
   return config.enablePendingFundingBackruns && !config.dryRun;
+}
+
+export function pendingFwaFulfillmentExecutionEnabled(
+  config: Pick<
+    KeeperConfig,
+    "dryRun" | "enablePendingFwaFulfillmentBackruns"
+  >,
+): boolean {
+  return (
+    config.enablePendingFwaFulfillmentBackruns &&
+    !config.dryRun
+  );
 }
 
 function submissionModeEnv(): "flashbots" | "public" {
@@ -272,6 +285,10 @@ export function loadConfig(): KeeperConfig {
     "ENABLE_PENDING_FUNDING_BACKRUNS",
     false,
   );
+  const enablePendingFwaFulfillmentBackruns = booleanEnv(
+    "ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS",
+    false,
+  );
   const enableStakeDaoCurveHarvests = booleanEnv(
     "ENABLE_STAKEDAO_CURVE_HARVESTS",
     false,
@@ -284,12 +301,15 @@ export function loadConfig(): KeeperConfig {
     (enableStakeDaoCurveHarvests ||
       enableFirmReplenishments ||
       enableDirectCoinbasePayments ||
-      enablePendingFundingBackruns) &&
+      enablePendingFundingBackruns ||
+      enablePendingFwaFulfillmentBackruns) &&
     submissionMode !== "flashbots"
   ) {
     throw new Error(
       `${
-        enablePendingFundingBackruns
+        enablePendingFwaFulfillmentBackruns
+          ? "ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS"
+          : enablePendingFundingBackruns
           ? "ENABLE_PENDING_FUNDING_BACKRUNS"
           : enableDirectCoinbasePayments
           ? "ENABLE_DIRECT_COINBASE_PAYMENTS"
@@ -300,11 +320,16 @@ export function loadConfig(): KeeperConfig {
     );
   }
   if (
-    enablePendingFundingBackruns &&
+    (enablePendingFundingBackruns ||
+      enablePendingFwaFulfillmentBackruns) &&
     headRpcUrl === undefined
   ) {
     throw new Error(
-      "ENABLE_PENDING_FUNDING_BACKRUNS requires WS_URL",
+      `${
+        enablePendingFwaFulfillmentBackruns
+          ? "ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS"
+          : "ENABLE_PENDING_FUNDING_BACKRUNS"
+      } requires WS_URL`,
     );
   }
   const builderBidBps = integerEnv("BUILDER_BID_BPS", 8_100, {
@@ -532,6 +557,7 @@ export function loadConfig(): KeeperConfig {
     ),
     enableDirectCoinbasePayments,
     enablePendingFundingBackruns,
+    enablePendingFwaFulfillmentBackruns,
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
     enableVaults: booleanEnv("ENABLE_VAULTS", true),
     enableBuyback: booleanEnv("ENABLE_BUYBACK", true),

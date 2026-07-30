@@ -149,6 +149,11 @@ interface ValidatedPendingPrerequisiteBase {
   readonly value: bigint;
 }
 
+export interface ValidatedSignedPendingTransaction
+  extends ValidatedPendingPrerequisiteBase {
+  readonly input: Hex;
+}
+
 export type ValidatedPendingFundingPrerequisite =
   | (ValidatedPendingPrerequisiteBase & {
       readonly action: "order_funding";
@@ -195,25 +200,23 @@ function isSupportedTransactionType(
 }
 
 /**
- * Proves that raw bytes fetched for a pending transaction are the exact,
- * signed Ethereum mainnet native-value transfer described by the RPC object.
- *
- * This function deliberately validates the current target allowlist at the
- * last possible point before a caller can use the raw transaction as a bundle
- * prerequisite.
+ * Proves that raw bytes and an RPC pending-transaction object describe the
+ * same signed Ethereum mainnet transaction. Action-specific validators apply
+ * their target, value, and calldata invariants after this shared proof.
  */
-export async function validatePendingFundingPrerequisite(parameters: {
+export async function validateSignedPendingTransaction(parameters: {
   readonly rawTransaction: Hex | null | undefined;
   readonly expectedHash: Hash;
   readonly rpcTransaction: PendingFundingRpcTransaction;
-  readonly canonicalTargets: Iterable<Address>;
-  readonly poolTarget?: Address;
-}): Promise<ValidatedPendingFundingPrerequisite> {
+  readonly inputMismatchCode?: Extract<
+    PendingFundingValidationErrorCode,
+    "input_mismatch" | "input_not_empty"
+  >;
+}): Promise<ValidatedSignedPendingTransaction> {
   const {
     rawTransaction,
     expectedHash,
     rpcTransaction,
-    canonicalTargets,
   } = parameters;
 
   if (rawTransaction === null || rawTransaction === undefined) {
@@ -377,22 +380,7 @@ export async function validatePendingFundingPrerequisite(parameters: {
     );
   }
   const target = getAddress(parsed.to);
-  const normalizedTargets =
-    normalizeCanonicalTargets(canonicalTargets);
-  if (!normalizedTargets.has(target.toLowerCase())) {
-    validationFailure(
-      "target_not_canonical",
-      "Pending transaction recipient is not a canonical target",
-    );
-  }
-
   const value = parsed.value ?? 0n;
-  if (value <= 0n || rpcTransaction.value <= 0n) {
-    validationFailure(
-      "value_not_positive",
-      "Pending transaction must transfer positive native value",
-    );
-  }
   if (value !== rpcTransaction.value) {
     validationFailure(
       "value_mismatch",
@@ -401,14 +389,79 @@ export async function validatePendingFundingPrerequisite(parameters: {
   }
 
   const input = parsed.data ?? EMPTY_INPUT;
+  if (input.toLowerCase() !== rpcTransaction.input.toLowerCase()) {
+    validationFailure(
+      parameters.inputMismatchCode ?? "input_mismatch",
+      "Raw and RPC pending transaction inputs do not match",
+    );
+  }
+  return {
+    rawTransaction,
+    hash: computedHash,
+    sender,
+    nonce: parsed.nonce,
+    chainId: ETHEREUM_CHAIN_ID,
+    type: parsed.type,
+    target,
+    value,
+    input,
+  };
+}
+
+/**
+ * Proves that a signed pending transaction is an exact canonical native-value
+ * funding transfer or PullPool ticket purchase.
+ */
+export async function validatePendingFundingPrerequisite(parameters: {
+  readonly rawTransaction: Hex | null | undefined;
+  readonly expectedHash: Hash;
+  readonly rpcTransaction: PendingFundingRpcTransaction;
+  readonly canonicalTargets: Iterable<Address>;
+  readonly poolTarget?: Address;
+}): Promise<ValidatedPendingFundingPrerequisite> {
+  const rpcTargetsPool =
+    parameters.poolTarget !== undefined &&
+    parameters.rpcTransaction.to !== null &&
+    isAddressEqual(
+      parameters.rpcTransaction.to,
+      parameters.poolTarget,
+    );
+  const validated = await validateSignedPendingTransaction({
+    ...parameters,
+    inputMismatchCode: rpcTargetsPool
+      ? "input_mismatch"
+      : "input_not_empty",
+  });
+  const {
+    rawTransaction,
+    hash: computedHash,
+    sender,
+    nonce,
+    type,
+    target,
+    value,
+    input,
+  } = validated;
+  const normalizedTargets = normalizeCanonicalTargets(
+    parameters.canonicalTargets,
+  );
+  if (!normalizedTargets.has(target.toLowerCase())) {
+    validationFailure(
+      "target_not_canonical",
+      "Pending transaction recipient is not a canonical target",
+    );
+  }
+  if (value <= 0n) {
+    validationFailure(
+      "value_not_positive",
+      "Pending transaction must transfer positive native value",
+    );
+  }
   const isPoolTarget =
     parameters.poolTarget !== undefined &&
     isAddressEqual(target, parameters.poolTarget);
   if (!isPoolTarget) {
-    if (
-      input !== EMPTY_INPUT ||
-      rpcTransaction.input !== EMPTY_INPUT
-    ) {
+    if (input !== EMPTY_INPUT) {
       validationFailure(
         "input_not_empty",
         "Pending funding transaction input must be empty",
@@ -419,18 +472,12 @@ export async function validatePendingFundingPrerequisite(parameters: {
       rawTransaction,
       hash: computedHash,
       sender,
-      nonce: parsed.nonce,
+      nonce,
       chainId: ETHEREUM_CHAIN_ID,
-      type: parsed.type,
+      type,
       target,
       value,
     };
-  }
-  if (input.toLowerCase() !== rpcTransaction.input.toLowerCase()) {
-    validationFailure(
-      "input_mismatch",
-      "Raw and RPC pending transaction inputs do not match",
-    );
   }
   let decoded: ReturnType<typeof decodeFunctionData>;
   try {
@@ -501,9 +548,9 @@ export async function validatePendingFundingPrerequisite(parameters: {
     rawTransaction,
     hash: computedHash,
     sender,
-    nonce: parsed.nonce,
+    nonce,
     chainId: ETHEREUM_CHAIN_ID,
-    type: parsed.type,
+    type,
     target,
     value,
     ...(typeof roundId === "bigint" ? { roundId } : {}),
