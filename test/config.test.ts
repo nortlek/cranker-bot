@@ -192,7 +192,7 @@ describe("ready acquisition bidding", () => {
 
     const config = loadConfig();
     expect(config.poolBuilderBidBps).toBe(300n);
-    expect(config.poolFulfilledBuilderBidBps).toBe(300n);
+    expect(config.poolFulfilledBuilderBidBps).toBe(7_250n);
   });
 });
 

@@ -337,7 +337,7 @@ export function loadConfig(): KeeperConfig {
   );
   const poolFulfilledBuilderBidBps = integerEnv(
     "POOL_FULFILLED_BUILDER_BID_BPS",
-    300,
+    7_250,
     {
       min: 0,
       max: 10_000,

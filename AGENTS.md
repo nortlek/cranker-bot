@@ -600,7 +600,7 @@ At the last handoff, the configured policy was approximately:
 | Pending-funding standing-order backrun | 10% |
 | Pool pull | 10% |
 | Pool acquisition ready | 3% |
-| Pool acquisition fulfilled | 3% |
+| Pool acquisition fulfilled | 72.5% |
 | LiveBid sweep | 1% |
 | Liquity V2 | 81% |
 | Convex | 10% |

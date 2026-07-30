@@ -1252,6 +1252,21 @@ lease and began healthy passes within the following second. PostgreSQL then
 showed one open run and one granted advisory lock; wallet nonces remained
 `667/667`. All 255 tests, typecheck, build, and diff checks passed.
 
+Fulfilled-cycle competition then supplied the repeated exact evidence that the
+original low bid lacked. Seven private `syncFwaResult -> settle` attempts at
+`301 bps` produced zero wins. Three decoded winners paid `7,212`, `8,429`, and
+`9,384 bps` of their observed pool reward directly or in aggregate to the
+block beneficiary. For round 337, our exact simulation at target block
+`25645540` reported `0.00114713205625993 ETH` gross reward and `554,480` gas;
+the `7,212 bps` competitor combined both calls in one helper transaction,
+used `502,360` gas, and retained only about `0.000099165 ETH` after its direct
+payment and gas. A `7,250 bps` target on our simulated route would still have
+retained about `0.000128 ETH`. The fulfilled-only policy therefore moves to
+`7,250 bps`, while the ready processor/sync/settle lane remains at `300 bps`.
+The `8,429` and `9,384 bps` tails are not chased: exact bundle simulation, the
+unchanged `5 gwei` ceiling, and the positive-profit gate remain mandatory and
+fail closed when the target cannot be afforded.
+
 Acceptance:
 
 - ready/fulfilled lifecycle behavior and minimum viable prefixes are unchanged
@@ -1805,6 +1820,19 @@ Next action and acceptance criteria:
 Status: read-only research complete; no cross-chain signer, transaction,
 deployment, or production mutation was performed. The BNB execution check
 described below used an ephemeral local Anvil fork only.
+
+The broader rejected-candidate evidence and chain-isolation requirements are
+recorded in
+[`research/CROSS_CHAIN_KEEPERS_2026-07-30.md`](./research/CROSS_CHAIN_KEEPERS_2026-07-30.md).
+That follow-up ranked Maker/Sky liquidations above every genuinely cross-chain
+candidate, but the repository already has a full read-only bark inspector.
+Its 2026-07-30 refresh read 32,021 vault ids, found 839 active vaults across
+eight ilks, and found no unsafe vault. The next Maker work is an event-driven
+active-urn cache, `Clipper.redo` coverage, and historical exact execution
+replay—not another scanner or an unvalidated signing lane. Equilibria on
+Arbitrum was only approximately break-even; Aura sidechain messaging value
+dwarfed its reward; Aerodrome and Compound III paid no current caller asset
+reward.
 
 This is a ranked backlog, not an exhaustive claim that no other protocol pays
 keepers. The scan covered canonical explicit-bounty surfaces on Base,

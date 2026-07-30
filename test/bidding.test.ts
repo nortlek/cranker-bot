@@ -73,6 +73,25 @@ describe("quoteCompetitiveFees", () => {
     );
   });
 
+  it("prices the observed low fulfilled-lifecycle clearing without chasing unprofitable tails", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: parseEther("0.00114713205625993"),
+      simulatedGasUsed: 554_480n,
+      baseFeeAllowancePerGas: 336_058_908n,
+      minimumPriorityFeePerGas: 0n,
+      builderBidBps: 7_250n,
+      maxFeePerGasCap: parseGwei("5"),
+      minProfitWei: 0n,
+    });
+
+    expect(quote.profitable).toBe(true);
+    expect(quote.effectiveBuilderBidBps).toBe(7_251n);
+    expect(quote.expectedProfit).toBeGreaterThan(
+      parseEther("0.000128"),
+    );
+    expect(quote.cappedByProfit).toBe(false);
+  });
+
   it("accepts a one-wei expected profit when floors are disabled", () => {
     const quote = quoteCompetitiveFees({
       crankFee: 101n,

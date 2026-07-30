@@ -284,8 +284,12 @@ successful `crank` fees are sent to that keeper address.
   default is `1000` (10%). Exact standalone-pull traces show this clears the
   low-bid cluster without paying into the near-zero-margin high-bid cluster.
 - `POOL_FULFILLED_BUILDER_BID_BPS`: builder share for ordinary fulfilled
-  `sync → settle` and settle-only work. The default is `300` (3%).
-  Mixed order/pool bundles weight every component by its own policy.
+  `sync → settle` and settle-only work. The default is `7250` (72.5%), just
+  above the lowest of three exact recent fulfilled-cycle clearings. This does
+  not affect the ready acquisition lane, which retains its low independent
+  bid. Exact simulation, the global fee ceiling, and the positive-profit gate
+  still reject a fulfilled bundle that cannot afford this target. Mixed
+  order/pool bundles weight every component by its own policy.
 - `LIVE_BID_SWEEP_BUILDER_BID_BPS`: builder share applied only to an adapter
   sweep. The default is `100` (1%); historical winning calls paid zero
   priority fee, so it does not inherit the standing-order bid.
