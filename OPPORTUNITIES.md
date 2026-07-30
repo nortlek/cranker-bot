@@ -18,12 +18,23 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 18:10 America/Denver, the
-verified snapshot was **$170.54683980 net**, or **68.21%** of the goal, with
-`latest == pending == 572`, net ETH equivalent of
-`0.089336909215862492`, and a fresh `$1,909.03` ETH/USD oracle. Three new
-standing-order receipts retained exactly `0.000032864522890725 ETH`; the
-decoded aggregate and wallet delta agree exactly. The preceding nine
+2026-07-30 23:59 America/Denver**. At 2026-07-29 18:22 America/Denver, the
+verified snapshot was **$184.38585809 net**, or **73.75%** of the goal, with
+`latest == pending == 593`, net ETH equivalent of
+`0.096586150085209761`, and a fresh `$1,909.03` ETH/USD oracle. Since the
+nonce-572 snapshot, 21 successful receipts increased the wallet by exactly
+`0.007249240869347269 ETH`. Receipt aggregation and the wallet delta agree
+exactly. The retained components were round 307's four-call lifecycle/pull
+bundle (`0.000803134480853976 ETH`), one standing order
+(`0.000002493297054820 ETH`), the round-309 funding/pull pair
+(`0.000894963214100483 ETH`), round 309's four-call lifecycle/pull bundle
+(`0.001964283428878568 ETH`), round 310's three-call lifecycle
+(`0.000536242642660129 ETH`), the round-311 funding/pull pair
+(`0.001119464494094752 ETH`), the round-312 funding/pull pair
+(`0.001168871529689505 ETH`), and round 312's three-call lifecycle
+(`0.000759787782015036 ETH`). The preceding three standing-order receipts
+retained exactly `0.000032864522890725 ETH`; their decoded aggregate and
+wallet delta also agree exactly. The preceding nine
 successful receipts from nonces 560–568 increased the wallet by exactly
 `0.000657094625890769 ETH`. Round 305's processor/sync prefix retained
 `0.000114463792007881 ETH`, five standing orders retained
@@ -1044,9 +1055,18 @@ old worker remains the sole signer during that initialization; after it drains,
 the replacement acquires the lock, arms its queued pending-event lane, and
 starts normal passes. A stale queued prerequisite still faces the unchanged
 pending-status, nonce, exact-simulation, and profitability gates. The first
-rollout must prove one granted lock throughout, no pre-lease submissions, and
-a materially shorter lease-to-`keeper_started` handoff before this is treated
-as complete.
+rollout is verified in Railway deployment
+`40c9a9dc-3e3f-4941-a063-6c5a879e73f0` from exact source
+`fc23193ce207b173bfba2876023da46d60552310`. The replacement completed
+read-only initialization in `1.181 seconds`, then waited on the signer lease
+while the old worker continued through block `25642047`. The old run recorded
+its stop at `00:22:08.717 UTC`; the replacement acquired the lease at
+`00:22:09.562 UTC` and emitted `keeper_started` at `00:22:09.927 UTC`.
+That reduced the previous roughly 30-second blackout to about `1.21 seconds`
+between the old stop record and the new active keeper, and to `365 ms` from
+lease acquisition to startup. There were no pre-lease submissions, fatal
+events, or failed passes. PostgreSQL showed exactly one granted advisory lock,
+one open keeper run, and the expected source SHA after handoff.
 
 Do not deploy a keeper executor now. Consolidating a three-call ready cycle
 saves at most `42,000` intrinsic gas before wrapper and reward-forwarding
@@ -1281,6 +1301,18 @@ three-call core and every longer safe prefix. A selected two-call
 `process -> sync` plan remains valid when settlement was absent or did not
 survive exact simulation. This changes neither the planner's dependency floor,
 the 300-bps bid, nor any exact-simulation or profit gate.
+
+The first dense live sample after that correction supports holding the
+300-bps lifecycle quote. Round 307's
+`processAcquisitions(30) -> sync -> settle -> pull(308)` bundle retained
+`0.000803134480853976 ETH`; round 309's corresponding four-call bundle
+retained `0.001964283428878568 ETH`; and the complete round-310 and round-312
+three-call chains retained `0.000536242642660129 ETH` and
+`0.000759787782015036 ETH`. For fulfilled round 308, the enforced two-call
+submission floor prevented a sync-only inclusion, but all four relay paths
+missed. The competing wrapper settled both calls in block `25642001` with
+zero priority fee and no direct beneficiary payment, so that miss remains
+delivery/builder selection evidence rather than support for raising the bid.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the
