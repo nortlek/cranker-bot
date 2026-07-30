@@ -562,6 +562,16 @@ is reduced from `2,000` to **`1,000 bps`**: it still clears the evidenced cheap
 cluster without paying nearly twice as much in the otherwise empty bid band.
 Ready and fulfilled lifecycle policies remain independent.
 
+The read-only inspector now reports the complete current round and exact
+standalone-pull economics. On 2026-07-30, round 339 was open and fully covered
+with 28 tickets and `0.14 ETH` escrow. Its `pull` estimated `958,891` gas and
+the bounty was capped at `0.0015 ETH`; after the `1,000 bps` builder target,
+the maximum profitable base fee was about `1.407876389 gwei`. The observed
+next-block base fee was above `11 gwei`, making the call more than
+`0.009 ETH` loss-making even before any bid increase. This is evidence to wait,
+not to raise the global fee ceiling; `npm run inspect` now exposes the same
+threshold for future rounds.
+
 Round 290 then supplied a live confirmation of the cross-subsidized pull path.
 Two funding cranks plus `pull` cleared atomically for
 `0.000718906984853275 ETH` aggregate net; the pull itself used `502,574` gas
