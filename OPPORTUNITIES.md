@@ -1267,6 +1267,15 @@ The `8,429` and `9,384 bps` tails are not chased: exact bundle simulation, the
 unchanged `5 gwei` ceiling, and the positive-profit gate remain mandatory and
 fail closed when the target cannot be afforded.
 
+Railway deployment `b3c7081f-fe2e-4ba2-bfb9-d58f3c76b12b` now runs exact
+source `d976fb29458c4e9f0f0773b13123b186e7cf4545`. Startup confirmed fulfilled
+`7,250 bps`, ready `300 bps`, exact WebSocket state, and the unchanged private
+relay and fee-cap policy. The replacement waited `67.712 seconds` for the
+incumbent lease, then acquired it cleanly; PostgreSQL showed one open run, one
+granted signer lock, and zero waiters. The old deployment was removed, wallet
+nonces remained `667/667`, and no startup, pass, lease, or telemetry failure
+was observed.
+
 Acceptance:
 
 - ready/fulfilled lifecycle behavior and minimum viable prefixes are unchanged
