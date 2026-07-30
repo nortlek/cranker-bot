@@ -159,12 +159,10 @@ describe("pending pool pull prerequisite backrun", () => {
     const publicClient = {
       getBlockNumber: vi.fn(async () => 100n),
       getTransactionCount: vi.fn(async () => 7),
-      estimateFeesPerGas: vi.fn(async () => ({
-        maxFeePerGas: parseGwei("1"),
-        maxPriorityFeePerGas: 0n,
-      })),
       getBlock: vi.fn(async () => ({
         baseFeePerGas: parseGwei("1"),
+        gasUsed: 30_000_000n,
+        gasLimit: 60_000_000n,
       })),
       readContract: vi.fn(
         async ({

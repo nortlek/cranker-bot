@@ -11,6 +11,8 @@ export interface SubscribedHead {
   readonly hash: Hash;
   readonly timestamp: bigint;
   readonly baseFeePerGas: bigint | null;
+  readonly gasUsed: bigint;
+  readonly gasLimit: bigint;
 }
 
 function requiredQuantity(
@@ -61,6 +63,8 @@ export function parseNewHeadsPayload(
             payload.baseFeePerGas,
             "baseFeePerGas",
           ),
+    gasUsed: requiredQuantity(payload.gasUsed, "gasUsed"),
+    gasLimit: requiredQuantity(payload.gasLimit, "gasLimit"),
   };
 }
 

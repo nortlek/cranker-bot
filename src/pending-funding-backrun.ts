@@ -13,6 +13,7 @@ import {
 } from "viem";
 
 import { standingOrderAbi } from "./abi.js";
+import { nextBlockBaseFeePerGas } from "./base-fee.js";
 import { quoteCompetitiveFees } from "./bidding.js";
 import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
@@ -413,10 +414,10 @@ export async function executePendingFundingBackrun(parameters: {
         targetBlock,
       };
     }
-    const [feeQuote, crankFee, accountBalance] =
+    const [latestBlock, crankFee, accountBalance] =
       await Promise.all([
-        parameters.publicClient.estimateFeesPerGas({
-          type: "eip1559",
+        parameters.publicClient.getBlock({
+          blockNumber: currentHead,
         }),
         parameters.publicClient.readContract({
           address: order,
@@ -429,9 +430,20 @@ export async function executePendingFundingBackrun(parameters: {
           blockNumber: currentHead,
         }),
       ]);
+    if (latestBlock.baseFeePerGas === null) {
+      return {
+        status: "skipped",
+        reason: "base_fee_unavailable",
+        targetBlock,
+      };
+    }
     const baseFeeAllowancePerGas =
-      feeQuote.maxFeePerGas -
-      feeQuote.maxPriorityFeePerGas;
+      nextBlockBaseFeePerGas({
+        parentBaseFeePerGas:
+          latestBlock.baseFeePerGas,
+        parentGasUsed: latestBlock.gasUsed,
+        parentGasLimit: latestBlock.gasLimit,
+      });
     const builderBidBps = parameters.builderBidBps;
     const exact = await exactPricedCrank({
       relay: parameters.relays[0]!,

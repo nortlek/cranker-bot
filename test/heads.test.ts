@@ -16,6 +16,8 @@ describe("parseNewHeadsPayload", () => {
           "0x1111111111111111111111111111111111111111111111111111111111111111",
         timestamp: "0x68d4a25f",
         baseFeePerGas: "0x59682f00",
+        gasUsed: "0x1c9c380",
+        gasLimit: "0x3938700",
         transactionsRoot:
           "0x2222222222222222222222222222222222222222222222222222222222222222",
       }),
@@ -25,6 +27,8 @@ describe("parseNewHeadsPayload", () => {
         "0x1111111111111111111111111111111111111111111111111111111111111111",
       timestamp: 1_758_765_663n,
       baseFeePerGas: 1_500_000_000n,
+      gasUsed: 30_000_000n,
+      gasLimit: 60_000_000n,
     });
   });
 
@@ -45,6 +49,16 @@ describe("parseNewHeadsPayload", () => {
         baseFeePerGas: "0x30",
       }),
     ).toThrow("invalid timestamp");
+    expect(() =>
+      parseNewHeadsPayload({
+        number: "0x10",
+        hash:
+          "0x1111111111111111111111111111111111111111111111111111111111111111",
+        timestamp: "0x20",
+        baseFeePerGas: "0x30",
+        gasLimit: "0x100",
+      }),
+    ).toThrow("invalid gasUsed");
   });
 });
 

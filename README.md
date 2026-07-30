@@ -337,13 +337,15 @@ successful `crank` fees are sent to that keeper address.
   the intended builder payment.
 - `SIMULATION_CONCURRENCY`: maximum simultaneous per-order gas estimates.
 - `WS_URL`: optional WSS `newHeads` source used to wake the loop. When set,
-  the raw subscribed header supplies the exact planning block, timestamp, and
-  base fee, and the same WebSocket client serves foreground state,
-  simulations, nonce/balance gates, target blocks, and receipts. `RPC_URL`
-  remains the startup, subscription-liveness, and post-block observation
-  client rather than a duplicate planning path. The same signal wakes private
-  target-block finalization. A typed receipt-not-found publication race is
-  retried for one bounded second; other receipt errors remain terminal.
+  the raw subscribed header supplies the exact planning block, timestamp,
+  base fee, gas used, and gas limit. The keeper computes the immediate child's
+  exact EIP-1559 base fee locally, and the same WebSocket client serves
+  foreground state, simulations, nonce/balance gates, target blocks, and
+  receipts. `RPC_URL` remains the startup, subscription-liveness, and
+  post-block observation client rather than a duplicate planning path. The
+  same signal wakes private target-block finalization. A typed
+  receipt-not-found publication race is retried for one bounded second; other
+  receipt errors remain terminal.
 - `ENABLE_PENDING_FUNDING_BACKRUNS`: enables the hash-only filtered Alchemy
   `alchemy_pendingTransactions` watcher. It requires `WS_URL` and
   `SUBMISSION_MODE=flashbots`, accepts only current canonical order/vault

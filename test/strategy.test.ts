@@ -26,7 +26,7 @@ import {
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
-  privateNextBlockFeeEnvelope,
+  privateNextBlockFeeQuote,
   readPublishedTransactionReceipt,
   resolvePlanningFeeQuote,
   resolvePlanningHead,
@@ -152,6 +152,8 @@ describe("resolvePlanningHead", () => {
       "0x1111111111111111111111111111111111111111111111111111111111111111" as const,
     timestamp: 1_754_000_000n,
     baseFeePerGas: 100_000_000n,
+    gasUsed: 30_000_000n,
+    gasLimit: 60_000_000n,
   };
 
   it("uses the subscribed header without waiting for an HTTP block copy", async () => {
@@ -192,11 +194,13 @@ describe("resolvePlanningHead", () => {
   });
 });
 
-describe("privateNextBlockFeeEnvelope", () => {
+describe("privateNextBlockFeeQuote", () => {
   it("covers the maximum EIP-1559 child base-fee increase", () => {
     expect(
-      privateNextBlockFeeEnvelope({
+      privateNextBlockFeeQuote({
         parentBaseFeePerGas: 800n,
+        parentGasUsed: 200n,
+        parentGasLimit: 200n,
         minimumPriorityFeePerGas: 25n,
       }),
     ).toEqual({
@@ -208,8 +212,10 @@ describe("privateNextBlockFeeEnvelope", () => {
 
   it("uses the protocol one-wei minimum increase", () => {
     expect(
-      privateNextBlockFeeEnvelope({
+      privateNextBlockFeeQuote({
         parentBaseFeePerGas: 7n,
+        parentGasUsed: 101n,
+        parentGasLimit: 200n,
         minimumPriorityFeePerGas: 0n,
       }),
     ).toEqual({
@@ -221,14 +227,18 @@ describe("privateNextBlockFeeEnvelope", () => {
 
   it("fails closed without a usable EIP-1559 parent fee", () => {
     expect(() =>
-      privateNextBlockFeeEnvelope({
+      privateNextBlockFeeQuote({
         parentBaseFeePerGas: null,
+        parentGasUsed: 100n,
+        parentGasLimit: 200n,
         minimumPriorityFeePerGas: 0n,
       }),
     ).toThrow("requires a positive parent base fee");
     expect(() =>
-      privateNextBlockFeeEnvelope({
+      privateNextBlockFeeQuote({
         parentBaseFeePerGas: 1n,
+        parentGasUsed: 100n,
+        parentGasLimit: 200n,
         minimumPriorityFeePerGas: -1n,
       }),
     ).toThrow("cannot be negative");
@@ -246,16 +256,32 @@ describe("resolvePlanningFeeQuote", () => {
       resolvePlanningFeeQuote({
         submissionMode: "flashbots",
         parentBaseFeePerGas: 800n,
+        parentGasUsed: 200n,
+        parentGasLimit: 200n,
         minimumPriorityFeePerGas: 25n,
         readProviderFeeQuote,
       }),
     ).resolves.toEqual({
-      source: "subscribed_header_next_block_envelope",
+      source: "subscribed_header_exact_next_base_fee",
       baseFeeAllowancePerGas: 900n,
       maxPriorityFeePerGas: 25n,
       maxFeePerGas: 925n,
     });
     expect(readProviderFeeQuote).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without complete private parent gas fields", async () => {
+    await expect(
+      resolvePlanningFeeQuote({
+        submissionMode: "flashbots",
+        parentBaseFeePerGas: 800n,
+        minimumPriorityFeePerGas: 25n,
+        readProviderFeeQuote: async () => ({
+          maxFeePerGas: 1_000n,
+          maxPriorityFeePerGas: 25n,
+        }),
+      }),
+    ).rejects.toThrow("requires complete parent gas fields");
   });
 
   it("retains provider fee estimation for public submission", async () => {

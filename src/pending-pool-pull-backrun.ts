@@ -12,6 +12,7 @@ import {
 } from "viem";
 
 import { poolAbi } from "./abi.js";
+import { nextBlockBaseFeePerGas } from "./base-fee.js";
 import { quoteCompetitiveFees } from "./bidding.js";
 import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
@@ -95,11 +96,6 @@ function sameFeeQuote(
     left.maxFeePerGas === right.maxFeePerGas &&
     left.maxPriorityFeePerGas === right.maxPriorityFeePerGas
   );
-}
-
-function conservativeNextBaseFee(baseFeePerGas: bigint): bigint {
-  if (baseFeePerGas <= 0n) return 0n;
-  return (baseFeePerGas * 7n) / 8n;
 }
 
 async function exactPricedPoolPull(parameters: {
@@ -405,15 +401,11 @@ export async function executePendingPoolPullBackrun(parameters: {
       };
     }
     const [
-      feeQuote,
       latestBlock,
       roundCount,
       ethPendingRound,
       accountBalance,
     ] = await Promise.all([
-      parameters.publicClient.estimateFeesPerGas({
-        type: "eip1559",
-      }),
       parameters.publicClient.getBlock({
         blockNumber: currentHead,
       }),
@@ -434,6 +426,13 @@ export async function executePendingPoolPullBackrun(parameters: {
         blockNumber: currentHead,
       }),
     ]);
+    if (latestBlock.baseFeePerGas === null) {
+      return {
+        status: "skipped",
+        reason: "base_fee_unavailable",
+        targetBlock,
+      };
+    }
     const roundId = declaredRoundId ?? roundCount;
     if (
       (declaredRoundId !== undefined &&
@@ -463,8 +462,12 @@ export async function executePendingPoolPullBackrun(parameters: {
       };
     }
     const baseFeeAllowancePerGas =
-      feeQuote.maxFeePerGas -
-      feeQuote.maxPriorityFeePerGas;
+      nextBlockBaseFeePerGas({
+        parentBaseFeePerGas:
+          latestBlock.baseFeePerGas,
+        parentGasUsed: latestBlock.gasUsed,
+        parentGasLimit: latestBlock.gasLimit,
+      });
     const exact = await exactPricedPoolPull({
       relay: parameters.relays[0]!,
       signer: parameters.signer,
@@ -474,9 +477,7 @@ export async function executePendingPoolPullBackrun(parameters: {
       nonce: latestNonce,
       accountBalance,
       baseFeeAllowancePerGas,
-      bountyBaseFeePerGas: conservativeNextBaseFee(
-        latestBlock.baseFeePerGas ?? 0n,
-      ),
+      bountyBaseFeePerGas: baseFeeAllowancePerGas,
       crankBountyCap: round.crankBountyCap,
       bountyTipWei: round.bountyTipWei,
       builderBidBps: parameters.builderBidBps,

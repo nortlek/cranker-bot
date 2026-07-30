@@ -318,6 +318,8 @@ async function main(): Promise<void> {
             hash: block.hash,
             timestamp: block.timestamp,
             baseFeePerGas: block.baseFeePerGas,
+            gasUsed: block.gasUsed,
+            gasLimit: block.gasLimit,
           };
           headSignal.observe(block.number);
           signerCoordinator.observeHead(block.number);
