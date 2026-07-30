@@ -1326,7 +1326,11 @@ identified wrapper transaction
 aggregated both bounties to exactly `0.000877481387112076 ETH`, and measured
 zero builder payment and a zero-bps upper bound. The path deliberately does
 not feed standing-order adaptive state because a lifecycle wrapper may have
-other reward sources.
+other reward sources. All 248 tests, typecheck, build, and diff checks passed.
+This is live in Railway deployment
+`34989d08-5039-4c78-8de8-0c56929b90a4` from exact source
+`f524293102fb6d1cae49374a813fe3855900af8b`; its overlap handoff again left
+exactly one granted signer lock and one open keeper run.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the
