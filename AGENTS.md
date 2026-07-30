@@ -17,11 +17,15 @@ The initial goal of **$10 verified net realized profit by
 realized profit by 2026-07-30 23:59 America/Denver** stretch goal was achieved
 at `$51.29412534` on 2026-07-28 America/Denver, measured from the same original
 baseline and fully net of gas, builder payments, and other fees. The active
-stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver** on the same basis. Continue to protect and
-reconcile realized profit; a goal is not permission to expand custody,
-approval, or contract risk. Never claim progress from a log estimate alone:
-reconcile wallet balances and successful receipts.
+stretch goal of **$250 cumulative verified net realized profit by
+2026-07-30 23:59 America/Denver** was achieved at `$253.73988689` on
+2026-07-30 America/Denver. The completion snapshot had
+`latest == pending == 722`, net ETH equivalent of
+`0.131936983292652418`, and a fresh `$1,923.19` ETH/USD oracle. PostgreSQL
+receipts and the wallet delta agreed exactly. No subsequent profit target has
+been set. Continue to protect and reconcile realized profit; a goal is not
+permission to expand custody, approval, or contract risk. Never claim progress
+from a log estimate alone: reconcile wallet balances and successful receipts.
 
 The production signer runs on Railway. Do not run a second live signer locally.
 Local runs must be `DRY_RUN=true`, preferably `RUN_ONCE=true`.
@@ -594,6 +598,13 @@ These constraints prevent expensive or unsafe regressions:
   economics, lease, and deadline are all revalidated; permit at most three
   consecutive target attempts and never retarget a mined or replaced
   prerequisite.
+  Known production limitation at source `99e8749`: round 364 proved that the
+  retry wrapper can re-enter the executor while its `eth_blockNumber` view is
+  still stale, causing all three attempts to repeat the already-arrived target
+  block. The path fails closed and spends no gas, but the retry is ineffective.
+  Before relying on retargeting, bind each retry's exact parent to the
+  authoritative subscribed head and add a regression proving targets advance
+  across `target_block_arrived`.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
   do not wait for a duplicate HTTP block object or provider fee estimate.

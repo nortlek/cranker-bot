@@ -17,8 +17,22 @@ snapshot was **$51.29412534 net**, or **102.58%** of the goal, with
 net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
-The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-30 14:16 America/Denver, the
+The **$250 cumulative verified net realized profit by
+2026-07-30 23:59 America/Denver** stretch goal was achieved. At the
+2026-07-30 16:46 America/Denver completion snapshot, verified profit was
+**$253.73988689**, or **101.49%** of the goal, with
+`latest == pending == 722`, net ETH equivalent of
+`0.131936983292652418`, and a fresh `$1,923.19` ETH/USD oracle. Round 365's
+pending FWA processor/sync/settle bundle earned `0.00120333783714914 ETH`,
+spent `0.000290943677169978 ETH`, and retained
+`0.000912394159979162 ETH`. The round 366 pending final-ticket pull earned
+`0.0015 ETH`, spent `0.00018560280430971 ETH`, and retained
+`0.00131439719569029 ETH`. Their combined
+`0.002226791355669452 ETH` net exactly equals the wallet increase from the
+previous verified snapshot. PostgreSQL member receipts, its aggregate batch
+result, account balances, and nonces agree.
+
+At 2026-07-30 14:16 America/Denver, the preceding
 verified snapshot was **$239.69256803 net**, or **95.87%** of the goal, with
 `latest == pending == 699`, net ETH equivalent of
 `0.124753820619572591`, and a fresh `$1,921.32` ETH/USD oracle. The 32
@@ -792,6 +806,16 @@ new exact parent. Queue count, nonce, balance, state, both full simulations,
 economics, signer lease, and target deadline are all revalidated. It allows at
 most three consecutive target attempts, never retargets a mined or replaced
 transaction, and does not resubmit an expired keeper bundle.
+
+Live round 364 exposed a remaining retarget defect in source `99e8749`. The
+wrapper correctly re-entered three times after `target_block_arrived`, but the
+executor's stale `eth_blockNumber` response derived target block `25648721` on
+all three attempts even though the authoritative WebSocket head had already
+advanced. No transaction was submitted and no gas was spent, so the path
+remains fail-closed, but the retry currently adds no coverage. The next
+maintenance change should pass the authoritative subscribed parent into each
+retry, require the target to advance, and add a stale-`getBlockNumber`
+regression before another deployment.
 
 ### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 
