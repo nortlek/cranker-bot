@@ -328,11 +328,14 @@ successful `crank` fees are sent to that keeper address.
   bundles. It defaults to zero because `POOL_BUILDER_BID_BPS` already creates
   the intended builder payment.
 - `SIMULATION_CONCURRENCY`: maximum simultaneous per-order gas estimates.
-- `WS_URL`: optional WSS `newHeads` source used to wake the loop. All
-  authoritative state, simulations, nonce gates, and staleness checks remain
-  on the exact block fetched through `RPC_URL`. The same signal wakes private
-  target-block receipt finalization; HTTP must then serve that exact block
-  before receipts are classified as confirmed or expired.
+- `WS_URL`: optional WSS `newHeads` source used to wake the loop. When set,
+  the raw subscribed header supplies the exact planning block, timestamp, and
+  base fee, and the same WebSocket client serves foreground state,
+  simulations, nonce/balance gates, target blocks, and receipts. `RPC_URL`
+  remains the startup, subscription-liveness, and post-block observation
+  client rather than a duplicate planning path. The same signal wakes private
+  target-block finalization. A typed receipt-not-found publication race is
+  retried for one bounded second; other receipt errors remain terminal.
 - `ENABLE_PENDING_FUNDING_BACKRUNS`: enables the hash-only filtered Alchemy
   `alchemy_pendingTransactions` watcher. It requires `WS_URL` and
   `SUBMISSION_MODE=flashbots`, accepts only current canonical order/vault

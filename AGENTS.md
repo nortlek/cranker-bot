@@ -113,8 +113,8 @@ latency-sensitive foreground contract state, simulations, nonce, and balance
 gates; every state read is pinned to the subscribed block number. This avoids
 cross-backend publication skew without substituting a later `"latest"` state
 or maintaining an HTTP planning fallback. `RPC_URL` remains the startup,
-receipt-accounting, relay-observation, and subscription-liveness client, while
-`DISCOVERY_RPC_URL` remains the bulk/background client. Before the first
+post-block competitor/relay-observation, and subscription-liveness client,
+while `DISCOVERY_RPC_URL` remains the bulk/background client. Before the first
 subscribed head at process startup, the initial pass obtains its complete
 header over RPC and reads its exact state through the configured foreground
 client. HTTP asserts subscription liveness after
@@ -124,10 +124,16 @@ second head path. Exact fixed-block state reads tolerate up to one second of
 publication skew by retrying only classified `BlockNotFound`, the observed
 provider `-32602` fresh-state messages, and viem's typed
 `InvalidInputRpcError[-32000]`; raw or untyped `-32000` errors and all other
-classes remain immediate failures. The same WebSocket
-signal wakes private target-block receipt finalization, after which HTTP must
-serve that exact target block before receipts are classified. Never print
-either endpoint.
+classes remain immediate failures. The same WebSocket signal wakes private
+target-block receipt finalization, after which the foreground exact-state
+client must serve that exact target block before receipts are classified. A
+target block can be available slightly before its receipt index; only viem's typed
+`TransactionReceiptNotFoundError` receives a bounded one-second publication
+wait. Other receipt errors remain terminal. Successful waits emit
+`keeper_receipt_availability_waited` before the authoritative
+`keeper_receipt`; this prevents false expiration, incomplete batch P&L, and
+incorrect loss-learning without waiting for another block. Never print either
+endpoint.
 
 When `ENABLE_PENDING_FUNDING_BACKRUNS=true`, the worker opens a second,
 hash-only Alchemy filtered subscription on the same `WS_URL` for current
@@ -240,6 +246,7 @@ jq -c 'select(
   .event == "keeper_planner_timing" or
   .event == "keeper_pass_timing" or
   .event == "bundle_stage_timing" or
+  .event == "keeper_receipt_availability_waited" or
   .event == "relay_submission_result" or
   .event == "convex_candidate_cache_refreshed" or
   .event == "convex_candidate_cache_refresh_failed"

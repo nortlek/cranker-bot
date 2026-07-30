@@ -7,6 +7,7 @@ import {
   InvalidParamsRpcError,
   parseAbi,
   RpcRequestError,
+  TransactionReceiptNotFoundError,
 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 
@@ -19,12 +20,14 @@ import {
   isConvexNoExpiredLocksRevert,
   isFreshBlockReadUnavailable,
   isFreshBlockStateUnavailable,
+  isTransactionReceiptTemporarilyUnavailable,
   estimatedJobReward,
   maximumFundableGasEnvelope,
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
   privateNextBlockFeeEnvelope,
+  readPublishedTransactionReceipt,
   resolvePlanningFeeQuote,
   resolvePlanningHead,
 } from "../src/strategy.js";
@@ -467,6 +470,51 @@ describe("isConvexCrvChangeRevert", () => {
     expect(
       isConvexNoExpiredLocksRevert(new Error("no exp locks")),
     ).toBe(false);
+  });
+});
+
+describe("isTransactionReceiptTemporarilyUnavailable", () => {
+  it("recognizes a receipt-index publication race", () => {
+    expect(
+      isTransactionReceiptTemporarilyUnavailable(
+        new TransactionReceiptNotFoundError({
+          hash:
+            "0x1111111111111111111111111111111111111111111111111111111111111111",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not retry an unrelated receipt error", () => {
+    expect(
+      isTransactionReceiptTemporarilyUnavailable(
+        new Error("malformed request"),
+      ),
+    ).toBe(false);
+  });
+
+  it("waits within the bounded window for the receipt index", async () => {
+    vi.useFakeTimers();
+    const missing = new TransactionReceiptNotFoundError({
+      hash:
+        "0x1111111111111111111111111111111111111111111111111111111111111111",
+    });
+    const read = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(missing)
+      .mockRejectedValueOnce(missing)
+      .mockResolvedValue("published");
+    const result = readPublishedTransactionReceipt(read);
+
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(result).resolves.toEqual({
+      value: "published",
+      attempts: 3,
+      waitedMs: 200,
+    });
+    expect(read).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
   });
 });
 

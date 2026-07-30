@@ -64,6 +64,7 @@ const IMPORTANT_EVENTS = new Set([
   "firm_replenish_opportunity",
   "firm_replenish_scan_failed",
   "keeper_receipt",
+  "keeper_receipt_availability_waited",
   "keeper_pass_stage_timing",
   "keeper_pass_timing",
   "keeper_plan_stale",

@@ -18,11 +18,15 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 18:28 America/Denver, the
-verified snapshot was **$188.66657548 net**, or **75.46%** of the goal, with
-`latest == pending == 598`, net ETH equivalent of
-`0.098828502161502083`, and a fresh `$1,909.03` ETH/USD oracle. Since the
-nonce-572 snapshot, 26 successful receipts increased the wallet by exactly
+2026-07-30 23:59 America/Denver**. At 2026-07-29 18:49 America/Denver, the
+verified snapshot was **$191.93861291 net**, or **76.77%** of the goal, with
+`latest == pending == 603`, net ETH equivalent of
+`0.101096206780681596`, and a fresh `$1,898.57383405` ETH/USD oracle. Round
+315 added exactly `0.002267704619179513 ETH`: its funding-order/pull pair
+retained `0.001285175373603051 ETH`, and its complete
+`processAcquisitions(1) -> syncFwaResult -> settle` lifecycle retained
+`0.000982529245576462 ETH`. Since the nonce-572 snapshot, the preceding 26
+successful receipts increased the wallet by exactly
 `0.009491592945639591 ETH`. Receipt aggregation and the wallet delta agree
 exactly. The retained components were round 307's four-call lifecycle/pull
 bundle (`0.000803134480853976 ETH`), one standing order
@@ -1128,6 +1132,12 @@ both creation transactions, deployer ownership, the factory relationship,
 immutable FWA relationships, configuration, launch state, and any current
 round's raw ABI words. It fails closed on a relationship or bytecode mismatch.
 
+A fresh inspection at block `25642153` again matched all seven pinned runtime
+hashes and every relationship. V2 remained paused and not deprecated, with
+`roundCount == 0`, `firstOpenRound == 1`, `currentOpenRound == 0`,
+`pendingPullCount == 0`, zero accounted ETH, and zero factory orders. No V2
+execution path is justified yet.
+
 Next action:
 
 - monitor the identified pool/factory and the author's canonical channels for
@@ -1160,6 +1170,17 @@ before waiting for order registries, Liquity, Convex, buyback, and sweep scans.
 The previous processor simulation and gas estimate did run concurrently, but
 live calls still consumed most of a block on large queues. They are no longer
 duplicated before relay simulation.
+
+One serial RPC dependency remained after profitable planning: the keeper first
+read the current head for the stale-plan gate, then began a second round trip
+for the explicit-head nonce, pending nonce, and balance gates. These four
+read-only checks are independent. They now start in one `Promise.all` while
+preserving the same stale-head rejection, `latest == pending` requirement, and
+balance reserve. An eight-sample uncached WebSocket benchmark against the
+configured provider measured `224.11 ms` for the serial form and `161.16 ms`
+for the concurrent form, a mean reduction of `62.96 ms` on an actionable
+bundle. The existing `account_gate` timing now covers the entire concurrent
+submission gate and records the observed submission head.
 
 Acceptance:
 
@@ -1230,6 +1251,14 @@ The service exposed about `26.98 ETH` of available processor surplus at the
 time of inspection. Our keeper is not currently an authorized operator, so it
 must continue using the public core FWA path unless the service owner calls
 `setOperator(0xeAaf34AEaF4A10F9c5f5400E0bD6f9f5a8Ba2D48, true)`.
+
+At block `25642138`, a fresh exact read still returned
+`operators(keeper) == false`. The service was correctly bound to the core FWA,
+its available processor surplus had grown to
+`30.497314996423327246 ETH`, and its reimbursement configuration allowed up
+to ten acquisitions, 2.1M reimbursable gas, and `0.02 ETH`; nevertheless, an
+exact keeper-address simulation reverted `OnlyOperator`. The sponsored path
+remains disabled.
 
 The same competitor's pool wrapper collected the sync and settle bounties and
 paid the Titan beneficiary exactly 2.5% of gross, with no material priority
@@ -1331,6 +1360,20 @@ This is live in Railway deployment
 `34989d08-5039-4c78-8de8-0c56929b90a4` from exact source
 `f524293102fb6d1cae49374a813fe3855900af8b`; its overlap handoff again left
 exactly one granted signer lock and one open keeper run.
+
+Round 315 exposed a separate receipt-publication race. The target block and
+the first two receipts were available, but the foreground provider briefly
+returned viem's typed `TransactionReceiptNotFoundError` for the included
+settlement. The old observer emitted a false private expiration and an
+incomplete batch result even though nonce 602 succeeded and the pool advanced.
+Authoritative replay decoded a `0.000790998181566408 ETH` settlement bounty,
+`0.000033812672201281 ETH` gas, and
+`0.000757185509365127 ETH` retained; together with processor and sync this
+matches the wallet increase exactly. Private receipt reads now retry only that
+typed publication-race error for the existing bounded one-second window,
+persist `keeper_receipt_availability_waited` when recovery is needed, and
+leave every other error terminal. This prevents false expiration from
+corrupting batch P&L or competitor-loss learning.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the
@@ -1586,6 +1629,11 @@ margin is thin. Enable only when the exact conservative net is comfortably
 positive and the stale-harvest race behavior has been confirmed or protected
 by an on-chain minimum-reward guard.
 
+An unsigned, one-pass mainnet refresh at block `25642148` enabled this planner
+locally with the production keeper address and discovery RPC. Exact planning
+returned `stakedao_curve_none_profitable`; no transaction was signed or sent,
+so production remains correctly disabled.
+
 ## Promising dormant opportunities
 
 ### Liquity V1 liquidations
@@ -1593,8 +1641,9 @@ by an on-chain minimum-reward guard.
 Status: read-only inspector exists; no currently eligible trove at last scan.
 
 Economics: exact 200 LUSD gas compensation plus 0.5% of liquidated collateral.
-The last scan's lowest individual collateral ratio was about 442%, so there was
-no immediate action.
+The 2026-07-29 refresh still found only 79 troves, with the lowest individual
+collateral ratio at `442.03%`, TCR at `514.59%`, and recovery mode false. There
+was no immediate action.
 
 Next action:
 

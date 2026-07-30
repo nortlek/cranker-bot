@@ -10,6 +10,7 @@ import {
   InvalidParamsRpcError,
   isAddressEqual,
   RpcRequestError,
+  TransactionReceiptNotFoundError,
   type Account,
   type Address,
   type Chain,
@@ -902,6 +903,35 @@ export function isFreshBlockReadUnavailable(
     isBlockNotFound(error) ||
     isFreshBlockStateUnavailable(error)
   );
+}
+
+export function isTransactionReceiptTemporarilyUnavailable(
+  error: unknown,
+): boolean {
+  if (error instanceof TransactionReceiptNotFoundError) return true;
+  if (!(error instanceof BaseError)) return false;
+  return (
+    error.walk(
+      (candidate) =>
+        candidate instanceof TransactionReceiptNotFoundError,
+    ) instanceof TransactionReceiptNotFoundError
+  );
+}
+
+export async function readPublishedTransactionReceipt<Receipt>(
+  read: () => Promise<Receipt>,
+): Promise<{
+  readonly value: Receipt;
+  readonly attempts: number;
+  readonly waitedMs: number;
+}> {
+  return retryTransientRead({
+    read,
+    shouldRetry:
+      isTransactionReceiptTemporarilyUnavailable,
+    maxAttempts: 11,
+    retryDelayMs: 100,
+  });
 }
 
 export async function resolvePlanningHead(parameters: {
@@ -4158,7 +4188,38 @@ export async function runKeeperPass(
   ) {
     throw new Error("live mode requires a configured transaction sender");
   }
-  const submissionHead = await context.publicClient.getBlockNumber();
+  const accountAddress =
+    typeof context.account === "string"
+      ? context.account
+      : context.account.address;
+  const accountGateStartedAt = performance.now();
+  const [
+    submissionHead,
+    latestNonce,
+    pendingNonce,
+    accountBalance,
+  ] = await Promise.all([
+    context.publicClient.getBlockNumber(),
+    context.publicClient.getTransactionCount({
+      address: accountAddress,
+      blockNumber: context.headBlockNumber,
+    }),
+    context.publicClient.getTransactionCount({
+      address: accountAddress,
+      blockTag: "pending",
+    }),
+    context.publicClient.getBalance({
+      address: accountAddress,
+      blockNumber: context.headBlockNumber,
+    }),
+  ]);
+  log("info", "keeper_pass_stage_timing", {
+    stage: "account_gate",
+    durationMs: performance.now() - accountGateStartedAt,
+    submissionHead: submissionHead.toString(),
+    latestNonce,
+    pendingNonce,
+  });
   if (
     planningHeadIsStale(
       context.headBlockNumber,
@@ -4177,32 +4238,6 @@ export async function runKeeperPass(
       confirmed: 0,
     };
   }
-
-  const accountAddress =
-    typeof context.account === "string"
-      ? context.account
-      : context.account.address;
-  const accountGateStartedAt = performance.now();
-  const [latestNonce, pendingNonce, accountBalance] = await Promise.all([
-    context.publicClient.getTransactionCount({
-      address: accountAddress,
-      blockNumber: context.headBlockNumber,
-    }),
-    context.publicClient.getTransactionCount({
-      address: accountAddress,
-      blockTag: "pending",
-    }),
-    context.publicClient.getBalance({
-      address: accountAddress,
-      blockNumber: context.headBlockNumber,
-    }),
-  ]);
-  log("info", "keeper_pass_stage_timing", {
-    stage: "account_gate",
-    durationMs: performance.now() - accountGateStartedAt,
-    latestNonce,
-    pendingNonce,
-  });
   const noncePlan = buildNoncePlan(
     { latest: latestNonce, pending: pendingNonce },
     plan.jobs.length,
@@ -4453,16 +4488,46 @@ export async function runKeeperPass(
             }
           : {};
       try {
-        const receipt =
-          privateTargetBlock === undefined
-            ? await context.publicClient.waitForTransactionReceipt({
+        let receipt: Awaited<
+          ReturnType<
+            typeof context.publicClient.getTransactionReceipt
+          >
+        >;
+        if (privateTargetBlock === undefined) {
+          receipt =
+            await context.publicClient.waitForTransactionReceipt({
+              hash: submission.hash,
+              confirmations: context.config.confirmations,
+              timeout: context.config.receiptTimeoutMs,
+            });
+        } else {
+          const receiptRead =
+            await readPublishedTransactionReceipt(() =>
+              context.publicClient.getTransactionReceipt({
                 hash: submission.hash,
-                confirmations: context.config.confirmations,
-                timeout: context.config.receiptTimeoutMs,
-              })
-            : await context.publicClient.getTransactionReceipt({
+              }),
+            );
+          receipt = receiptRead.value;
+          if (receiptRead.attempts > 1) {
+            log(
+              "info",
+              "keeper_receipt_availability_waited",
+              {
+                kind: submission.request.kind,
+                label: submission.request.label,
                 hash: submission.hash,
-              });
+                nonce: submission.request.nonce,
+                targetBlock:
+                  privateTargetBlock.toString(),
+                receiptReadAttempts:
+                  receiptRead.attempts,
+                receiptAvailabilityWaitMs:
+                  receiptRead.waitedMs,
+                ...batchFields,
+              },
+            );
+          }
+        }
         const successful = receipt.status === "success";
         let firmAccounting: FirmReceiptAccounting | undefined;
         if (
