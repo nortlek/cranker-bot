@@ -26,6 +26,7 @@ import {
 import {
   isTransientCompetitionObservationError,
   observeWinningCrankBids,
+  observeWinningPoolLifecycleBids,
   observeWinningPoolPullBids,
 } from "./competition.js";
 import {
@@ -525,6 +526,115 @@ async function main(): Promise<void> {
           reason: errorMessage(error),
           ...errorFingerprint(error),
         });
+      }
+    };
+  const observePoolLifecycleBatch:
+    StrategyContext["observePoolLifecycleBatch"] = async (
+      outcome,
+    ) => {
+      const missed = outcome.attempts.filter(
+        (attempt) => !attempt.included,
+      );
+      if (missed.length === 0) return;
+      const lostRoundIds = [
+        ...new Set(
+          missed.map((attempt) =>
+            attempt.roundId.toString(),
+          ),
+        ),
+      ].map(BigInt);
+      try {
+        const observationRead = await retryTransientRead({
+          read: () =>
+            observeWinningPoolLifecycleBids(publicClient, {
+              targetBlock: outcome.targetBlock,
+              pool: config.expectedPoolAddress,
+              lostRoundIds,
+              ourTransactionHashes: outcome.attempts.map(
+                (attempt) => attempt.hash,
+              ),
+              traceConfig: {
+                url: config.competitorTraceUrl,
+                timeoutMs: config.competitorTraceTimeoutMs,
+                retries: config.competitorTraceRetries,
+                retryDelayMs:
+                  config.competitorTraceRetryDelayMs,
+              },
+            }),
+          shouldRetry: (error) =>
+            isFreshBlockReadUnavailable(error) ||
+            isTransientCompetitionObservationError(error),
+          maxAttempts: 11,
+          retryDelayMs: 100,
+        });
+        if (observationRead.attempts > 1) {
+          log(
+            "info",
+            "pool_lifecycle_competitor_state_availability_waited",
+            {
+              targetBlock: outcome.targetBlock.toString(),
+              rounds: JSON.stringify(
+                lostRoundIds.map(String),
+              ),
+              readAttempts: observationRead.attempts,
+              availabilityWaitMs: observationRead.waitedMs,
+            },
+          );
+        }
+        for (const observation of observationRead.value) {
+          log(
+            "info",
+            "pool_lifecycle_competitor_bid_observed",
+            {
+              targetBlock: outcome.targetBlock.toString(),
+              transactionHash: observation.transactionHash,
+              round: observation.roundId.toString(),
+              cranker: observation.cranker,
+              grossPoolReward: eth(
+                observation.grossPoolReward,
+              ),
+              priorityPayment: eth(
+                observation.priorityPayment,
+              ),
+              directBeneficiaryPayment: eth(
+                observation.directBeneficiaryPayment,
+              ),
+              totalBuilderPayment: eth(
+                observation.totalBuilderPayment,
+              ),
+              winningBidBpsUpperBound:
+                observation.winningBidBpsUpperBound.toString(),
+              action:
+                "record_only_without_contaminating_standing_order_learning",
+            },
+          );
+        }
+        log("info", "pool_lifecycle_bid_observation", {
+          targetBlock: outcome.targetBlock.toString(),
+          outcome:
+            observationRead.value.length > 0
+              ? "competitor_won"
+              : "no_competitor_lifecycle",
+          attemptedRounds: JSON.stringify(
+            lostRoundIds.map(String),
+          ),
+          observedCompetitors: observationRead.value.length,
+          action:
+            "hold_lane_specific_bid_pending_repeated_exact_evidence",
+        });
+      } catch (error) {
+        log(
+          "warn",
+          "pool_lifecycle_competitor_bid_measurement_failed",
+          {
+            targetBlock: outcome.targetBlock.toString(),
+            rounds: JSON.stringify(
+              lostRoundIds.map(String),
+            ),
+            reason: errorMessage(error),
+            ...errorFingerprint(error),
+          },
+        );
       }
     };
   if (config.privateKey !== undefined) {
@@ -2189,6 +2299,7 @@ async function main(): Promise<void> {
               waitForTargetBlock,
               observePrivateBatch,
               observePoolPullBatch,
+              observePoolLifecycleBatch,
             });
             if (passResult.sent === 0) {
               scheduleColdPlannerRefresh({

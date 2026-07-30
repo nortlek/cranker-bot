@@ -202,6 +202,8 @@ jq -c 'select(
   .event == "acquisition_status" or
   .event == "competitor_bid_observed" or
   .event == "pool_competitor_bid_observed" or
+  .event == "pool_lifecycle_competitor_bid_observed" or
+  .event == "pool_lifecycle_bid_observation" or
   .event == "pool_pull_bid_observation"
 )'
 ```
@@ -290,6 +292,15 @@ direct beneficiary payment, and a pool-reward-normalized bid upper bound.
 miss with no competing pull. These observations are record-only until repeated
 exact evidence supports a separate pool controller; they must not update the
 standing-order controller.
+
+After a missed pool sync or settlement,
+`pool_lifecycle_competitor_bid_observed` aggregates every
+`CrankBountyPaid` event for the lost round and winning transaction, then stores
+the same payment fields and a pool-reward-normalized upper bound. It is also
+record-only because the transaction may earn a processor, standing-order, or
+other reward outside the observed lifecycle calls.
+`pool_lifecycle_bid_observation` distinguishes a competitor win from a miss
+with no competing lifecycle transaction in that target block.
 
 Connect without exposing a connection string:
 

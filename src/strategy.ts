@@ -291,6 +291,19 @@ export interface PoolPullBatchOutcome {
   }[];
 }
 
+export interface PoolLifecycleBatchOutcome {
+  readonly targetBlock: bigint;
+  readonly attempts: readonly {
+    readonly hash: Hash;
+    readonly roundId: bigint;
+    readonly kind:
+      | "pool_sync"
+      | "pool_settle"
+      | "pool_settle_forced_eth";
+    readonly included: boolean;
+  }[];
+}
+
 export interface StrategyContext {
   readonly publicClient: PublicClient<Transport, Chain>;
   readonly discoveryClient?: PublicClient<Transport, Chain>;
@@ -321,6 +334,9 @@ export interface StrategyContext {
     | undefined;
   readonly observePoolPullBatch:
     | ((outcome: PoolPullBatchOutcome) => Promise<void>)
+    | undefined;
+  readonly observePoolLifecycleBatch?:
+    | ((outcome: PoolLifecycleBatchOutcome) => Promise<void>)
     | undefined;
 }
 
@@ -4754,6 +4770,46 @@ export async function runKeeperPass(
       });
     } catch (error) {
       log("warn", "pool_pull_bid_observation_failed", {
+        targetBlock: privateTargetBlock.toString(),
+        reason: errorMessage(error),
+      });
+    }
+  }
+
+  const poolLifecycleAttempts = submitted.flatMap(
+    (submission, index) => {
+      const kind = submission.request.kind;
+      if (
+        (kind !== "pool_sync" &&
+          kind !== "pool_settle" &&
+          kind !== "pool_settle_forced_eth") ||
+        submission.request.roundId === undefined
+      ) {
+        return [];
+      }
+      return [
+        {
+          hash: submission.hash,
+          roundId: submission.request.roundId,
+          kind,
+          included:
+            receiptResults[index]?.successful ?? false,
+        },
+      ];
+    },
+  );
+  if (
+    privateTargetBlock !== undefined &&
+    poolLifecycleAttempts.length > 0 &&
+    context.observePoolLifecycleBatch !== undefined
+  ) {
+    try {
+      await context.observePoolLifecycleBatch({
+        targetBlock: privateTargetBlock,
+        attempts: poolLifecycleAttempts,
+      });
+    } catch (error) {
+      log("warn", "pool_lifecycle_bid_observation_failed", {
         targetBlock: privateTargetBlock.toString(),
         reason: errorMessage(error),
       });

@@ -565,6 +565,15 @@ Bid state is maintained per order because orders with `0.0002`, `0.0003`, and
 - Partial-prefix inclusion updates each order independently: included orders
   record wins while missed orders process their observed competitors.
 
+Pool-pull and lifecycle competition are measured separately from standing
+orders. A missed pull scans the target block's `Pulled` event; a missed sync or
+settlement aggregates the winning transaction's `CrankBountyPaid` events for
+that round. Both paths record the winning transaction, cranker, gross pool
+reward, priority payment, direct beneficiary payment, and a
+pool-reward-normalized bid upper bound. They are record-only and never
+contaminate standing-order adaptive state because a single wrapper transaction
+may earn unrelated rewards.
+
 Direct beneficiary transfers are read from the
 [Routescan internal-operations API](https://routescan.io/docs/api/transactions).
 The result is an inferred transaction-level bid; if the competing transaction

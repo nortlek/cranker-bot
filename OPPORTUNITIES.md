@@ -18,12 +18,12 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 18:22 America/Denver, the
-verified snapshot was **$184.38585809 net**, or **73.75%** of the goal, with
-`latest == pending == 593`, net ETH equivalent of
-`0.096586150085209761`, and a fresh `$1,909.03` ETH/USD oracle. Since the
-nonce-572 snapshot, 21 successful receipts increased the wallet by exactly
-`0.007249240869347269 ETH`. Receipt aggregation and the wallet delta agree
+2026-07-30 23:59 America/Denver**. At 2026-07-29 18:28 America/Denver, the
+verified snapshot was **$188.66657548 net**, or **75.46%** of the goal, with
+`latest == pending == 598`, net ETH equivalent of
+`0.098828502161502083`, and a fresh `$1,909.03` ETH/USD oracle. Since the
+nonce-572 snapshot, 26 successful receipts increased the wallet by exactly
+`0.009491592945639591 ETH`. Receipt aggregation and the wallet delta agree
 exactly. The retained components were round 307's four-call lifecycle/pull
 bundle (`0.000803134480853976 ETH`), one standing order
 (`0.000002493297054820 ETH`), the round-309 funding/pull pair
@@ -32,9 +32,11 @@ bundle (`0.000803134480853976 ETH`), one standing order
 (`0.000536242642660129 ETH`), the round-311 funding/pull pair
 (`0.001119464494094752 ETH`), the round-312 funding/pull pair
 (`0.001168871529689505 ETH`), and round 312's three-call lifecycle
-(`0.000759787782015036 ETH`). The preceding three standing-order receipts
-retained exactly `0.000032864522890725 ETH`; their decoded aggregate and
-wallet delta also agree exactly. The preceding nine
+(`0.000759787782015036 ETH`). Round 313 then added
+`0.001276612293489616 ETH` from its funding/pull pair and
+`0.000965739782802706 ETH` from its complete lifecycle. The preceding three
+standing-order receipts retained exactly `0.000032864522890725 ETH`; their
+decoded aggregate and wallet delta also agree exactly. The preceding nine
 successful receipts from nonces 560–568 increased the wallet by exactly
 `0.000657094625890769 ETH`. Round 305's processor/sync prefix retained
 `0.000114463792007881 ETH`, five standing orders retained
@@ -1313,6 +1315,18 @@ submission floor prevented a sync-only inclusion, but all four relay paths
 missed. The competing wrapper settled both calls in block `25642001` with
 zero priority fee and no direct beneficiary payment, so that miss remains
 delivery/builder selection evidence rather than support for raising the bid.
+
+Lifecycle-loss telemetry now closes the manual-reconstruction gap exposed by
+round 308. After a missed sync or settlement it aggregates the target block's
+pool `CrankBountyPaid` events by winning transaction and round, measures
+priority and direct beneficiary payments, and emits a record-only
+pool-reward-normalized bid upper bound. A read-only replay of block `25642001`
+identified wrapper transaction
+`0xea36b0dc14f24630fe4c069b5c77b52335ebb98bb1defdb00b6a5c0cd10d2a10`,
+aggregated both bounties to exactly `0.000877481387112076 ETH`, and measured
+zero builder payment and a zero-bps upper bound. The path deliberately does
+not feed standing-order adaptive state because a lifecycle wrapper may have
+other reward sources.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the

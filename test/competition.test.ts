@@ -4,6 +4,7 @@ import {
   getAddress,
   parseAbiParameters,
   type Address,
+  type Hash,
   type Hex,
 } from "viem";
 import { describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import {
   aggregatePoolCrankBounties,
   calculateWinningBidBps,
   competitionRegistryBlockNumber,
+  groupRelevantPoolLifecycleBounties,
   isTransientCompetitionObservationError,
 } from "../src/competition.js";
 
@@ -193,5 +195,72 @@ describe("aggregatePoolCrankBounties", () => {
         302n,
       ),
     ).toBe(1_200n);
+  });
+});
+
+describe("groupRelevantPoolLifecycleBounties", () => {
+  it("aggregates both lifecycle bounties and excludes our transaction", () => {
+    const competitorHash =
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
+    const ourHash =
+      "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as Hash;
+
+    expect(
+      groupRelevantPoolLifecycleBounties(
+        [
+          {
+            transactionHash: competitorHash,
+            args: {
+              roundId: 308n,
+              cranker: CALLER,
+              amount: 400n,
+            },
+          },
+          {
+            transactionHash: competitorHash,
+            args: {
+              roundId: 308n,
+              cranker: CALLER,
+              amount: 800n,
+            },
+          },
+          {
+            transactionHash: competitorHash,
+            args: {
+              roundId: 307n,
+              cranker: CALLER,
+              amount: 9_000n,
+            },
+          },
+          {
+            transactionHash: ourHash,
+            args: {
+              roundId: 308n,
+              cranker: CALLER,
+              amount: 2_000n,
+            },
+          },
+          {
+            transactionHash: null,
+            args: {
+              roundId: 308n,
+              cranker: CALLER,
+              amount: 3_000n,
+            },
+          },
+        ],
+        {
+          lostRoundIds: [308n],
+          ourTransactionHashes: [ourHash],
+        },
+      ),
+    ).toEqual([
+      {
+        transactionHash: competitorHash,
+        roundId: 308n,
+        cranker: CALLER,
+        grossPoolReward: 1_200n,
+      },
+    ]);
   });
 });
