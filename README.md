@@ -153,7 +153,11 @@ keeper receipts enter P&L. This captures callbacks that either self-process to
 `fulfilled` or leave the acquisition `ready` before a confirmed-head planner
 can observe the intermediate state. The lane uses the low
 `POOL_BUILDER_BID_BPS` policy rather than the high ordinary fulfilled-state
-bid.
+bid. If a target block arrives before submission while every prerequisite is
+still current and pending, the lane re-runs every state, nonce, balance,
+simulation, and profit gate for the immediate next target. It tries at most
+three consecutive target blocks and never retargets a mined or replaced
+prerequisite.
 
 Candidate gas estimates run with bounded concurrency and retain fee-ranked
 ordering. When `WS_URL` is configured, a raw `newHeads` subscription supplies

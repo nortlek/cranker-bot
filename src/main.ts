@@ -75,7 +75,10 @@ import {
   minimumLifecycleSubmissionPrefix,
   ROUND_STATE,
 } from "./lifecycle.js";
-import { executePendingFwaBackrun } from "./pending-fwa-backrun.js";
+import {
+  executePendingFwaBackrun,
+  executePendingFwaBackrunWithRetargets,
+} from "./pending-fwa-backrun.js";
 import {
   PendingFwaFulfillmentValidationError,
   VRF_FULFILL_RANDOM_WORDS_SELECTOR,
@@ -2301,64 +2304,99 @@ async function main(): Promise<void> {
           const execution = executionController.start(
             async (signal) => {
               try {
-                const result = await executePendingFwaBackrun({
-                  publicClient: exactStateClient,
-                  pendingClient: discoveryClient,
-                  signer,
-                  prerequisite,
-                  pool: poolAddress,
-                  fwa,
-                  relays,
-                  builders: config.flashbotsBuilders,
-                  config,
-                  builderBidBps: config.poolBuilderBidBps,
-                  coordinator: signerCoordinator,
-                  assertSignerLeaseHeld,
-                  isPrerequisiteCurrent: () =>
-                    replacementTracker.isCurrent({
-                      hash: prerequisite.hash,
-                      sender: prerequisite.sender,
-                      nonce: prerequisite.nonce,
-                    }) &&
-                    prerequisite.prerequisiteTransactions.every(
-                      (transaction) =>
-                        coordinatorTransactions
-                          .get(
-                            transaction.sender.toLowerCase(),
-                          )
-                          ?.get(transaction.nonce)
-                          ?.hash.toLowerCase() ===
-                        transaction.hash.toLowerCase(),
-                    ),
-                  waitForTargetBlock: async (
-                    targetBlock,
-                    timeoutMs,
-                  ) => {
-                    const afterBlock = targetBlock - 1n;
-                    if (
-                      headSignal.latestAfter(afterBlock) !==
-                      undefined
-                    ) {
-                      return true;
-                    }
-                    return headSignal.waitForNewer(
-                      afterBlock,
-                      timeoutMs,
-                    );
-                  },
-                  readBeforeTargetBlock: ({
-                    targetBlock,
-                    timeoutMs,
-                    read,
-                  }) =>
-                    readBeforeTargetBlock({
-                      headSignal,
-                      targetBlock,
-                      timeoutMs,
-                      read,
-                    }),
-                  signal,
-                });
+                const isPrerequisiteCurrent = () =>
+                  replacementTracker.isCurrent({
+                    hash: prerequisite.hash,
+                    sender: prerequisite.sender,
+                    nonce: prerequisite.nonce,
+                  }) &&
+                  prerequisite.prerequisiteTransactions.every(
+                    (transaction) =>
+                      coordinatorTransactions
+                        .get(
+                          transaction.sender.toLowerCase(),
+                        )
+                        ?.get(transaction.nonce)
+                        ?.hash.toLowerCase() ===
+                      transaction.hash.toLowerCase(),
+                  );
+                const result =
+                  await executePendingFwaBackrunWithRetargets(
+                    {
+                      execute: () =>
+                        executePendingFwaBackrun({
+                          publicClient: exactStateClient,
+                          pendingClient: discoveryClient,
+                          signer,
+                          prerequisite,
+                          pool: poolAddress,
+                          fwa,
+                          relays,
+                          builders: config.flashbotsBuilders,
+                          config,
+                          builderBidBps:
+                            config.poolBuilderBidBps,
+                          coordinator: signerCoordinator,
+                          assertSignerLeaseHeld,
+                          isPrerequisiteCurrent,
+                          waitForTargetBlock: async (
+                            targetBlock,
+                            timeoutMs,
+                          ) => {
+                            const afterBlock =
+                              targetBlock - 1n;
+                            if (
+                              headSignal.latestAfter(
+                                afterBlock,
+                              ) !== undefined
+                            ) {
+                              return true;
+                            }
+                            return headSignal.waitForNewer(
+                              afterBlock,
+                              timeoutMs,
+                            );
+                          },
+                          readBeforeTargetBlock: ({
+                            targetBlock,
+                            timeoutMs,
+                            read,
+                          }) =>
+                            readBeforeTargetBlock({
+                              headSignal,
+                              targetBlock,
+                              timeoutMs,
+                              read,
+                            }),
+                          signal,
+                        }),
+                      isPrerequisiteCurrent,
+                      isPrerequisitePending: async () => {
+                        if (!isPrerequisiteCurrent()) {
+                          return false;
+                        }
+                        const transactions =
+                          await Promise.all(
+                            prerequisite.prerequisiteTransactions.map(
+                              (transaction) =>
+                                discoveryClient
+                                  .getTransaction({
+                                    hash: transaction.hash,
+                                  })
+                                  .catch(() => undefined),
+                            ),
+                          );
+                        return transactions.every(
+                          (transaction) =>
+                            transaction !== undefined &&
+                            transaction.blockNumber === null,
+                        );
+                      },
+                      prerequisiteHash: prerequisite.hash,
+                      requestId: prerequisite.requestId,
+                      signal,
+                    },
+                  );
                 log(
                   "info",
                   "pending_fwa_backrun_complete",

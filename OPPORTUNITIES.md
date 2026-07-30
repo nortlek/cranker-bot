@@ -772,6 +772,27 @@ bps to a competitor whose observed payment required about 7,320 bps against
 our planned gross reward. This single exact loss is record-only and does not
 justify raising the fulfilled bid ceiling.
 
+Round 363 supplied the first live Ready callback after the processor expansion.
+The lane validated target fulfillment
+`0xab8fe0d764c158351c5103fb73453261b37aeba0ef6129c4fe24695f43bdcb21`
+in about 168 ms and exact-simulated the queue-counted processor variant with
+`0.000739869498494553 ETH` conservative expected profit. Its first target,
+block `25648684`, arrived before final submission, so execution stopped with
+no transaction or cost. The fulfillment remained pending and landed one block
+later, but the candidate had already been forgotten. The confirmed-head path
+won `processAcquisitions(1) -> sync -> settle` in block `25648686`, earning
+`0.001202710148679 ETH`, spending `0.000300275884405472 ETH`, and retaining
+`0.000902434264273528 ETH`; PostgreSQL receipt aggregation and the wallet delta
+match exactly.
+
+The pending lane now preserves a still-current candidate across that narrow
+deadline case. After `target_block_arrived`, it proves every prerequisite is
+still current and pending, then re-enters the complete executor against the
+new exact parent. Queue count, nonce, balance, state, both full simulations,
+economics, signer lease, and target deadline are all revalidated. It allows at
+most three consecutive target attempts, never retargets a mined or replaced
+transaction, and does not resubmit an expired keeper bundle.
+
 ### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 
 Status: the gas cutoff, wider queue discovery, and exact-simulation deferral

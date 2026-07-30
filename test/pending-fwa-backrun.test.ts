@@ -25,7 +25,9 @@ import {
 } from "../src/format.js";
 import {
   executePendingFwaBackrun,
+  executePendingFwaBackrunWithRetargets,
   pendingFwaLifecycleGasUsed,
+  type PendingFwaBackrunResult,
 } from "../src/pending-fwa-backrun.js";
 import { SignerSubmissionCoordinator } from "../src/signer-coordinator.js";
 
@@ -36,6 +38,87 @@ afterEach(() => {
 });
 
 describe("pending FWA fulfillment backrun", () => {
+  it("retargets a still-pending prerequisite after its first target arrives", async () => {
+    const prerequisiteHash =
+      `0x${"91".repeat(32)}` as const;
+    const executions: PendingFwaBackrunResult[] = [
+      {
+        status: "skipped",
+        reason: "target_block_arrived",
+        targetBlock: 101n,
+      },
+      {
+        status: "confirmed",
+        reason: "confirmed",
+        targetBlock: 102n,
+        realizedProfitWei: 1n,
+      },
+    ];
+    const execute = vi.fn(async () => executions.shift()!);
+    const loggedEntries: LogEntry[] = [];
+    setLogSink((entry) => loggedEntries.push(entry));
+
+    const result =
+      await executePendingFwaBackrunWithRetargets({
+        execute,
+        isPrerequisiteCurrent: () => true,
+        isPrerequisitePending: vi.fn(async () => true),
+        prerequisiteHash,
+        requestId: 77n,
+      });
+
+    expect(result).toEqual({
+      status: "confirmed",
+      reason: "confirmed",
+      targetBlock: 102n,
+      realizedProfitWei: 1n,
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(
+      loggedEntries.find(
+        (entry) =>
+          entry.event ===
+          "pending_fwa_backrun_retargeted",
+      ),
+    ).toMatchObject({
+      prerequisiteHash,
+      requestId: "77",
+      completedTargetBlock: "101",
+      nextTargetAttempt: 2,
+      maximumTargetAttempts: 3,
+      reason: "prerequisite_still_pending",
+    });
+  });
+
+  it("does not retarget a prerequisite mined in the completed target", async () => {
+    const execute = vi.fn(async () => ({
+      status: "skipped" as const,
+      reason: "target_block_arrived",
+      targetBlock: 101n,
+    }));
+    const isPrerequisitePending = vi.fn(
+      async () => false,
+    );
+
+    const result =
+      await executePendingFwaBackrunWithRetargets({
+        execute,
+        isPrerequisiteCurrent: () => true,
+        isPrerequisitePending,
+        prerequisiteHash:
+          `0x${"92".repeat(32)}`,
+        requestId: 78n,
+      });
+
+    expect(result).toEqual({
+      status: "skipped",
+      reason: "target_block_arrived",
+      targetBlock: 101n,
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(isPrerequisitePending).toHaveBeenCalledOnce();
+  });
+
   it("prices only sync and settle after the public prerequisite", () => {
     expect(
       pendingFwaLifecycleGasUsed({

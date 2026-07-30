@@ -588,7 +588,12 @@ These constraints prevent expensive or unsafe regressions:
   against the same relay and target during a bounded 500 ms publication
   window; signed fee capacity may exceed the exact expected child base fee by
   one wei while economics continue to charge the exact expected effective gas
-  price.
+  price. If the target arrives before submission, retarget only when every
+  public prerequisite remains current and pending. Re-enter the complete
+  executor so parent state, queue count, signer nonce/balance, simulations,
+  economics, lease, and deadline are all revalidated; permit at most three
+  consecutive target attempts and never retarget a mined or replaced
+  prerequisite.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
   do not wait for a duplicate HTTP block object or provider fee estimate.

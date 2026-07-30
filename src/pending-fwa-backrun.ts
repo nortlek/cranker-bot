@@ -53,6 +53,76 @@ export interface PendingFwaBackrunResult {
   readonly realizedProfitWei?: bigint;
 }
 
+export async function executePendingFwaBackrunWithRetargets(
+  parameters: {
+    readonly execute: () => Promise<PendingFwaBackrunResult>;
+    readonly isPrerequisiteCurrent: () => boolean;
+    readonly isPrerequisitePending: () => Promise<boolean>;
+    readonly prerequisiteHash: Hash;
+    readonly requestId: bigint;
+    readonly maximumTargetAttempts?: number;
+    readonly signal?: AbortSignal;
+  },
+): Promise<PendingFwaBackrunResult> {
+  const maximumTargetAttempts =
+    parameters.maximumTargetAttempts ?? 3;
+  if (
+    !Number.isSafeInteger(maximumTargetAttempts) ||
+    maximumTargetAttempts < 1 ||
+    maximumTargetAttempts > 8
+  ) {
+    throw new Error(
+      "pending FWA maximum target attempts must be between 1 and 8",
+    );
+  }
+  for (
+    let attempt = 1;
+    attempt <= maximumTargetAttempts;
+    attempt += 1
+  ) {
+    const result = await parameters.execute();
+    if (
+      result.status !== "skipped" ||
+      result.reason !== "target_block_arrived" ||
+      attempt === maximumTargetAttempts ||
+      abortRequested(parameters.signal) ||
+      !parameters.isPrerequisiteCurrent()
+    ) {
+      return result;
+    }
+    let stillPending: boolean;
+    try {
+      stillPending =
+        await parameters.isPrerequisitePending();
+    } catch (error) {
+      log("debug", "pending_fwa_retarget_gate_failed", {
+        prerequisiteHash: parameters.prerequisiteHash,
+        requestId: parameters.requestId.toString(),
+        completedTargetBlock:
+          result.targetBlock?.toString() ?? "",
+        ...errorFingerprint(error),
+      });
+      return result;
+    }
+    if (
+      !stillPending ||
+      !parameters.isPrerequisiteCurrent()
+    ) {
+      return result;
+    }
+    log("info", "pending_fwa_backrun_retargeted", {
+      prerequisiteHash: parameters.prerequisiteHash,
+      requestId: parameters.requestId.toString(),
+      completedTargetBlock:
+        result.targetBlock?.toString() ?? "",
+      nextTargetAttempt: attempt + 1,
+      maximumTargetAttempts,
+      reason: "prerequisite_still_pending",
+    });
+  }
+  throw new Error("unreachable pending FWA retarget state");
+}
+
 interface ExactPendingFwaLifecycle {
   readonly signedProcess?: Hex;
   readonly signedSync: Hex;
