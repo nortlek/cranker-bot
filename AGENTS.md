@@ -668,6 +668,8 @@ Production currently evaluates:
   private-only under the same pending subscription
 - PullPool funding and acquisition lifecycle
 - public FWA acquisition processing
+- exact private backruns of the canonical VRF fulfillment that self-processes
+  the pool's pending FWA acquisition, followed by mandatory sync and settle
 - FWAToken `buyback()`
 - optional LiveBidAdapter `sweep()`; production-disabled because a same-block
   earlier sweep turns the call into a successful zero-reward no-op that

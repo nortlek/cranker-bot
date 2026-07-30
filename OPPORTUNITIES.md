@@ -632,8 +632,9 @@ none when no exact prefix is profitable.
 
 ### P0 — Backrun same-block FWA VRF fulfillment
 
-Status: exact validator and private fulfillment/sync/settle lane implemented;
-production enablement awaits deployment validation.
+Status: deployed and production-enabled on exact source
+`296d9fcf40b3b591407911d64ca34a7c8fb6dd83`, Railway deployment
+`60fd9f86-17e2-4897-8259-0192ce11b369`.
 
 Round 355 exposed a confirmed-head state-transition blind spot. Chainlink VRF
 fulfillment transaction
@@ -690,6 +691,17 @@ The keeper calls used `556,700` gas and emitted
 therefore caches separately validated coordinator transactions and rejects a
 missing, replaced, mined, or greater-than-eight nonce prefix rather than
 assuming the target fulfillment is independently executable.
+
+The staged production rollout first deployed the source with the lane
+disabled and confirmed an exact source revision, one signer lease, and
+continuing ordinary passes. The enabled replacement then reported
+`pending_fwa_subscription_ready` for connection generation 1, initialized
+both pending subscriptions, waited 61 seconds for the existing signer lease,
+and acquired it before arming execution. `keeper_started` records the exact
+source and `pendingFwaFulfillmentBackruns=true`; the first confirmed-head
+passes remained healthy. A real target fulfillment has not arrived since
+activation, so candidate-delivery latency, relay inclusion, and receipt P&L
+remain the next live acceptance evidence.
 
 ### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 
