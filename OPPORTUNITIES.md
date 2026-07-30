@@ -572,6 +572,17 @@ next-block base fee was above `11 gwei`, making the call more than
 not to raise the global fee ceiling; `npm run inspect` now exposes the same
 threshold for future rounds.
 
+Round 339 was nevertheless pulled in block `25646962` by transaction
+`0x5334094c9d1b69d82f123a0314c9285e65a2d611e6697e4c5331763acc0613a8`.
+The exact receipt used `502,471` gas at `4.964337798 gwei`, costing
+`0.002494435777698858 ETH` for a `0.0015 ETH` bounty. Its priority payment was
+`0.001004942 ETH`, a `6,700 bps` pool-reward-normalized upper bound, and the
+transaction retained negative `0.000994435777698858 ETH` after known costs.
+This is irrational or externally subsidized behavior, not a profitable
+clearing price to chase. `npm run inspect:pool-pull-block -- --block=<block>`
+now reconstructs the same receipt, beneficiary payment, and retained-value
+evidence for unattempted as well as missed pulls.
+
 Round 290 then supplied a live confirmation of the cross-subsidized pull path.
 Two funding cranks plus `pull` cleared atomically for
 `0.000718906984853275 ETH` aggregate net; the pull itself used `502,574` gas
