@@ -370,6 +370,8 @@ successful `crank` fees are sent to that keeper address.
   and final simulations remain on `RPC_URL`.
 - `DISCOVERY_CONCURRENCY` and `DISCOVERY_VAULT_CHUNK_SIZE`: bound RPC pressure
   from the Maker vault inspector invoked with `npm run inspect:maker-barks`.
+  Active Maker auctions can be checked independently with the read-only
+  `npm run inspect:maker-redos` command.
 - `BLOCK_POLL_MS`: new-head polling interval when `WS_URL` is absent and retry
   delay after a failed planning pass.
 - `ENABLE_POOL_LIFECYCLE`: enables paid PullPool lifecycle calls.

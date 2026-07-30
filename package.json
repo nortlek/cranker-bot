@@ -16,6 +16,7 @@
     "inspect": "tsx src/inspect.ts",
     "inspect:aura-earmarks": "tsx scripts/inspect-aura-earmarks.ts",
     "inspect:maker-barks": "tsx scripts/inspect-maker-barks.ts",
+    "inspect:maker-redos": "tsx scripts/inspect-maker-redos.ts",
     "inspect:pool-final-purchases": "tsx scripts/inspect-pool-final-purchases.ts",
     "inspect:pull-pool-v2": "tsx scripts/inspect-pull-pool-v2.ts",
     "inspect:robinhood": "tsx scripts/inspect-robinhood-stonkpit.ts",

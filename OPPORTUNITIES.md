@@ -1836,12 +1836,13 @@ recorded in
 That follow-up ranked Maker/Sky liquidations above every genuinely cross-chain
 candidate, but the repository already has a full read-only bark inspector.
 Its 2026-07-30 refresh read 32,021 vault ids, found 839 active vaults across
-eight ilks, and found no unsafe vault. The next Maker work is an event-driven
-active-urn cache, `Clipper.redo` coverage, and historical exact execution
-replay—not another scanner or an unvalidated signing lane. Equilibria on
-Arbitrum was only approximately break-even; Aura sidechain messaging value
-dwarfed its reward; Aerodrome and Compound III paid no current caller asset
-reward.
+eight ilks, and found no unsafe vault. The existing `Clipper.redo` inspector
+is now exposed as `npm run inspect:maker-redos`; its 2026-07-30 refresh found
+45 clippers and zero active or resettable auctions. The next Maker work is an
+event-driven active-urn/auction cache and historical exact execution replay,
+not another scanner or an unvalidated signing lane. Equilibria on Arbitrum was
+only approximately break-even; Aura sidechain messaging value dwarfed its
+reward; Aerodrome and Compound III paid no current caller asset reward.
 
 This is a ranked backlog, not an exhaustive claim that no other protocol pays
 keepers. The scan covered canonical explicit-bounty surfaces on Base,
