@@ -305,6 +305,16 @@ miss with no competing pull. These observations are record-only until repeated
 exact evidence supports a separate pool controller; they must not update the
 standing-order controller.
 
+The competitor-normalized upper bound is not directly comparable with our
+configured percentage when its realized gas reimbursement differs from our
+simulated reimbursement. New observations therefore also retain our planned
+gross reward and builder payment, the absolute payment required to exceed the
+competitor, its percentage against our planned gross, the incremental payment,
+and the exact counterfactual retained profit. Use
+`requiredBidBpsAgainstPlannedGross` and `counterfactualProfitable` for bid
+decisions; do not compare `winningBidBpsUpperBound` with the configured bid in
+isolation.
+
 After a missed pool sync or settlement,
 `pool_lifecycle_competitor_bid_observed` aggregates every
 `CrankBountyPaid` event for the lost round and winning transaction, then stores

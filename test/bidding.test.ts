@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregateBuilderBidBps,
+  compareObservedBuilderPayment,
   effectiveBuilderBidBps,
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
@@ -32,6 +33,40 @@ describe("effectiveBuilderBidBps", () => {
   it("attributes a shared priority fee to each order's own reward", () => {
     expect(effectiveBuilderBidBps(30n, 300n)).toBe(1_000n);
     expect(effectiveBuilderBidBps(30n, 400n)).toBe(750n);
+  });
+});
+
+describe("compareObservedBuilderPayment", () => {
+  it("normalizes the absolute competitor payment against our planned reward", () => {
+    const comparison = compareObservedBuilderPayment({
+      observedBuilderPayment: 914n,
+      plannedGrossReward: 1_179n,
+      plannedBuilderPayment: 855n,
+      plannedExpectedProfit: 152n,
+      minProfitWei: 1n,
+    });
+
+    expect(comparison.requiredBuilderPayment).toBe(915n);
+    expect(comparison.additionalBuilderPaymentRequired).toBe(60n);
+    expect(
+      comparison.requiredBidBpsAgainstPlannedGross,
+    ).toBe(7_761n);
+    expect(comparison.counterfactualExpectedProfit).toBe(92n);
+    expect(comparison.profitable).toBe(true);
+  });
+
+  it("rejects a counterfactual that consumes the retained-profit floor", () => {
+    const comparison = compareObservedBuilderPayment({
+      observedBuilderPayment: 990n,
+      plannedGrossReward: 1_000n,
+      plannedBuilderPayment: 100n,
+      plannedExpectedProfit: 850n,
+      minProfitWei: 10n,
+    });
+
+    expect(comparison.additionalBuilderPaymentRequired).toBe(891n);
+    expect(comparison.counterfactualExpectedProfit).toBe(-41n);
+    expect(comparison.profitable).toBe(false);
   });
 });
 

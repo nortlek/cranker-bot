@@ -20,6 +20,7 @@ import {
 } from "./abi.js";
 import {
   aggregateBuilderBidBps,
+  compareObservedBuilderPayment,
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
 } from "./bidding.js";
@@ -480,6 +481,22 @@ async function main(): Promise<void> {
           );
         }
         for (const observation of observationRead.value) {
+          const paymentComparison =
+            outcome.plannedGrossReward === undefined ||
+            outcome.plannedBuilderPayment === undefined ||
+            outcome.plannedExpectedProfit === undefined
+              ? undefined
+              : compareObservedBuilderPayment({
+                  observedBuilderPayment:
+                    observation.totalBuilderPayment,
+                  plannedGrossReward:
+                    outcome.plannedGrossReward,
+                  plannedBuilderPayment:
+                    outcome.plannedBuilderPayment,
+                  plannedExpectedProfit:
+                    outcome.plannedExpectedProfit,
+                  minProfitWei: config.minProfitWei,
+                });
           log("info", "pool_competitor_bid_observed", {
             targetBlock: outcome.targetBlock.toString(),
             transactionHash: observation.transactionHash,
@@ -499,6 +516,36 @@ async function main(): Promise<void> {
             ),
             winningBidBpsUpperBound:
               observation.winningBidBpsUpperBound.toString(),
+            ...(paymentComparison === undefined
+              ? {}
+              : {
+                  plannedGrossReward: eth(
+                    outcome.plannedGrossReward ?? 0n,
+                  ),
+                  plannedBuilderPayment: eth(
+                    outcome.plannedBuilderPayment ?? 0n,
+                  ),
+                  requiredBuilderPayment: eth(
+                    paymentComparison.requiredBuilderPayment,
+                  ),
+                  additionalBuilderPaymentRequired: eth(
+                    paymentComparison
+                      .additionalBuilderPaymentRequired,
+                  ),
+                  requiredBidBpsAgainstPlannedGross:
+                    paymentComparison
+                      .requiredBidBpsAgainstPlannedGross
+                      .toString(),
+                  counterfactualExpectedProfit: eth(
+                    paymentComparison
+                      .counterfactualExpectedProfit,
+                  ),
+                  counterfactualRequiredProfit: eth(
+                    paymentComparison.requiredProfit,
+                  ),
+                  counterfactualProfitable:
+                    paymentComparison.profitable,
+                }),
             action:
               "record_only_without_contaminating_standing_order_learning",
           });
@@ -585,6 +632,22 @@ async function main(): Promise<void> {
           );
         }
         for (const observation of observationRead.value) {
+          const paymentComparison =
+            outcome.plannedGrossReward === undefined ||
+            outcome.plannedBuilderPayment === undefined ||
+            outcome.plannedExpectedProfit === undefined
+              ? undefined
+              : compareObservedBuilderPayment({
+                  observedBuilderPayment:
+                    observation.totalBuilderPayment,
+                  plannedGrossReward:
+                    outcome.plannedGrossReward,
+                  plannedBuilderPayment:
+                    outcome.plannedBuilderPayment,
+                  plannedExpectedProfit:
+                    outcome.plannedExpectedProfit,
+                  minProfitWei: config.minProfitWei,
+                });
           log(
             "info",
             "pool_lifecycle_competitor_bid_observed",
@@ -607,6 +670,36 @@ async function main(): Promise<void> {
               ),
               winningBidBpsUpperBound:
                 observation.winningBidBpsUpperBound.toString(),
+              ...(paymentComparison === undefined
+                ? {}
+                : {
+                    plannedGrossReward: eth(
+                      outcome.plannedGrossReward ?? 0n,
+                    ),
+                    plannedBuilderPayment: eth(
+                      outcome.plannedBuilderPayment ?? 0n,
+                    ),
+                    requiredBuilderPayment: eth(
+                      paymentComparison.requiredBuilderPayment,
+                    ),
+                    additionalBuilderPaymentRequired: eth(
+                      paymentComparison
+                        .additionalBuilderPaymentRequired,
+                    ),
+                    requiredBidBpsAgainstPlannedGross:
+                      paymentComparison
+                        .requiredBidBpsAgainstPlannedGross
+                        .toString(),
+                    counterfactualExpectedProfit: eth(
+                      paymentComparison
+                        .counterfactualExpectedProfit,
+                    ),
+                    counterfactualRequiredProfit: eth(
+                      paymentComparison.requiredProfit,
+                    ),
+                    counterfactualProfitable:
+                      paymentComparison.profitable,
+                  }),
               action:
                 "record_only_without_contaminating_standing_order_learning",
             },
@@ -970,6 +1063,7 @@ async function main(): Promise<void> {
           });
         }
         log(quote.profitable ? "info" : "warn", "builder_bid", {
+          targetBlock: targetBlock.toString(),
           jobs: competitivelySelectedRequests.length,
           kinds: JSON.stringify(
             competitivelySelectedRequests.map(
@@ -1433,6 +1527,9 @@ async function main(): Promise<void> {
           relayCount: relayIndexes.size,
           effectiveBuilderBidBps:
             quote.effectiveBuilderBidBps,
+          plannedGrossReward: grossReward,
+          plannedBuilderPayment: quote.builderPayment,
+          plannedExpectedProfit: quote.expectedProfit,
           bundleCount: submissions.length,
           bundleHashes: submissions.map(
             (submission) => submission.bundleHash,

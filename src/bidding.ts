@@ -34,6 +34,15 @@ export interface CompetitivePrefixSelection {
   readonly quote: CompetitiveFeeQuote;
 }
 
+export interface ObservedBuilderPaymentComparison {
+  readonly requiredBuilderPayment: bigint;
+  readonly additionalBuilderPaymentRequired: bigint;
+  readonly requiredBidBpsAgainstPlannedGross: bigint;
+  readonly counterfactualExpectedProfit: bigint;
+  readonly requiredProfit: bigint;
+  readonly profitable: boolean;
+}
+
 function ceilDivide(numerator: bigint, denominator: bigint): bigint {
   return (numerator + denominator - 1n) / denominator;
 }
@@ -50,6 +59,52 @@ export function effectiveBuilderBidBps(
   return grossReward === 0n
     ? 0n
     : ceilDivide(builderPayment * 10_000n, grossReward);
+}
+
+/**
+ * Re-prices our already simulated bundle against an observed absolute builder
+ * payment. Competitor-normalized bid percentages are not comparable when its
+ * realized pool reimbursement differs from our simulated reimbursement.
+ */
+export function compareObservedBuilderPayment(parameters: {
+  readonly observedBuilderPayment: bigint;
+  readonly plannedGrossReward: bigint;
+  readonly plannedBuilderPayment: bigint;
+  readonly plannedExpectedProfit: bigint;
+  readonly minProfitWei: bigint;
+}): ObservedBuilderPaymentComparison {
+  if (
+    parameters.observedBuilderPayment < 0n ||
+    parameters.plannedGrossReward <= 0n ||
+    parameters.plannedBuilderPayment < 0n ||
+    parameters.minProfitWei < 0n
+  ) {
+    throw new Error(
+      "observed-payment comparison requires nonnegative payments and a positive gross reward",
+    );
+  }
+  const requiredBuilderPayment =
+    parameters.observedBuilderPayment + 1n;
+  const additionalBuilderPaymentRequired =
+    requiredBuilderPayment > parameters.plannedBuilderPayment
+      ? requiredBuilderPayment - parameters.plannedBuilderPayment
+      : 0n;
+  const counterfactualExpectedProfit =
+    parameters.plannedExpectedProfit -
+    additionalBuilderPaymentRequired;
+  const profitFloor = requiredProfit(parameters.minProfitWei);
+  return {
+    requiredBuilderPayment,
+    additionalBuilderPaymentRequired,
+    requiredBidBpsAgainstPlannedGross:
+      effectiveBuilderBidBps(
+        requiredBuilderPayment,
+        parameters.plannedGrossReward,
+      ),
+    counterfactualExpectedProfit,
+    requiredProfit: profitFloor,
+    profitable: counterfactualExpectedProfit >= profitFloor,
+  };
 }
 
 /**

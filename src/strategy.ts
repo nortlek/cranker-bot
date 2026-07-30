@@ -176,6 +176,9 @@ export interface KeeperBatchResult {
   readonly targetBlock: bigint;
   readonly relayCount: number;
   readonly effectiveBuilderBidBps?: bigint;
+  readonly plannedGrossReward?: bigint;
+  readonly plannedBuilderPayment?: bigint;
+  readonly plannedExpectedProfit?: bigint;
   readonly bundleCount?: number;
   readonly bundleHashes?: readonly Hash[];
   readonly bundles?: readonly {
@@ -307,6 +310,9 @@ export async function resolvePlanningFeeQuote(parameters: {
 
 export interface PoolPullBatchOutcome {
   readonly targetBlock: bigint;
+  readonly plannedGrossReward?: bigint;
+  readonly plannedBuilderPayment?: bigint;
+  readonly plannedExpectedProfit?: bigint;
   readonly attempts: readonly {
     readonly hash: Hash;
     readonly roundId: bigint;
@@ -316,6 +322,9 @@ export interface PoolPullBatchOutcome {
 
 export interface PoolLifecycleBatchOutcome {
   readonly targetBlock: bigint;
+  readonly plannedGrossReward?: bigint;
+  readonly plannedBuilderPayment?: bigint;
+  readonly plannedExpectedProfit?: bigint;
   readonly attempts: readonly {
     readonly hash: Hash;
     readonly roundId: bigint;
@@ -4858,6 +4867,24 @@ export async function runKeeperPass(
     try {
       await context.observePoolPullBatch({
         targetBlock: privateTargetBlock,
+        ...(batchResult?.plannedGrossReward === undefined
+          ? {}
+          : {
+              plannedGrossReward:
+                batchResult.plannedGrossReward,
+            }),
+        ...(batchResult?.plannedBuilderPayment === undefined
+          ? {}
+          : {
+              plannedBuilderPayment:
+                batchResult.plannedBuilderPayment,
+            }),
+        ...(batchResult?.plannedExpectedProfit === undefined
+          ? {}
+          : {
+              plannedExpectedProfit:
+                batchResult.plannedExpectedProfit,
+            }),
         attempts: poolPullAttempts,
       });
     } catch (error) {
@@ -4898,6 +4925,24 @@ export async function runKeeperPass(
     try {
       await context.observePoolLifecycleBatch({
         targetBlock: privateTargetBlock,
+        ...(batchResult?.plannedGrossReward === undefined
+          ? {}
+          : {
+              plannedGrossReward:
+                batchResult.plannedGrossReward,
+            }),
+        ...(batchResult?.plannedBuilderPayment === undefined
+          ? {}
+          : {
+              plannedBuilderPayment:
+                batchResult.plannedBuilderPayment,
+            }),
+        ...(batchResult?.plannedExpectedProfit === undefined
+          ? {}
+          : {
+              plannedExpectedProfit:
+                batchResult.plannedExpectedProfit,
+            }),
         attempts: poolLifecycleAttempts,
       });
     } catch (error) {
