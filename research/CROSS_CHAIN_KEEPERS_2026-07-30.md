@@ -5,10 +5,11 @@ Snapshot: 2026-07-30 America/Denver
 ## Scope and decision rule
 
 This is a research draft, not a production configuration. It deliberately
-excludes the already-investigated PoolTogether V5 lanes on Base, Optimism, and
-Arbitrum and the known Robinhood Chain crank around
-`0xe934e36a439c94017b64a3fece66af12099abf50`. Beefy and Yield Yak are also
-already covered in `OPPORTUNITIES.md` and are not repeated here.
+rechecks the already-investigated PoolTogether V5 and Robinhood Chain lanes,
+then screens Liquity V2 friendly forks and other explicit-bounty surfaces on
+Base, Optimism, Arbitrum, Polygon, BNB Chain, Avalanche, and other credible
+EVM chains. The negative Beefy and Yield Yak results from `OPPORTUNITIES.md`
+are summarized rather than repeated transaction by transaction.
 
 A candidate qualifies for implementation only if an ordinary EOA can invoke
 it, the caller receives a contract-enforced reward, the action requires only
@@ -20,25 +21,209 @@ profitable.
 Historical amounts below are decoded on-chain amounts. USD values are rough
 comparisons at the sampled block/explorer price, not realized P&L.
 
-## Ranked result
+## Positive backlog
 
-| Rank | Candidate | Chain | Status | Why |
+Only the following four candidates retained positive observed economics after
+gas. This is an inspector order, not authorization to fund a signer or submit
+public transactions.
+
+| Rank | Candidate | Chain | Next action | Why |
 | ---: | --- | --- | --- | --- |
-| 1 | Maker/Sky `Dog.bark` and `Clipper.redo` | Ethereum | Extend existing inspector | Large, explicit DAI keeper incentive; 88 barks in the sampled 2,000,000-block window |
-| 2 | Liquity V1 liquidation | Ethereum | Keep existing inspector; add low-overhead monitor later | Explicit 200 LUSD + 0.5% collateral reward and one sampled win retained hundreds of dollars; events are rare |
-| 3 | Equilibria `earmarkRewards` | Arbitrum | Monitor only | Permissionless token reward, but the sampled call was only approximately break-even and reward-token coverage is broad |
-| 4 | Aura sidechain `earmarkRewards` | Base/Optimism | Reject live lane | The sampled 0.1% BAL caller reward was dwarfed by mandatory cross-chain messaging value |
-| 5 | Aerodrome `Minter.updatePeriod` | Base | Reject | A real weekly permissionless crank, but the caller receives no reward |
-| 6 | Compound III `Comet.absorb` | Base and other EVMs | Reject | Caller receives non-redeemable accounting points, not assets; profitable follow-on collateral purchase requires capital and swaps |
+| 1 | Nerite Liquity V2 liquidations | Arbitrum | Build a read-only fork-registry inspector | Exact sampled calls retained `0.0009905–0.0015625 ETH` from WETH compensation after gas; recent history also shows failed races |
+| 2 | PoolTogether V5 prize claims | Base, Optimism, Arbitrum | Build the existing proposed read-only inspector | Current draws had positive aggregate claim-stage surplus on all three chains, but stale claims can succeed for zero reward |
+| 3 | Aesyx Liquity V2 liquidations | Avalanche | Add to the same fork inspector | Both historical successes paid far more than gas, but only two wins were found and the sAVAX event attracted 12 failed calls |
+| 4 | StonkPit `collect` | Robinhood Chain | Add the minimum-tip guard specification and latency observer | A fresh 100,000-block sample remained positive in aggregate, but half of successful calls lost money and one incumbent won 70% |
 
-The strongest additional lane is Maker/Sky. This repository already has a
-read-only `Dog.bark` inspector, so the remaining work is a durable
-event-driven candidate cache, `Clipper.redo` coverage, and historically
-replayed exact execution/accounting rather than another full-scan script. The
-strongest genuinely cross-chain candidate is Equilibria on Arbitrum, but
-current evidence does not justify live implementation.
+Maker/Sky and Liquity V1 remain worthwhile Ethereum research, but they are
+listed in the mainnet appendix rather than used to inflate the cross-chain
+ranking. Equilibria was approximately break-even. Aura, Beefy, Yield Yak,
+Aerodrome, Compound III, stale Wombex voting, and the unverified current
+Synthetix Base settlement surface did not pass the positive screen.
 
-## 1. Maker/Sky Liquidation 2.0
+## 1. Nerite Liquity V2 liquidations on Arbitrum
+
+### Canonical contracts and reward
+
+Nerite is Liquity's licensed Arbitrum friendly fork. Its official
+[deployment page](https://docs.nerite.org/docs/technical-documentation/contracts)
+lists the top-level `CollateralRegistry` at
+`0x7f7fbc2711c0d6e8ef757dbb82038032dd168e68` and eight current branch-level
+`TroveManager` contracts:
+
+| Branch | TroveManager |
+| --- | --- |
+| WETH | `0x56698cd47d5194c2b7f947ac8370b3cb7359e709` |
+| wstETH | `0xffd282a7184dbbe2e142156a08860f2be994fb98` |
+| rETH | `0x4895d30b7e18b67872a7542d9e876ce444244311` |
+| rsETH | `0x8d7b268cc6d33b460428d8e938de26573596bc85` |
+| weETH | `0x76bb92e886d61da119ee8eb3fbcbc722da346550` |
+| ARB | `0xbdd4ab4128c414520b3669e155b7ecfb348af7f0` |
+| COMP | `0xcfc1b1098d53951811210b6b88feb6a8572267fe` |
+| tBTC | `0x285b3d3813d7a132d3f1ab48bb5a585e1363cdeb` |
+
+The canonical
+[`TroveManager`](https://github.com/NeriteOrg/nerite/blob/main/contracts/src/TroveManager.sol)
+exposes permissionless `batchLiquidateTroves(uint256[])`. It reverts with
+`NothingToLiquidate` when no supplied trove can be liquidated, then sends the
+fixed WETH reserve and variable collateral compensation to `msg.sender`.
+Nerite's source sets the fixed reserve to `0.001 WETH` per trove and collateral
+compensation to 0.125%, subject to the fork's cap. No stability-pool deposit,
+approval, repayment asset, or principal is required.
+
+### Exact sampled economics and competition
+
+The bounded latest transaction pages for the eight official managers contained
+25 successful and 30 failed `batchLiquidateTroves` calls. This is not a
+complete lifetime count because the WETH manager page was truncated at 20
+calls. Two repeat callers dominated the wins.
+
+The most recent observed success was the tBTC liquidation at Arbitrum block
+470,338,894 on 2026-06-05:
+
+- [transaction `0xdbc4…1512`](https://arbitrum.blockscout.com/tx/0xdbc45fd68f2db6cfca8ab2a51a120cea9b66c2efbb199aab3506d23414191512)
+- `464,313` gas and `0.000009470127948 ETH` receipt cost
+- exactly `0.001 WETH` transferred to the caller; collateral compensation was
+  zero in this redistribution liquidation
+- `0.000990529872052 ETH` retained before WETH-unwrapping cost
+
+A competing stale call landed in the next block and reverted, losing
+`0.000002730999794 ETH`. A WETH-branch sample at block 429,054,816 paid
+`0.001675 WETH` against `0.000112502263248 ETH` gas, retaining
+`0.001562497736752 ETH`. The fixed WETH reserve alone therefore covered the
+sampled Arbitrum execution by 8.9x to 105.6x. The latest observed call was a
+failed wstETH attempt on 2026-07-01, so this is a sparse, event-driven lane,
+not an always-ready crank.
+
+At pinned Arbitrum block 489,358,880, the eight managers exposed 15 trove ids
+in total. Exact full-array `batchLiquidateTroves` gas simulation found no
+current action: WETH, wstETH, rETH, rsETH, weETH, and tBTC reverted
+`NothingToLiquidate`, while the one-trove ARB and COMP branches reverted
+`OnlyOneTroveLeft`. No transaction was signed or submitted.
+
+Arbitrum's public gateway and Timeboost ordering are not Ethereum private
+builder auctions. A future worker needs an independent Arbitrum gas balance,
+nonce/lease domain, fast exact-state RPC, and failed-race accounting. It must
+not inherit the Ethereum standing-order builder bid.
+
+**Verdict: strongest next cross-chain inspector.** Reuse the existing Liquity
+V2 branch logic in a read-only script, but source all branch parameters from
+the canonical Nerite deployment and code. Replay every known successful and
+failed liquidation, verify fixed WETH plus collateral transfers, inspect
+current troves at a pinned block, and compute per-caller win/loss economics.
+Do not add signing until current eligibility and expected value across stale
+races are proven.
+
+## 2. PoolTogether V5 claims on Base, Optimism, and Arbitrum
+
+PoolTogether's official
+[Base](https://dev.pooltogether.com/protocol/deployments/base/),
+[Optimism](https://dev.pooltogether.com/protocol/deployments/optimism/), and
+[Arbitrum](https://dev.pooltogether.com/protocol/deployments/arbitrum/)
+manifests identify permissionless Claimer contracts. `claimPrizes` needs no
+principal or token approval and credits successful per-claim fees in WETH to
+the selected recipient. The later `withdrawRewards` realizes the balance.
+
+The 2026-07-30 current-draw reconstruction in `OPPORTUNITIES.md` found:
+
+| Chain / draw | Gross fees | Full claim receipt gas | Claim-stage surplus |
+| --- | ---: | ---: | ---: |
+| Base / 804 | `0.003400054747418055 WETH` | `0.001233210558042408 ETH` | `0.002166844189375647 ETH` |
+| Optimism / 832 | `0.000335033603623490 WETH` | `0.000058036202122545 ETH` | `0.000276997401500945 ETH` |
+| Arbitrum / 790 | `0.000063096451875876 WETH` | `0.000012452873958000 ETH` | `0.000050643577917876 ETH` |
+
+These are protocol-wide aggregates, not profit available to one new keeper,
+and exclude reward-withdrawal gas. The Claimer catches stale individual
+claims, so a transaction can succeed for zero aggregate reward after a
+competitor consumes the winners. Exact simulation alone does not remove that
+public-race loss mode.
+
+**Verdict: keep as the second inspector.** Reconstruct at least seven draws,
+derive winners from canonical TWAB state, account for L1 data fees and reward
+withdrawal, and specify a minimal aggregate-fee floor. A helper that receives
+or forwards WETH crosses the project's custody boundary and needs explicit
+review before deployment.
+
+## 3. Aesyx Liquity V2 liquidations on Avalanche
+
+### Canonical contracts and exact payouts
+
+Aesyx's official
+[contract page](https://aesyx.gitbook.io/welcome-to-aesyx/resources/smart-contract-addresses)
+lists the Avalanche sAVAX TroveManager at
+`0x0eb600fe2e9eb27b757f31f73f81a87c53e56cd1` and BTC.b TroveManager at
+`0xfcdf672475f2f259746572e3a82919f05f5227a7`. Both expose the same
+permissionless Liquity V2 batch liquidation entry.
+
+Routescan's direct-call address histories contained one successful sAVAX
+liquidation and 12 failed calls, plus one successful BTC.b liquidation.
+Contract-routed calls would require a separate event scan:
+
+- [sAVAX transaction `0x7780…43aa`](https://routescan.io/tx/0x778024bc092c7907e46b22ff17b5360ec6e7d67c223c3d37c84d0b656efa43aa/network/mainnet/evm/43114):
+  `56.326041777598417524 sAVAX` transferred to the caller against
+  `0.021140888284669992 AVAX` gas. At the liquidation event's
+  `$25.81214414` collateral price, the caller reward was about `$1,454`.
+- [BTC.b transaction `0xba0a…aee2`](https://routescan.io/tx/0xba0a31fd18ad2da9c6d6d6101edc51b4ce611c445b05064dc93d9e933ac1aee2/network/mainnet/evm/43114):
+  `0.00004362 BTC.b` transferred to the caller against
+  `0.003002546919791232 AVAX` gas. The event priced BTC at `$76,707.85`,
+  making the caller reward about `$3.35` before gas.
+
+The 12 observed failed sAVAX calls burned `0.04312220855386907 AVAX`
+combined. The successful reward still dwarfed the whole sampled race cost,
+but the success occurred in October 2025 and the BTC.b success in February
+2026. No newer successful liquidation appeared by this snapshot.
+
+At pinned Avalanche block 91,613,748, sAVAX exposed one trove id and BTC.b
+three. Exact full-array gas simulation reverted `NothingToLiquidate` for both
+branches, proving there was no current action. No transaction was signed or
+submitted.
+
+**Verdict: positive but third priority.** Add both managers to the same
+read-only Liquity-fork inspector as Nerite. Verify deployed bytecode/source
+relationships, current trove counts and oracle semantics, then replay the
+complete history with reward-token prices at each block. Avalanche submission
+is public and no private path was verified, so historical profitability is
+not authority to fund or run a signer.
+
+## 4. Robinhood StonkPit collection
+
+Robinhood's official
+[chain overview](https://docs.robinhood.com/chain/) confirms strict
+first-come-first-served sequencer ordering and ETH gas. Its
+[connection guide](https://docs.robinhood.com/chain/connecting/) identifies
+chain ID 4663 and warns that the public RPC is rate-limited and not intended
+for production.
+
+The permissionless target is
+`StonkPitLocker.collect(address tipTo)` at
+`0xDeb8d589251717e367d0f3E9dDE5D4dB63968B40`, not the user-supplied
+`0xe934e36a439c94017b64a3fece66af12099abf50` collection token. It pays
+`tipTo` 1% of collected native ETH. Because token-only collections can succeed,
+raw execution has a successful-loss mode.
+
+`npm run inspect:robinhood` was rerun at block 23,475,850. In the preceding
+100,000 blocks, spanning 10,025 seconds, it found:
+
+- 30 successful collections: 15 profitable and 15 unprofitable after gas
+- `0.000317510029095417 ETH` gross tips
+- `0.000121748509676 ETH` successful-call gas
+- one failed race costing `0.00000316059749 ETH`
+- `0.000192600921929417 ETH` net after all known gas, an unclaimed
+  protocol-wide rate of about `0.00165992216 ETH/day`
+
+One incumbent won 21 of the 30 calls and retained
+`0.00016867380355997 ETH`, about 87.6% of the whole sampled net. This confirms
+that the opportunity remains real but latency dominated.
+
+**Verdict: keep behind Nerite, PoolTogether, and Aesyx.** The next artifact is
+an immutable minimum-ETH guard specification plus a read-only observer using a
+production-grade WebSocket/sequencer path. Measure notification-to-inclusion
+latency, incumbent share, and expected profit including failed races. Public
+submission and a dedicated Robinhood signer still require explicit
+authorization.
+
+## Mainnet appendix
+
+## 5. Maker/Sky Liquidation 2.0
 
 ### Contract and call
 
@@ -111,7 +296,7 @@ deployment, but it should not sign until internal-Vat-DAI exit accounting,
 `redo` eligibility, and the inventory cache are tested against historical
 barks.
 
-## 2. Liquity V1 liquidations
+## 6. Liquity V1 liquidations
 
 ### Contract and call
 
@@ -167,7 +352,9 @@ monitor later, not a high-priority live build.** The payoff can be large, but
 only three events appeared in roughly nine months of sampled blocks and
 current collateralization is far from eligibility.
 
-## 3. Equilibria Pendle Booster on Arbitrum
+## Rejected and monitor-only screens
+
+## 7. Equilibria Pendle Booster on Arbitrum
 
 ### Contract and call
 
@@ -211,7 +398,7 @@ before any ordering premium or operational overhead.
 demonstrates repeated opportunities with at least 2x gas-cost coverage after
 conservative token haircuts.
 
-## 4. Aura sidechain `earmarkRewards`
+## 8. Aura sidechain `earmarkRewards`
 
 ### Contract and call
 
@@ -257,7 +444,7 @@ the evidence as a reusable rule: every payable keeper must price consumed
 message value, not merely gas. Aura mainnet has no sidechain-message cost and
 could be screened separately, but it is not a cross-chain expansion.
 
-## 5. Aerodrome weekly emissions crank
+## 9. Aerodrome weekly emissions crank
 
 ### Contract and call
 
@@ -285,7 +472,7 @@ The address history shows a stable weekly call shortly after Thursday
 **Verdict: reject.** It is a textbook permissionless crank but not an income
 opportunity. Cheap gas does not make a zero-reward call profitable.
 
-## 6. Compound III `Comet.absorb`
+## 10. Compound III `Comet.absorb`
 
 ### Contract and call
 
@@ -319,19 +506,50 @@ re-screening.
 non-redeemable score and do not expand into inventory-backed collateral
 arbitrage without explicit authorization.
 
+## Additional explicit rejects
+
+- **Beefy harvests on Base, Optimism, Arbitrum, Polygon, BNB, and
+  Avalanche:** decoded caller transfers contradicted optimistic
+  `callReward()` quotes. The sampled Base, Optimism, and Arbitrum receipts
+  were net negative, and an unsigned BNB Anvil execution lost
+  `0.000059719771471832 BNB`. A quote in raw reward-token units is not an
+  eligibility proof.
+- **Yield Yak reinvests on Avalanche:** none of the 30 highest quoted WAVAX
+  candidates in the bounded registry slice covered exact gas. The best lost
+  `0.000115138470803494 AVAX`, and `onlyEOA` prevents a fail-closed
+  minimum-reward wrapper.
+- **Wombex `voteExecute` on BNB:** Wombex's historical
+  [bribe-market description](https://medium.com/wombex/a-deep-dive-into-the-wombex-bribe-market-94848d240625)
+  documented a permissionless call and a 0.5% bribe-value executor incentive.
+  The evidence is from 2023; the current canonical deployment documentation
+  was unavailable and no recent execution was verified. Treat it as
+  dormant/unverified, not a candidate.
+- **Synthetix Perps V3 settlement on Base:** official
+  [Perps V3 documentation](https://docs.synthetix.io/developer-docs/for-perp-integrators/perps-v3)
+  documents settlement rewards to keepers, but this pass did not recover a
+  current canonical Base deployment with recent externally capturable
+  settlements. Do not implement from legacy Andromeda examples.
+- **Polygon remainder:** the bounded Beefy registry had one active strategy
+  and no positive native-denominated candidate. No other explicit
+  principal-free caller reward survived canonical deployment and recent
+  activity verification.
+
 ## Recommended next implementation order
 
-1. Extend the existing Maker bark inspector with a durable active-urn cache,
-   `Clipper.redo` eligibility, and exact historical replay of the last 20
-   keeper actions. Do not add a second full-scan inspector.
-2. Convert the existing Liquity V1 inspector into tail/price monitoring beside
-   the V2 discovery, without enabling signing.
-3. Run a one-week read-only Equilibria Arbitrum harvest study. Persist
-   claimable caller tokens, gas, repeat caller, and counterfactual net for
-   every active pool.
-4. Stop there unless the study proves a repeatable surplus. Do not create
-   general multi-chain signing infrastructure merely to support a
-   break-even candidate.
+1. Add one unsigned Liquity-fork inspector covering the eight canonical Nerite
+   managers and two canonical Aesyx managers. Pin state, verify deployed
+   relationships and bytecode, replay all liquidation receipts, decode fixed
+   and collateral compensation, and report stale-race expected value by
+   branch/caller.
+2. Build the already-specified PoolTogether claim inspector and reconstruct at
+   least seven draws on each chain before designing a guard.
+3. Extend `inspect:robinhood` with durable read-only latency, incumbent-share,
+   and expected-value observation. Specify the guard, but do not deploy it.
+4. Continue the Maker active-urn/auction cache on Ethereum independently; it
+   remains the strongest mainnet research lane.
+5. Stop unless one cross-chain observer proves current repeatable surplus. Do
+   not create general multi-chain signing infrastructure for rejected or
+   merely historical candidates.
 
 ## Design implication for future cross-chain work
 
@@ -347,5 +565,7 @@ inside the Ethereum signer loop. A future profitable L2 lane should have:
   keeper.
 
 That architecture should be built only after a candidate survives read-only
-economics. The evidence above does not yet justify its operational cost for
-Equilibria, Aura, Aerodrome, or Compound III.
+economics and current-state observation. Nerite and Aesyx justify inspectors,
+not a signer deployment. The evidence does not justify operational cost for
+Equilibria, Aura, Beefy, Yield Yak, Aerodrome, Compound III, Wombex, or the
+unverified Synthetix surface.

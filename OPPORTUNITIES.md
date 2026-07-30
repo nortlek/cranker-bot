@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-07-29 (America/Denver)
+Last updated: 2026-07-30 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -18,7 +18,19 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-30 08:27 America/Denver, the
+2026-07-30 23:59 America/Denver**. At 2026-07-30 14:16 America/Denver, the
+verified snapshot was **$239.69256803 net**, or **95.87%** of the goal, with
+`latest == pending == 699`, net ETH equivalent of
+`0.124753820619572591`, and a fresh `$1,921.32` ETH/USD oracle. The 32
+successful receipts from nonces 667–698 earned
+`0.014030220960008531 ETH`, spent `0.007497170813293468 ETH`, and increased
+the wallet by exactly `0.006533050146715063 ETH`. Ten complete PullPool
+lifecycle batches supplied the material gain. Four standing-order wins earned
+`0.0006 ETH` but were profit-capped to a combined
+`0.000000000000036564 ETH` retained; they do not materially advance the goal.
+PostgreSQL receipt aggregation and the wallet delta agree exactly.
+
+At 2026-07-30 08:27 America/Denver, the
 verified snapshot was **$226.20480443 net**, or **90.48%** of the goal, with
 `latest == pending == 667`, net ETH equivalent of
 `0.118220770472857528`, and a fresh `$1,913.41` ETH/USD oracle. The 64
@@ -392,6 +404,19 @@ failed crank transactions costing `0.000072785051656 ETH`. The distribution is
 highly skewed by early outliers; recent samples are much thinner. In the eight
 user-supplied clue blocks plus the linked transaction, aggregate net was just
 `0.000047302406830197 ETH`, and one of nine calls lost money.
+
+The inspector was refreshed at block `23475850` on 2026-07-30. Its preceding
+100,000-block window covered 10,025 seconds and found 30 successful
+collections: 15 profitable and 15 unprofitable. Gross tips were
+`0.000317510029095417 ETH`, successful gas was
+`0.000121748509676 ETH`, and one failed race cost
+`0.00000316059749 ETH`, leaving `0.000192600921929417 ETH` after all known
+gas. That is about `0.00165992216 ETH/day` protocol-wide if the short sample
+rate persisted, not expected profit for this keeper. One incumbent won 21 of
+30 calls and retained `0.00016867380355997 ETH`, approximately 87.6% of the
+sample's total net. The opportunity is active, but the 50% successful-loss
+rate and incumbent concentration strengthen the case for a minimum-tip guard
+and measured latency before any public submission.
 
 Use `npm run inspect:robinhood` for a current read-only simulation and bounded
 history/competitor sample. Optional knobs are `ROBINHOOD_RPC_URL`,
@@ -1297,6 +1322,34 @@ granted signer lock, and zero waiters. The old deployment was removed, wallet
 nonces remained `667/667`, and no startup, pass, lease, or telemetry failure
 was observed.
 
+The first longer production sample under this deployment recorded 15
+lifecycle bundle submissions. Ten landed successfully, producing the exact
+wallet gain described in the current snapshot above; five private attempts
+expired without nonce movement. All 100 relay-variant submissions were
+accepted, and there was no pass, fatal, or signer-lease failure.
+
+Round 349 also exposed a trace-index correctness issue. The ready
+`processAcquisitions(1) -> sync -> settle` attempt expired in block
+`25647725`; the next-head fulfilled `sync -> settle` attempt offered
+`0.00085483268518032 ETH` at an effective `7,251 bps` and expired in block
+`25647726`. Near-head telemetry initially attributed
+`0.000914401518748608 ETH` of direct beneficiary payment to the winning
+wrapper. A later canonical reconstruction proved the transaction paid zero
+priority fee and zero direct beneficiary payment: its effective gas price
+equaled the block's `0.30209843 gwei` base fee, and the indexed internal
+operations contained no transfer to the canonical beneficiary. The original
+observer accepted any non-empty near-head trace response without verifying
+that its internal operations belonged to the requested transaction.
+
+Competition tracing now requires at least one operation whose `txHash` exactly
+matches the requested hash and sums only matching successful operations.
+Unrelated near-head responses remain unavailable and retry within the existing
+bounded window instead of creating false bid evidence. The new read-only
+`npm run inspect:pool-lifecycle-block -- --block=<block> --round=<round>`
+command reports the canonical transaction route, gas, reward, builder
+payments, and retained value. Round 349 is therefore delivery/builder-selection
+evidence, not support for raising the fulfilled bid.
+
 Acceptance:
 
 - ready/fulfilled lifecycle behavior and minimum viable prefixes are unchanged
@@ -1854,16 +1907,12 @@ described below used an ephemeral local Anvil fork only.
 The broader rejected-candidate evidence and chain-isolation requirements are
 recorded in
 [`research/CROSS_CHAIN_KEEPERS_2026-07-30.md`](./research/CROSS_CHAIN_KEEPERS_2026-07-30.md).
-That follow-up ranked Maker/Sky liquidations above every genuinely cross-chain
-candidate, but the repository already has a full read-only bark inspector.
-Its 2026-07-30 refresh read 32,021 vault ids, found 839 active vaults across
-eight ilks, and found no unsafe vault. The existing `Clipper.redo` inspector
-is now exposed as `npm run inspect:maker-redos`; its 2026-07-30 refresh found
-45 clippers and zero active or resettable auctions. The next Maker work is an
-event-driven active-urn/auction cache and historical exact execution replay,
-not another scanner or an unvalidated signing lane. Equilibria on Arbitrum was
-only approximately break-even; Aura sidechain messaging value dwarfed its
-reward; Aerodrome and Compound III paid no current caller asset reward.
+The follow-up identified two additional positive cross-chain liquidation
+surfaces: Nerite on Arbitrum and Aesyx on Avalanche. Both are licensed Liquity
+V2 friendly forks, so the existing mainnet Liquity planner provides a useful
+read-only inspection shape, but neither has been added to live code. Maker/Sky
+still has stronger mainnet gross economics; the repository's bark/redo
+inspectors found no current eligible auction at the snapshot.
 
 This is a ranked backlog, not an exhaustive claim that no other protocol pays
 keepers. The scan covered canonical explicit-bounty surfaces on Base,
@@ -1873,13 +1922,80 @@ the external caller, and show recent on-chain activity.
 
 | Rank | Chain and action | Evidence-backed conclusion |
 | ---: | --- | --- |
-| 1 | PoolTogether V5 prize claims on Base, Optimism, and Arbitrum | Best next inspector. Daily WETH-denominated caller fees and positive recent claim-stage surplus, but winner discovery, stale-race protection, reward withdrawal, and public-sequencer competition still need solving. |
-| 2 | Robinhood StonkPit `collect` | Fully reconstructed in the dedicated P0 section above. The 1% ETH tip is real, but recent value is thin, ordering is public FCFS, and failed races remain an irreducible cost. |
-| 3 | Beefy harvests on Base, Arbitrum, Optimism, and BNB | Monitor only. `callReward()` materially overstates the native payout on reviewed RewardPool strategies; decoded receipts and a local-fork balance delta were unprofitable. |
-| 4 | Yield Yak reinvests on Avalanche | Dormant/rejected at the snapshot. None of the 30 highest quoted WAVAX candidates in the newest 120-strategy registry slice covered gas, and `onlyEOA` prevents a fail-closed wrapper. |
-| 5 | Polygon, plus remaining BNB/Avalanche surfaces | No qualified candidate found in this bounded pass. Polygon had one active Beefy strategy and no positive native quote; Avalanche Beefy had eight active strategies and no positive native quote. |
+| 1 | Nerite Liquity V2 liquidations on Arbitrum | Strongest next inspector. Exact sampled calls retained `0.0009905–0.0015625 ETH` from fixed/variable WETH compensation after gas, although liquidations are sparse and public Timeboost competition causes failed races. |
+| 2 | PoolTogether V5 prize claims on Base, Optimism, and Arbitrum | Daily WETH-denominated caller fees and positive recent aggregate claim-stage surplus, but winner discovery, stale-race protection, reward withdrawal, and public-sequencer competition still need solving. |
+| 3 | Aesyx Liquity V2 liquidations on Avalanche | Exact sAVAX and BTC.b liquidation payouts dwarfed gas, but only two successful events were found and the sAVAX event attracted 12 failed calls. |
+| 4 | Robinhood StonkPit `collect` | The 1% ETH tip remains positive in aggregate, but half of the refreshed successful calls lost gas and one incumbent captured 70% of wins. |
 
-### Rank 1 — PoolTogether V5 cross-chain prize claims
+Beefy, Yield Yak, Equilibria, Aura, Aerodrome, Compound III, Wombex, and the
+unverified current Synthetix Base settlement surface are not part of the
+positive ranking. Their rejection evidence is retained below and in the
+research file.
+
+### Rank 1 — Nerite Liquity V2 liquidations
+
+Status: canonical deployments, permissionless payout, and sampled positive
+economics verified; inspector not yet implemented.
+
+Nerite's official
+[deployment page](https://docs.nerite.org/docs/technical-documentation/contracts)
+lists its Arbitrum `CollateralRegistry` at
+`0x7f7fbc2711c0d6e8ef757dbb82038032dd168e68` and eight branch-level
+TroveManagers:
+
+| Branch | TroveManager |
+| --- | --- |
+| WETH | `0x56698cd47d5194c2b7f947ac8370b3cb7359e709` |
+| wstETH | `0xffd282a7184dbbe2e142156a08860f2be994fb98` |
+| rETH | `0x4895d30b7e18b67872a7542d9e876ce444244311` |
+| rsETH | `0x8d7b268cc6d33b460428d8e938de26573596bc85` |
+| weETH | `0x76bb92e886d61da119ee8eb3fbcbc722da346550` |
+| ARB | `0xbdd4ab4128c414520b3669e155b7ecfb348af7f0` |
+| COMP | `0xcfc1b1098d53951811210b6b88feb6a8572267fe` |
+| tBTC | `0x285b3d3813d7a132d3f1ab48bb5a585e1363cdeb` |
+
+The canonical
+[`TroveManager`](https://github.com/NeriteOrg/nerite/blob/main/contracts/src/TroveManager.sol)
+exposes `batchLiquidateTroves(uint256[])`, reverts when nothing is eligible,
+and sends fixed WETH plus variable collateral compensation to `msg.sender`.
+The source sets the fixed reserve to `0.001 WETH` per liquidated trove and
+needs no caller principal, approval, or Stability Pool deposit.
+
+A bounded latest-address-page sample across all eight managers found 25
+successful and 30 failed calls. The most recent success was the tBTC branch at
+block `470338894` on 2026-06-05:
+
+- [transaction `0xdbc4…1512`](https://arbitrum.blockscout.com/tx/0xdbc45fd68f2db6cfca8ab2a51a120cea9b66c2efbb199aab3506d23414191512)
+- `0.001 WETH` caller compensation
+- `0.000009470127948 ETH` gas
+- `0.000990529872052 ETH` retained before optional WETH-unwrapping gas
+
+A stale competitor reverted in the next block and lost
+`0.000002730999794 ETH`. A WETH-branch sample retained
+`0.001562497736752 ETH` after gas from `0.001675 WETH` compensation. The
+latest observed call was a failed wstETH attempt on 2026-07-01, so this is
+event-driven rather than continuously callable.
+
+At pinned Arbitrum block `489358880`, the eight managers exposed 15 trove ids.
+Exact full-array gas simulation found no current action: six branches reverted
+`NothingToLiquidate`, while the one-trove ARB and COMP branches reverted
+`OnlyOneTroveLeft`. No transaction was signed or submitted.
+
+Recommended next inspector:
+
+1. Add one unsigned Liquity-fork registry script with all eight canonical
+   managers, price feeds, MCRs, collateral tokens, and deployed relationship
+   checks.
+2. Replay every available successful and failed liquidation receipt, decoding
+   fixed WETH, collateral compensation, gas, sender, target order, and
+   counterfactual stale-race loss.
+3. Inspect all current troves at one pinned Arbitrum block and report exact
+   eligibility without signing.
+4. Require current repeated expected value before proposing a separate
+   Arbitrum worker. Timeboost/public sequencing is not an Ethereum
+   builder-bid lane.
+
+### Rank 2 — PoolTogether V5 cross-chain prize claims
 
 Status: permissionless payout and current activity verified; inspector not yet
 implemented.
@@ -1958,18 +2074,53 @@ also has Timeboost ordering rather than Ethereum builder auctions. Base and
 Optimism use their sequencers. None of these lanes should inherit the Ethereum
 standing-order builder bid.
 
-### Rank 2 — Robinhood StonkPit collection
+### Rank 3 — Aesyx Liquity V2 liquidations
+
+Status: canonical deployments and positive exact payouts verified; activity is
+too sparse for a live lane.
+
+Aesyx's official
+[contract page](https://aesyx.gitbook.io/welcome-to-aesyx/resources/smart-contract-addresses)
+lists the Avalanche sAVAX TroveManager at
+`0x0eb600fe2e9eb27b757f31f73f81a87c53e56cd1` and BTC.b TroveManager at
+`0xfcdf672475f2f259746572e3a82919f05f5227a7`.
+
+The Routescan direct-call address histories showed one successful sAVAX
+liquidation with 12 failed calls and one successful BTC.b liquidation.
+Contract-routed calls still require a separate event scan:
+
+- [sAVAX transaction `0x7780…43aa`](https://routescan.io/tx/0x778024bc092c7907e46b22ff17b5360ec6e7d67c223c3d37c84d0b656efa43aa/network/mainnet/evm/43114)
+  transferred `56.326041777598417524 sAVAX` to the caller and spent
+  `0.021140888284669992 AVAX` in gas. The liquidation event's collateral price
+  valued the reward near `$1,454`.
+- [BTC.b transaction `0xba0a…aee2`](https://routescan.io/tx/0xba0a31fd18ad2da9c6d6101edc51b4ce611c445b05064dc93d9e933ac1aee2/network/mainnet/evm/43114)
+  transferred `0.00004362 BTC.b` to the caller and spent
+  `0.003002546919791232 AVAX` in gas, roughly `$3.35` of reward at the
+  liquidation event price before gas.
+
+The 12 failed sAVAX calls burned `0.04312220855386907 AVAX` combined. The
+sampled win still dwarfed all of that race cost, but the successes occurred in
+October 2025 and February 2026. Add both branches to the same read-only
+Liquity-fork inspector as Nerite, validate current bytecode/parameters and
+trove state, and keep Avalanche signing disabled. At pinned Avalanche block
+`91613748`, sAVAX exposed one trove id and BTC.b three; both exact full-array
+simulations reverted `NothingToLiquidate`.
+
+### Rank 4 — Robinhood StonkPit collection
 
 Status: retain the existing dedicated P0 entry as the authoritative record.
 
 The user-supplied contract, transaction, eight crank blocks, 1% native-ETH tip,
 273-success history, failed-race sample, and public FCFS constraint have
-already been reconstructed above. The next artifact remains the immutable
-minimum-ETH guard plus a read-only latency/win-rate observer. Use a separate
-Robinhood worker and gas-only signer if public submission is later authorized;
-do not mix chain ID `4663` into the Ethereum signer's nonce or lease domain.
+already been reconstructed above. The 2026-07-30 refresh found 30 successes
+over 10,025 seconds, of which 15 lost money, and one incumbent captured 21
+wins. Net after known successful and failed gas was
+`0.000192600921929417 ETH`. The next artifact remains the immutable minimum-ETH
+guard plus a read-only latency/win-rate observer. Use a separate Robinhood
+worker and gas-only signer if public submission is later authorized; do not
+mix chain ID `4663` into the Ethereum signer's nonce or lease domain.
 
-### Rank 3 — Beefy multi-chain harvests
+### Rejected — Beefy multi-chain harvests
 
 Status: monitored/rejected at the snapshot; quotes are not safe eligibility
 signals.
@@ -2012,10 +2163,10 @@ at `0.05 gwei` cost `0.000106662700000000 BNB`, for
 Do not implement from `callReward()` alone. A future Beefy inspector would
 need a fork/state-diff balance delta in the final native token, exact route
 execution, receipt-history validation, and a fail-closed minimum-reward helper.
-Until one candidate clears those gates repeatedly, this surface ranks below
-Robinhood and PoolTogether.
+Until one candidate clears those gates repeatedly, this surface remains
+rejected.
 
-### Rank 4 — Yield Yak Avalanche reinvests
+### Rejected — Yield Yak Avalanche reinvests
 
 Status: permissionless bounty verified; currently uneconomic and not safely
 wrappable.
@@ -2046,6 +2197,26 @@ not clear the threshold rather than universally reverting. A stale public call
 can therefore succeed without paying a useful reward. With no private
 Avalanche path verified, leave this lane disabled unless a future raw-EOA
 expected-value study shows enough surplus to cover both wins and stale races.
+
+### Other rejected cross-chain screens
+
+- Equilibria `earmarkRewards` on Arbitrum paid a permissionless token reward,
+  but the exact sampled call was only approximately break-even before ordering
+  cost and operational overhead.
+- Aura sidechain `earmarkRewards` on Base and Optimism paid a small BAL caller
+  incentive while consuming much larger cross-chain message value.
+- Aerodrome `Minter.updatePeriod` is permissionless but pays the caller
+  nothing.
+- Compound III `Comet.absorb` records non-redeemable liquidator points; the
+  economic follow-on needs principal and collateral trading.
+- Wombex historically documented a 0.5% BNB-chain `voteExecute` incentive,
+  but no current canonical deployment or recent execution was verified.
+- Synthetix documents keeper settlement rewards, but this pass did not
+  identify a current canonical Base deployment with recent externally
+  capturable settlements. Legacy Andromeda examples are not implementation
+  evidence.
+- Polygon's bounded active Beefy surface had no positive native-denominated
+  candidate.
 
 ### Research RPC and ordering notes
 
