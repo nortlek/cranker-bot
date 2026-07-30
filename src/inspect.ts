@@ -9,6 +9,8 @@ import {
 import { mainnet } from "viem/chains";
 
 import { factoryAbi, poolAbi, standingOrderAbi } from "./abi.js";
+import { nextBlockBaseFeePerGas } from "./base-fee.js";
+import { quoteCompetitiveFees } from "./bidding.js";
 import {
   CHAIN_ID,
   CREATED_ORDER_ADDRESS,
@@ -16,7 +18,10 @@ import {
   CREATION_TX,
 } from "./constants.js";
 import { loadConfig } from "./config.js";
-import { ROUND_STATE } from "./lifecycle.js";
+import {
+  estimatePoolBounty,
+  ROUND_STATE,
+} from "./lifecycle.js";
 
 function roundStateName(state: number): string {
   switch (state) {
@@ -112,6 +117,111 @@ async function main(): Promise<void> {
             args: [roundCount],
           }),
         ]);
+  let currentPullAnalysis: Record<string, unknown> | undefined;
+  if (
+    currentRound !== undefined &&
+    currentRound.state === ROUND_STATE.open &&
+    ticketsNeeded === 0n
+  ) {
+    const parent = await client.getBlock();
+    if (parent.baseFeePerGas === null) {
+      currentPullAnalysis = {
+        eligible: true,
+        error: "latest block did not include a base fee",
+      };
+    } else {
+      const targetBaseFeePerGas = nextBlockBaseFeePerGas({
+        parentBaseFeePerGas: parent.baseFeePerGas,
+        parentGasUsed: parent.gasUsed,
+        parentGasLimit: parent.gasLimit,
+      });
+      try {
+        const estimatedGas = await client.estimateContractGas({
+          account: config.simulationAccount,
+          address: pool,
+          abi: poolAbi,
+          functionName: "pull",
+          args: [roundCount],
+        });
+        const estimatedBounty = estimatePoolBounty({
+          gasUsed: estimatedGas,
+          baseFeePerGas: targetBaseFeePerGas,
+          terms: {
+            crankBountyCap: currentRound.crankBountyCap,
+            bountyTipWei: currentRound.bountyTipWei,
+          },
+          estimateBps: config.poolPullBountyEstimateBps,
+        });
+        const quote = quoteCompetitiveFees({
+          crankFee: estimatedBounty,
+          simulatedGasUsed: estimatedGas,
+          baseFeeAllowancePerGas: targetBaseFeePerGas,
+          minimumPriorityFeePerGas: config.poolMinPriorityFeePerGas,
+          builderBidBps: config.poolPullBuilderBidBps,
+          maxFeePerGasCap: config.maxFeePerGas,
+          minProfitWei: config.minProfitWei,
+        });
+        const zeroBaseFeeQuote = quoteCompetitiveFees({
+          crankFee: estimatedBounty,
+          simulatedGasUsed: estimatedGas,
+          baseFeeAllowancePerGas: 0n,
+          minimumPriorityFeePerGas:
+            config.poolMinPriorityFeePerGas,
+          builderBidBps: config.poolPullBuilderBidBps,
+          maxFeePerGasCap: config.maxFeePerGas,
+          minProfitWei: config.minProfitWei,
+        });
+        const profitableBaseFeeBudget =
+          estimatedBounty -
+          zeroBaseFeeQuote.builderPayment -
+          zeroBaseFeeQuote.requiredProfit;
+        const maximumProfitableBaseFeePerGas =
+          profitableBaseFeeBudget > 0n
+            ? profitableBaseFeeBudget / estimatedGas
+            : 0n;
+        currentPullAnalysis = {
+          eligible: true,
+          parentBlock: parent.number.toString(),
+          targetBlock: (parent.number + 1n).toString(),
+          targetBaseFeeGwei: formatGwei(targetBaseFeePerGas),
+          maximumProfitableBaseFeeGwei: formatGwei(
+            maximumProfitableBaseFeePerGas,
+          ),
+          estimatedGas: estimatedGas.toString(),
+          estimatedBountyEth: formatEther(estimatedBounty),
+          configuredBuilderBidBps:
+            config.poolPullBuilderBidBps.toString(),
+          quote: {
+            profitable: quote.profitable,
+            reason: quote.reason,
+            maxFeePerGasGwei: formatGwei(quote.maxFeePerGas),
+            maxPriorityFeePerGasGwei: formatGwei(
+              quote.maxPriorityFeePerGas,
+            ),
+            expectedGasCostEth: formatEther(
+              quote.expectedGasCost,
+            ),
+            expectedProfitEth: formatEther(
+              quote.expectedProfit,
+            ),
+            effectiveBuilderBidBps:
+              quote.effectiveBuilderBidBps.toString(),
+            cappedByFeeCap: quote.cappedByFeeCap,
+            cappedByProfit: quote.cappedByProfit,
+          },
+        };
+      } catch (error) {
+        currentPullAnalysis = {
+          eligible: true,
+          parentBlock: parent.number.toString(),
+          targetBlock: (parent.number + 1n).toString(),
+          targetBaseFeeGwei: formatGwei(targetBaseFeePerGas),
+          error:
+            error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  }
 
   const rows = await Promise.all(
     orders.map(async (order: Address) => {
@@ -169,6 +279,7 @@ async function main(): Promise<void> {
         currentRound: roundCount.toString(),
         ticketsNeeded: ticketsNeeded.toString(),
         pendingLifecycleRound: ethPendingRound.toString(),
+        currentPullAnalysis,
         currentRoundSnapshot:
           currentRound === undefined
             ? undefined
