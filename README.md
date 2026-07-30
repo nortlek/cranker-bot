@@ -133,14 +133,16 @@ target-block reservation prevents this asynchronous lane and the confirmed
 head planner from making conflicting signer decisions.
 
 Candidate gas estimates run with bounded concurrency and retain fee-ranked
-ordering. When `WS_URL` is configured, a `newHeads` subscription wakes the
-block loop immediately; the HTTP client then fetches and pins that exact block
-for authoritative planning. If an HTTP liveness assertion proves that the
-subscription missed a head, the process exits for a supervised restart rather
-than silently switching to a second head path. Because the WebSocket provider
-can publish a head slightly before the authoritative HTTP provider serves that
-exact block, the fixed-block read retries only the classified
-`BlockNotFound` condition for up to one second.
+ordering. When `WS_URL` is configured, a raw `newHeads` subscription supplies
+the complete planning header and wakes the block loop immediately; no duplicate
+HTTP block fetch gates the pass. Contract storage, balances, nonces, gas
+estimates, and simulations are not contained in the header, so those reads use
+the same WebSocket RPC and remain pinned to the subscribed block. If that node
+announces a header just before it exposes the corresponding execution state,
+the exact-state read retries only classified fresh-block publication errors for
+up to one second. HTTP is only a subscription-liveness watchdog: if it proves
+that the subscription missed a head, the process exits for a supervised
+restart rather than switching to a second planning path.
 
 `lastRoundBought` and the pool's state remain the authoritative replay
 protection. A new batch starts only when the keeper account has no existing
