@@ -16,6 +16,34 @@ import {
   CREATION_TX,
 } from "./constants.js";
 import { loadConfig } from "./config.js";
+import { ROUND_STATE } from "./lifecycle.js";
+
+function roundStateName(state: number): string {
+  switch (state) {
+    case ROUND_STATE.none:
+      return "none";
+    case ROUND_STATE.open:
+      return "open";
+    case ROUND_STATE.pulling:
+      return "pulling";
+    case ROUND_STATE.claimable:
+      return "claimable";
+    case ROUND_STATE.settled:
+      return "settled";
+    case ROUND_STATE.refunding:
+      return "refunding";
+    default:
+      return `unknown_${state}`;
+  }
+}
+
+function timestampIso(timestamp: bigint): string | undefined {
+  const maximumDateSeconds = 8_640_000_000n;
+  if (timestamp === 0n || timestamp > maximumDateSeconds) {
+    return undefined;
+  }
+  return new Date(Number(timestamp) * 1_000).toISOString();
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -67,15 +95,23 @@ async function main(): Promise<void> {
         functionName: "config",
       }),
     ]);
-  const ticketsNeeded =
+  const [ticketsNeeded, currentRound] =
     roundCount === 0n
-      ? 0n
-      : await client.readContract({
-          address: pool,
-          abi: poolAbi,
-          functionName: "ticketsNeeded",
-          args: [roundCount],
-        });
+      ? [0n, undefined]
+      : await Promise.all([
+          client.readContract({
+            address: pool,
+            abi: poolAbi,
+            functionName: "ticketsNeeded",
+            args: [roundCount],
+          }),
+          client.readContract({
+            address: pool,
+            abi: poolAbi,
+            functionName: "getRound",
+            args: [roundCount],
+          }),
+        ]);
 
   const rows = await Promise.all(
     orders.map(async (order: Address) => {
@@ -133,6 +169,41 @@ async function main(): Promise<void> {
         currentRound: roundCount.toString(),
         ticketsNeeded: ticketsNeeded.toString(),
         pendingLifecycleRound: ethPendingRound.toString(),
+        currentRoundSnapshot:
+          currentRound === undefined
+            ? undefined
+            : {
+                state: roundStateName(currentRound.state),
+                stateCode: currentRound.state,
+                outcome: currentRound.outcome,
+                fundingDeadline: currentRound.fundingDeadline.toString(),
+                fundingDeadlineIso: timestampIso(
+                  currentRound.fundingDeadline,
+                ),
+                ticketsSold: currentRound.ticketsSold,
+                maxTickets: currentRound.maxTickets,
+                escrowEth: formatEther(currentRound.escrow),
+                feeOwedEth: formatEther(currentRound.feeOwed),
+                refundPoolEth: formatEther(currentRound.refundPool),
+                ethPot: formatEther(currentRound.ethPot),
+                tokenPot: currentRound.tokenPot.toString(),
+                fwaRequestId: currentRound.fwaRequestId.toString(),
+                acquisitionSpentEth: formatEther(
+                  currentRound.acquisitionSpent,
+                ),
+                bidValueEth: formatEther(currentRound.bidValue),
+                listingId: currentRound.listingId.toString(),
+                allocatedAt: currentRound.allocatedAt.toString(),
+                allocatedAtIso: timestampIso(currentRound.allocatedAt),
+                pullingAt: currentRound.pullingAt.toString(),
+                pullingAtIso: timestampIso(currentRound.pullingAt),
+                fwaResolved: currentRound.fwaResolved,
+                feeClaimed: currentRound.feeClaimed,
+                nftHeld: currentRound.nftHeld,
+                rewardCredited: currentRound.rewardCredited,
+                creditTaken: currentRound.creditTaken.toString(),
+                rewardAmount: currentRound.rewardAmount.toString(),
+              },
         poolConfig: {
           ticketPriceEth: formatEther(poolConfig[0]),
           fundingDurationSeconds: poolConfig[1].toString(),
