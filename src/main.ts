@@ -24,6 +24,7 @@ import {
   selectMostProfitablePrefix,
 } from "./bidding.js";
 import {
+  isTransientCompetitionObservationError,
   observeWinningCrankBids,
   observeWinningPoolPullBids,
 } from "./competition.js";
@@ -78,7 +79,7 @@ import {
 import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
   estimatedJobReward,
-  isFreshBlockStateUnavailable,
+  isFreshBlockReadUnavailable,
   runKeeperPass,
   scheduleColdPlannerRefresh,
   type KeeperTransactionRequest,
@@ -464,7 +465,9 @@ async function main(): Promise<void> {
                   config.competitorTraceRetryDelayMs,
               },
             }),
-          shouldRetry: isFreshBlockStateUnavailable,
+          shouldRetry: (error) =>
+            isFreshBlockReadUnavailable(error) ||
+            isTransientCompetitionObservationError(error),
           maxAttempts: 11,
           retryDelayMs: 100,
         });
@@ -527,6 +530,7 @@ async function main(): Promise<void> {
             ),
           ),
           reason: errorMessage(error),
+          ...errorFingerprint(error),
         });
       }
     };
@@ -1352,7 +1356,9 @@ async function main(): Promise<void> {
                         : undefined,
                     },
                   ),
-                shouldRetry: isFreshBlockStateUnavailable,
+                shouldRetry: (error) =>
+                  isFreshBlockReadUnavailable(error) ||
+                  isTransientCompetitionObservationError(error),
                 maxAttempts: 11,
                 retryDelayMs: 100,
               });
@@ -1415,6 +1421,7 @@ async function main(): Promise<void> {
                 bidScope:
                   outcome.bidScope ?? "standing_order",
                 reason: errorMessage(error),
+                ...errorFingerprint(error),
               });
             }
           }

@@ -1148,12 +1148,27 @@ the observed profitable three-job case while pruning a suffix only when the
 re-priced bundle would actually retain less profit. Orders required to unlock a
 profitable pool `pull` remain protected by the full dependency floor.
 
+The last 24-hour telemetry audit found 16 decoded competitor bids but 16
+additional `competitor_bid_measurement_failed` events, all with the same
+top-level `Invalid parameters were provided to the RPC method` message. The
+observer abandoned each one immediately because this provider publication
+race lacked viem's typed RPC error chain. Read-only replay of failed target
+block `25641846` through the unchanged block/log/receipt/trace path recovered
+five competitor bids from `7,927` to `9,024 bps`. Competition observation now
+recognizes only the two exact untyped publication-race messages and retries
+the same authoritative read for the existing bounded one-second window.
+Malformed requests remain terminal. Persistent failures now include a
+secret-free error name, code, and cause chain so another provider defect can
+be distinguished without broadening the classifier.
+
 Acceptance:
 
 - unit tests cover both a genuinely negative suffix and the observed
   individually-negative-but-aggregate-beneficial case
 - cross-subsidized `orders -> pull` dependency floors remain intact
 - logging explains excluded marginal jobs
+- the next transient competitor observation logs a bounded availability wait
+  and a decoded bid instead of an immediate measurement failure
 
 ### P1 — Reconstruct full FWA ready-cycle competition
 

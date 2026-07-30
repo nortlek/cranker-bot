@@ -14,6 +14,7 @@ import {
   aggregatePoolCrankBounties,
   calculateWinningBidBps,
   competitionRegistryBlockNumber,
+  isTransientCompetitionObservationError,
 } from "../src/competition.js";
 
 const ORDER_A = getAddress(
@@ -43,6 +44,43 @@ describe("competitionRegistryBlockNumber", () => {
     expect(() => competitionRegistryBlockNumber(0n)).toThrow(
       "must have a parent block",
     );
+  });
+});
+
+describe("isTransientCompetitionObservationError", () => {
+  it("recognizes only the observed untyped publication-race messages", () => {
+    expect(
+      isTransientCompetitionObservationError(
+        new Error(
+          "Invalid parameters were provided to the RPC method.",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isTransientCompetitionObservationError(
+        new Error("Missing or invalid parameters."),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not retry malformed requests or unrelated failures", () => {
+    expect(
+      isTransientCompetitionObservationError(
+        new Error("invalid argument 0"),
+      ),
+    ).toBe(false);
+    expect(
+      isTransientCompetitionObservationError(
+        new Error(
+          "Invalid parameters were provided to the RPC method: invalid address",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isTransientCompetitionObservationError(
+        "Invalid parameters were provided to the RPC method.",
+      ),
+    ).toBe(false);
   });
 });
 

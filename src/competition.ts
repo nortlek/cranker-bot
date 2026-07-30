@@ -75,6 +75,25 @@ export interface CompetitionRegistryConfig {
   readonly vaultFactoryAddress: Address | undefined;
 }
 
+/**
+ * Some providers surface a just-published block's temporary state
+ * unavailability as an untyped top-level Error instead of viem's typed RPC
+ * error chain. Keep this deliberately exact so malformed requests and other
+ * permanent failures are never retried as publication lag.
+ */
+export function isTransientCompetitionObservationError(
+  error: unknown,
+): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.split("\n", 1)[0]?.trim() ?? "";
+  return (
+    /^Missing or invalid parameters\.?$/i.test(message) ||
+    /^Invalid parameters were provided to the RPC method\.?$/i.test(
+      message,
+    )
+  );
+}
+
 export function competitionRegistryBlockNumber(
   targetBlock: bigint,
 ): bigint {
