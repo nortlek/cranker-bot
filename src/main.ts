@@ -2370,6 +2370,7 @@ async function main(): Promise<void> {
                     reason: result.reason,
                     targetBlock:
                       result.targetBlock?.toString() ?? "",
+                    processHash: result.processHash ?? "",
                     syncHash: result.syncHash ?? "",
                     settleHash: result.settleHash ?? "",
                     realizedProfit:

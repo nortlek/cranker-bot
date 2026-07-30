@@ -23,10 +23,17 @@ import {
   submitBundleToRelays,
   successfulPrefixLength,
 } from "./flashbots.js";
-import { errorMessage, eth, gwei, log } from "./format.js";
+import {
+  errorFingerprint,
+  errorMessage,
+  eth,
+  gwei,
+  log,
+} from "./format.js";
 import type { TargetBoundReadResult } from "./heads.js";
 import {
   ACQUISITION_STATUS,
+  acquisitionProcessCount,
   estimatePoolBounty,
   ROUND_STATE,
 } from "./lifecycle.js";
@@ -42,18 +49,24 @@ export interface PendingFwaBackrunResult {
   readonly targetBlock?: bigint;
   readonly syncHash?: Hash;
   readonly settleHash?: Hash;
+  readonly processHash?: Hash;
   readonly realizedProfitWei?: bigint;
 }
 
 interface ExactPendingFwaLifecycle {
+  readonly signedProcess?: Hex;
   readonly signedSync: Hex;
   readonly signedSettle: Hex;
+  readonly processGasUsed?: bigint;
   readonly syncGasUsed: bigint;
   readonly settleGasUsed: bigint;
+  readonly processGasLimit?: bigint;
   readonly syncGasLimit: bigint;
   readonly settleGasLimit: bigint;
+  readonly processCount?: bigint;
   readonly grossReward: bigint;
   readonly maxFeePerGas: bigint;
+  readonly expectedGasPrice: bigint;
   readonly maxPriorityFeePerGas: bigint;
   readonly effectiveBuilderBidBps: bigint;
   readonly expectedProfit: bigint;
@@ -65,12 +78,14 @@ function abortRequested(signal: AbortSignal | undefined): boolean {
 
 function fulfillmentLifecycleBundle(
   prerequisites: readonly Hex[],
+  process: Hex | undefined,
   sync: Hex,
   settle: Hex,
 ): readonly Hex[] {
   if (
     prerequisites.length === 0 ||
     prerequisites.some((transaction) => transaction === "0x") ||
+    process === "0x" ||
     sync === "0x" ||
     settle === "0x"
   ) {
@@ -78,13 +93,25 @@ function fulfillmentLifecycleBundle(
       "pending FWA fulfillment lifecycle bundle cannot contain empty transactions",
     );
   }
-  return [...prerequisites, sync, settle];
+  return [
+    ...prerequisites,
+    ...(process === undefined ? [] : [process]),
+    sync,
+    settle,
+  ];
+}
+
+export interface PendingFwaLifecycleGas {
+  readonly process?: bigint;
+  readonly sync: bigint;
+  readonly settle: bigint;
 }
 
 export function pendingFwaLifecycleGasUsed(parameters: {
   readonly simulation: Parameters<typeof simulatedGasUsed>[0];
   readonly prerequisiteCount: number;
-}): readonly [bigint, bigint] {
+  readonly includesProcessor: boolean;
+}): PendingFwaLifecycleGas {
   if (
     !Number.isSafeInteger(parameters.prerequisiteCount) ||
     parameters.prerequisiteCount < 1
@@ -93,7 +120,9 @@ export function pendingFwaLifecycleGasUsed(parameters: {
       "pending FWA lifecycle requires at least one prerequisite",
     );
   }
-  const transactionCount = parameters.prerequisiteCount + 2;
+  const processOffset = parameters.includesProcessor ? 1 : 0;
+  const transactionCount =
+    parameters.prerequisiteCount + processOffset + 2;
   if (
     successfulPrefixLength(
       parameters.simulation,
@@ -108,14 +137,28 @@ export function pendingFwaLifecycleGasUsed(parameters: {
     parameters.simulation,
     transactionCount,
   );
-  const syncGas = gas[parameters.prerequisiteCount];
-  const settleGas = gas[parameters.prerequisiteCount + 1];
+  const processGas = parameters.includesProcessor
+    ? gas[parameters.prerequisiteCount]
+    : undefined;
+  const syncGas =
+    gas[parameters.prerequisiteCount + processOffset];
+  const settleGas =
+    gas[parameters.prerequisiteCount + processOffset + 1];
   if (syncGas === undefined || settleGas === undefined) {
     throw new Error(
       "pending FWA lifecycle simulation omitted keeper gas usage",
     );
   }
-  return [syncGas, settleGas];
+  if (parameters.includesProcessor && processGas === undefined) {
+    throw new Error(
+      "pending FWA lifecycle simulation omitted processor gas usage",
+    );
+  }
+  return {
+    ...(processGas === undefined ? {} : { process: processGas }),
+    sync: syncGas,
+    settle: settleGas,
+  };
 }
 
 function sameFeeQuote(
@@ -134,16 +177,103 @@ function sameFeeQuote(
   );
 }
 
+function simulationFeeEnvelope(
+  expectedGasPrice: bigint,
+  configuredMaximum: bigint,
+): bigint {
+  return expectedGasPrice < configuredMaximum
+    ? expectedGasPrice + 1n
+    : expectedGasPrice;
+}
+
+async function simulatePendingFwaBundle(parameters: {
+  readonly relay: FlashbotsRelay;
+  readonly transactions: readonly Hex[];
+  readonly targetBlock: bigint;
+}): Promise<
+  Awaited<ReturnType<FlashbotsRelay["callBundle"]>>
+> {
+  const startedAt = performance.now();
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    try {
+      const result = await parameters.relay.callBundle(
+        parameters.transactions,
+        parameters.targetBlock,
+      );
+      if (attempt > 1) {
+        log("info", "pending_fwa_simulation_availability_waited", {
+          targetBlock: parameters.targetBlock.toString(),
+          attempts: attempt,
+          waitMs: performance.now() - startedAt,
+          reason: "relay_future_base_fee_publication_skew",
+        });
+      }
+      return result;
+    } catch (error) {
+      if (
+        attempt === 6 ||
+        !/max fee per gas less than block base fee/i.test(
+          errorMessage(error),
+        )
+      ) {
+        throw error;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
+  }
+  throw new Error("unreachable pending FWA simulation state");
+}
+
 async function signLifecycle(parameters: {
   readonly signer: PrivateKeyAccount;
+  readonly fwa: Address;
   readonly pool: Address;
   readonly roundId: bigint;
   readonly nonce: number;
+  readonly processCount?: bigint;
+  readonly processGas?: bigint;
   readonly syncGas: bigint;
   readonly settleGas: bigint;
   readonly maxFeePerGas: bigint;
   readonly maxPriorityFeePerGas: bigint;
-}): Promise<readonly [Hex, Hex]> {
+}): Promise<{
+  readonly process?: Hex;
+  readonly sync: Hex;
+  readonly settle: Hex;
+}> {
+  const includesProcessor =
+    parameters.processCount !== undefined &&
+    parameters.processGas !== undefined;
+  if (
+    (parameters.processCount === undefined) !==
+    (parameters.processGas === undefined)
+  ) {
+    throw new Error(
+      "pending FWA processor count and gas must be provided together",
+    );
+  }
+  const process = includesProcessor
+    ? await parameters.signer.signTransaction({
+        chainId: 1,
+        type: "eip1559",
+        to: parameters.fwa,
+        data: encodeFunctionData({
+          abi: fwaAbi,
+          functionName: "processAcquisitions",
+          args: [parameters.processCount!],
+        }),
+        gas: parameters.processGas!,
+        maxFeePerGas: parameters.maxFeePerGas,
+        maxPriorityFeePerGas:
+          parameters.maxPriorityFeePerGas,
+        nonce: parameters.nonce,
+        value: 0n,
+      })
+    : undefined;
+  const syncNonce =
+    parameters.nonce + (includesProcessor ? 1 : 0);
   const [sync, settle] = await Promise.all([
     parameters.signer.signTransaction({
       chainId: 1,
@@ -157,7 +287,7 @@ async function signLifecycle(parameters: {
       gas: parameters.syncGas,
       maxFeePerGas: parameters.maxFeePerGas,
       maxPriorityFeePerGas: parameters.maxPriorityFeePerGas,
-      nonce: parameters.nonce,
+      nonce: syncNonce,
       value: 0n,
     }),
     parameters.signer.signTransaction({
@@ -172,19 +302,25 @@ async function signLifecycle(parameters: {
       gas: parameters.settleGas,
       maxFeePerGas: parameters.maxFeePerGas,
       maxPriorityFeePerGas: parameters.maxPriorityFeePerGas,
-      nonce: parameters.nonce + 1,
+      nonce: syncNonce + 1,
       value: 0n,
     }),
   ]);
-  return [sync, settle];
+  return {
+    ...(process === undefined ? {} : { process }),
+    sync,
+    settle,
+  };
 }
 
 async function exactPricedLifecycle(parameters: {
   readonly relay: FlashbotsRelay;
   readonly signer: PrivateKeyAccount;
   readonly prerequisite: PendingFwaBundlePrerequisite;
+  readonly fwa: Address;
   readonly pool: Address;
   readonly roundId: bigint;
+  readonly processCount?: bigint;
   readonly targetBlock: bigint;
   readonly nonce: number;
   readonly accountBalance: bigint;
@@ -195,41 +331,63 @@ async function exactPricedLifecycle(parameters: {
   readonly config: KeeperConfig;
 }): Promise<ExactPendingFwaLifecycle | undefined> {
   if (parameters.baseFeeAllowancePerGas <= 0n) return undefined;
+  const includesProcessor =
+    parameters.processCount !== undefined;
   const preliminaryReservation =
-    (parameters.config.poolSyncGasLimit +
+    ((includesProcessor
+      ? parameters.config.fwaProcessGasLimit
+      : 0n) +
+      parameters.config.poolSyncGasLimit +
       parameters.config.poolSettleGasLimit) *
-    parameters.baseFeeAllowancePerGas;
+    simulationFeeEnvelope(
+      parameters.baseFeeAllowancePerGas,
+      parameters.config.maxFeePerGas,
+    );
   if (preliminaryReservation > parameters.accountBalance) {
     return undefined;
   }
-  const [preliminarySync, preliminarySettle] =
-    await signLifecycle({
-      signer: parameters.signer,
-      pool: parameters.pool,
-      roundId: parameters.roundId,
-      nonce: parameters.nonce,
-      syncGas: parameters.config.poolSyncGasLimit,
-      settleGas: parameters.config.poolSettleGasLimit,
-      maxFeePerGas: parameters.baseFeeAllowancePerGas,
-      maxPriorityFeePerGas: 0n,
-    });
+  const preliminary = await signLifecycle({
+    signer: parameters.signer,
+    fwa: parameters.fwa,
+    pool: parameters.pool,
+    roundId: parameters.roundId,
+    nonce: parameters.nonce,
+    ...(parameters.processCount === undefined
+      ? {}
+      : {
+          processCount: parameters.processCount,
+          processGas: parameters.config.fwaProcessGasLimit,
+        }),
+    syncGas: parameters.config.poolSyncGasLimit,
+    settleGas: parameters.config.poolSettleGasLimit,
+    maxFeePerGas: simulationFeeEnvelope(
+      parameters.baseFeeAllowancePerGas,
+      parameters.config.maxFeePerGas,
+    ),
+    maxPriorityFeePerGas: 0n,
+  });
   const preliminarySimulation =
-    await parameters.relay.callBundle(
-      fulfillmentLifecycleBundle(
+    await simulatePendingFwaBundle({
+      relay: parameters.relay,
+      transactions: fulfillmentLifecycleBundle(
         parameters.prerequisite.prerequisiteTransactions.map(
           (transaction) => transaction.rawTransaction,
         ),
-        preliminarySync,
-        preliminarySettle,
+        preliminary.process,
+        preliminary.sync,
+        preliminary.settle,
       ),
-      parameters.targetBlock,
-    );
-  let [syncGasUsed, settleGasUsed] =
-    pendingFwaLifecycleGasUsed({
-      simulation: preliminarySimulation,
-      prerequisiteCount:
-        parameters.prerequisite.prerequisiteTransactions.length,
+      targetBlock: parameters.targetBlock,
     });
+  let preliminaryGas = pendingFwaLifecycleGasUsed({
+    simulation: preliminarySimulation,
+    prerequisiteCount:
+      parameters.prerequisite.prerequisiteTransactions.length,
+    includesProcessor,
+  });
+  let processGasUsed = preliminaryGas.process;
+  let syncGasUsed = preliminaryGas.sync;
+  let settleGasUsed = preliminaryGas.settle;
   let grossReward =
     estimatePoolBounty({
       gasUsed: syncGasUsed,
@@ -251,7 +409,8 @@ async function exactPricedLifecycle(parameters: {
     });
   let quote = quoteCompetitiveFees({
     crankFee: grossReward,
-    simulatedGasUsed: syncGasUsed + settleGasUsed,
+    simulatedGasUsed:
+      (processGasUsed ?? 0n) + syncGasUsed + settleGasUsed,
     baseFeeAllowancePerGas: parameters.baseFeeAllowancePerGas,
     minimumPriorityFeePerGas:
       parameters.config.poolMinPriorityFeePerGas,
@@ -262,6 +421,20 @@ async function exactPricedLifecycle(parameters: {
   if (!quote.profitable) return undefined;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const bufferedProcessGasLimit =
+      processGasUsed === undefined
+        ? undefined
+        : bufferedGas(
+            processGasUsed,
+            parameters.config.gasLimitMultiplierBps,
+          );
+    const processGasLimit =
+      bufferedProcessGasLimit === undefined
+        ? undefined
+        : bufferedProcessGasLimit <
+            parameters.config.fwaProcessGasLimit
+          ? bufferedProcessGasLimit
+          : parameters.config.fwaProcessGasLimit;
     const syncGasLimit = bufferedGas(
       syncGasUsed,
       parameters.config.gasLimitMultiplierBps,
@@ -270,42 +443,60 @@ async function exactPricedLifecycle(parameters: {
       settleGasUsed,
       parameters.config.gasLimitMultiplierBps,
     );
+    const signedMaxFeePerGas = simulationFeeEnvelope(
+      quote.maxFeePerGas,
+      parameters.config.maxFeePerGas,
+    );
     if (
-      (syncGasLimit + settleGasLimit) *
-        quote.maxFeePerGas >
+      ((processGasLimit ?? 0n) +
+        syncGasLimit +
+        settleGasLimit) *
+        signedMaxFeePerGas >
       parameters.accountBalance
     ) {
       return undefined;
     }
-    const [signedSync, signedSettle] =
-      await signLifecycle({
-        signer: parameters.signer,
-        pool: parameters.pool,
-        roundId: parameters.roundId,
-        nonce: parameters.nonce,
-        syncGas: syncGasLimit,
-        settleGas: settleGasLimit,
-        maxFeePerGas: quote.maxFeePerGas,
-        maxPriorityFeePerGas:
-          quote.maxPriorityFeePerGas,
-      });
+    const signed = await signLifecycle({
+      signer: parameters.signer,
+      fwa: parameters.fwa,
+      pool: parameters.pool,
+      roundId: parameters.roundId,
+      nonce: parameters.nonce,
+      ...(parameters.processCount === undefined ||
+      processGasLimit === undefined
+        ? {}
+        : {
+            processCount: parameters.processCount,
+            processGas: processGasLimit,
+          }),
+      syncGas: syncGasLimit,
+      settleGas: settleGasLimit,
+      maxFeePerGas: signedMaxFeePerGas,
+      maxPriorityFeePerGas:
+        quote.maxPriorityFeePerGas,
+    });
     const finalSimulation =
-      await parameters.relay.callBundle(
-        fulfillmentLifecycleBundle(
+      await simulatePendingFwaBundle({
+        relay: parameters.relay,
+        transactions: fulfillmentLifecycleBundle(
           parameters.prerequisite.prerequisiteTransactions.map(
             (transaction) => transaction.rawTransaction,
           ),
-          signedSync,
-          signedSettle,
+          signed.process,
+          signed.sync,
+          signed.settle,
         ),
-        parameters.targetBlock,
-      );
-    const [finalSyncGas, finalSettleGas] =
-      pendingFwaLifecycleGasUsed({
-        simulation: finalSimulation,
-        prerequisiteCount:
-          parameters.prerequisite.prerequisiteTransactions.length,
+        targetBlock: parameters.targetBlock,
       });
+    const finalGas = pendingFwaLifecycleGasUsed({
+      simulation: finalSimulation,
+      prerequisiteCount:
+        parameters.prerequisite.prerequisiteTransactions.length,
+      includesProcessor,
+    });
+    const finalProcessGas = finalGas.process;
+    const finalSyncGas = finalGas.sync;
+    const finalSettleGas = finalGas.settle;
     const finalGrossReward =
       estimatePoolBounty({
         gasUsed: finalSyncGas,
@@ -325,7 +516,10 @@ async function exactPricedLifecycle(parameters: {
         },
         estimateBps: parameters.config.poolBountyEstimateBps,
       });
-    const totalGasUsed = finalSyncGas + finalSettleGas;
+    const totalGasUsed =
+      (finalProcessGas ?? 0n) +
+      finalSyncGas +
+      finalSettleGas;
     const repriced = quoteCompetitiveFees({
       crankFee: finalGrossReward,
       simulatedGasUsed: totalGasUsed,
@@ -349,14 +543,30 @@ async function exactPricedLifecycle(parameters: {
         return undefined;
       }
       return {
-        signedSync,
-        signedSettle,
+        ...(signed.process === undefined
+          ? {}
+          : { signedProcess: signed.process }),
+        signedSync: signed.sync,
+        signedSettle: signed.settle,
+        ...(finalProcessGas === undefined
+          ? {}
+          : { processGasUsed: finalProcessGas }),
         syncGasUsed: finalSyncGas,
         settleGasUsed: finalSettleGas,
+        ...(processGasLimit === undefined
+          ? {}
+          : { processGasLimit }),
         syncGasLimit,
         settleGasLimit,
+        ...(parameters.processCount === undefined
+          ? {}
+          : { processCount: parameters.processCount }),
         grossReward: finalGrossReward,
-        maxFeePerGas: repriced.maxFeePerGas,
+        maxFeePerGas: simulationFeeEnvelope(
+          repriced.maxFeePerGas,
+          parameters.config.maxFeePerGas,
+        ),
+        expectedGasPrice: repriced.maxFeePerGas,
         maxPriorityFeePerGas:
           repriced.maxPriorityFeePerGas,
         effectiveBuilderBidBps:
@@ -365,6 +575,7 @@ async function exactPricedLifecycle(parameters: {
       };
     }
     quote = repriced;
+    processGasUsed = finalProcessGas;
     syncGasUsed = finalSyncGas;
     settleGasUsed = finalSettleGas;
     grossReward = finalGrossReward;
@@ -409,6 +620,57 @@ function decodedPoolBounty(parameters: {
     }
   }
   return total;
+}
+
+async function queuedFwaProcessCount(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly fwa: Address;
+  readonly requestId: bigint;
+  readonly blockNumber: bigint;
+  readonly maximumCount: number;
+}): Promise<bigint | undefined> {
+  const [nextSequence, lastIssuedSequence] =
+    await Promise.all([
+      parameters.client.readContract({
+        address: parameters.fwa,
+        abi: fwaAbi,
+        functionName: "nextSequenceToProcess",
+        blockNumber: parameters.blockNumber,
+      }),
+      parameters.client.readContract({
+        address: parameters.fwa,
+        abi: fwaAbi,
+        functionName: "lastIssuedSequence",
+        blockNumber: parameters.blockNumber,
+      }),
+    ]);
+  const available =
+    lastIssuedSequence < nextSequence
+      ? 0n
+      : lastIssuedSequence - nextSequence + 1n;
+  const bounded =
+    available < BigInt(parameters.maximumCount)
+      ? available
+      : BigInt(parameters.maximumCount);
+  const sequences = Array.from(
+    { length: Number(bounded) },
+    (_, index) => nextSequence + BigInt(index),
+  );
+  if (sequences.length === 0) return undefined;
+  const requestIds = await parameters.client.multicall({
+    allowFailure: false,
+    blockNumber: parameters.blockNumber,
+    contracts: sequences.map((sequence) => ({
+      address: parameters.fwa,
+      abi: fwaAbi,
+      functionName: "requestIdAtSequence" as const,
+      args: [sequence] as const,
+    })),
+  });
+  return acquisitionProcessCount(
+    parameters.requestId,
+    requestIds,
+  );
 }
 
 async function getReceiptOrUndefined(
@@ -596,31 +858,90 @@ export async function executePendingFwaBackrun(parameters: {
         parentGasUsed: parent.gasUsed,
         parentGasLimit: parent.gasLimit,
       });
-    const exact = await exactPricedLifecycle({
-      relay: parameters.relays[0]!,
-      signer: parameters.signer,
-      prerequisite: parameters.prerequisite,
-      pool: parameters.pool,
-      roundId,
-      targetBlock,
-      nonce: latestNonce,
-      accountBalance,
-      baseFeeAllowancePerGas,
-      crankBountyCap: round.crankBountyCap,
-      bountyTipWei: round.bountyTipWei,
-      builderBidBps: parameters.builderBidBps,
-      config: parameters.config,
+    const processCount = await queuedFwaProcessCount({
+      client: parameters.publicClient,
+      fwa: parameters.fwa,
+      requestId: parameters.prerequisite.requestId,
+      blockNumber: currentHead,
+      maximumCount: parameters.config.fwaProcessMaxCount,
     }).catch((error: unknown) => {
-      log("debug", "pending_fwa_backrun_simulation_failed", {
+      log("debug", "pending_fwa_process_count_unavailable", {
         prerequisiteHash: parameters.prerequisite.hash,
         requestId:
           parameters.prerequisite.requestId.toString(),
-        round: roundId.toString(),
         targetBlock: targetBlock.toString(),
-        reason: errorMessage(error),
+        ...errorFingerprint(error),
       });
       return undefined;
     });
+    const variants = [
+      { name: "direct" as const },
+      ...(processCount === undefined
+        ? []
+        : [
+            {
+              name: "processor" as const,
+              processCount,
+            },
+          ]),
+    ];
+    const exactCandidates = (
+      await Promise.all(
+        variants.map(async (variant) =>
+          exactPricedLifecycle({
+            relay: parameters.relays[0]!,
+            signer: parameters.signer,
+            prerequisite: parameters.prerequisite,
+            fwa: parameters.fwa,
+            pool: parameters.pool,
+            roundId,
+            ...(variant.name === "processor"
+              ? { processCount: variant.processCount }
+              : {}),
+            targetBlock,
+            nonce: latestNonce,
+            accountBalance,
+            baseFeeAllowancePerGas,
+            crankBountyCap: round.crankBountyCap,
+            bountyTipWei: round.bountyTipWei,
+            builderBidBps: parameters.builderBidBps,
+            config: parameters.config,
+          }).catch((error: unknown) => {
+            log(
+              "debug",
+              "pending_fwa_backrun_simulation_failed",
+              {
+                prerequisiteHash:
+                  parameters.prerequisite.hash,
+                requestId:
+                  parameters.prerequisite.requestId.toString(),
+                round: roundId.toString(),
+                targetBlock: targetBlock.toString(),
+                variant: variant.name,
+                ...errorFingerprint(error),
+              },
+            );
+            return undefined;
+          }),
+        ),
+      )
+    ).filter(
+      (
+        candidate,
+      ): candidate is ExactPendingFwaLifecycle =>
+        candidate !== undefined,
+    );
+    exactCandidates.sort((left, right) =>
+      left.expectedProfit === right.expectedProfit
+        ? Number(
+            (left.processCount === undefined ? 0 : 1) -
+              (right.processCount === undefined ? 0 : 1),
+          )
+        : left.expectedProfit > right.expectedProfit
+          ? -1
+          : 1,
+    );
+    const exact = exactCandidates[0];
     if (abortRequested(parameters.signal)) {
       return {
         status: "skipped",
@@ -641,6 +962,10 @@ export async function executePendingFwaBackrun(parameters: {
       round: roundId.toString(),
       prerequisiteCount:
         parameters.prerequisite.prerequisiteTransactions.length,
+      processorIncluded: exact.processCount !== undefined,
+      processCount: exact.processCount?.toString() ?? "",
+      processGasUsed:
+        exact.processGasUsed?.toString() ?? "",
       syncGasUsed: exact.syncGasUsed.toString(),
       settleGasUsed: exact.settleGasUsed.toString(),
       grossReward: eth(exact.grossReward),
@@ -648,6 +973,7 @@ export async function executePendingFwaBackrun(parameters: {
       effectiveBuilderBidBps:
         exact.effectiveBuilderBidBps.toString(),
       maxFeePerGas: gwei(exact.maxFeePerGas),
+      expectedGasPrice: gwei(exact.expectedGasPrice),
       maxPriorityFeePerGas: gwei(
         exact.maxPriorityFeePerGas,
       ),
@@ -715,7 +1041,9 @@ export async function executePendingFwaBackrun(parameters: {
       finalBalance,
     ] = finalGate.value;
     const finalRequiredBalance =
-      (exact.syncGasLimit + exact.settleGasLimit) *
+      ((exact.processGasLimit ?? 0n) +
+        exact.syncGasLimit +
+        exact.settleGasLimit) *
       exact.maxFeePerGas;
     if (
       abortRequested(parameters.signal) ||
@@ -762,6 +1090,7 @@ export async function executePendingFwaBackrun(parameters: {
       parameters.prerequisite.prerequisiteTransactions.map(
         (transaction) => transaction.rawTransaction,
       ),
+      exact.signedProcess,
       exact.signedSync,
       exact.signedSettle,
     );
@@ -772,12 +1101,53 @@ export async function executePendingFwaBackrun(parameters: {
       parameters.builders,
     );
     retainReservation = true;
+    const processorIncluded =
+      exact.signedProcess !== undefined;
+    const syncNonce =
+      latestNonce + (processorIncluded ? 1 : 0);
+    const processHash =
+      exact.signedProcess === undefined
+        ? undefined
+        : keccak256(exact.signedProcess);
     const syncHash = keccak256(exact.signedSync);
     const settleHash = keccak256(exact.signedSettle);
+    const keeperMembers: {
+      readonly kind: "fwa_process" | "pool_sync" | "pool_settle";
+      readonly label: string;
+      readonly hash: Hash;
+      readonly nonce: number;
+    }[] = [
+      ...(processHash === undefined
+        ? []
+        : [
+            {
+              kind: "fwa_process" as const,
+              label: `pending_fwa_process:${exact.processCount}`,
+              hash: processHash,
+              nonce: latestNonce,
+            },
+          ]),
+      {
+        kind: "pool_sync",
+        label: `pending_fwa_sync:${roundId}`,
+        hash: syncHash,
+        nonce: syncNonce,
+      },
+      {
+        kind: "pool_settle",
+        label: `pending_fwa_settle:${roundId}`,
+        hash: settleHash,
+        nonce: syncNonce + 1,
+      },
+    ];
+    const keeperKinds = keeperMembers.map(
+      (member) => member.kind,
+    );
     log("info", "pending_fwa_backrun_submitted", {
       prerequisiteHash: parameters.prerequisite.hash,
       requestId: parameters.prerequisite.requestId.toString(),
       round: roundId.toString(),
+      processHash: processHash ?? "",
       syncHash,
       settleHash,
       nonce: latestNonce,
@@ -789,15 +1159,16 @@ export async function executePendingFwaBackrun(parameters: {
       transactionCount: transactions.length,
       prerequisiteCount:
         parameters.prerequisite.prerequisiteTransactions.length,
-      keeperTransactionCount: 2,
+      keeperTransactionCount: keeperMembers.length,
+      processCount: exact.processCount?.toString() ?? "",
       effectiveBuilderBidBps:
         exact.effectiveBuilderBidBps.toString(),
     });
     log("info", "keeper_batch_submitted", {
-      kinds: JSON.stringify(["pool_sync", "pool_settle"]),
-      transactionCount: 2,
+      kinds: JSON.stringify(keeperKinds),
+      transactionCount: keeperMembers.length,
       firstNonce: latestNonce,
-      lastNonce: latestNonce + 1,
+      lastNonce: latestNonce + keeperMembers.length - 1,
       targetBlock: targetBlock.toString(),
       effectiveBuilderBidBps:
         exact.effectiveBuilderBidBps.toString(),
@@ -806,29 +1177,22 @@ export async function executePendingFwaBackrun(parameters: {
       ).size,
       prerequisiteHash: parameters.prerequisite.hash,
     });
-    for (const [kind, label, hash, nonce] of [
-      [
-        "pool_sync",
-        `pending_fwa_sync:${roundId}`,
-        syncHash,
-        latestNonce,
-      ],
-      [
-        "pool_settle",
-        `pending_fwa_settle:${roundId}`,
-        settleHash,
-        latestNonce + 1,
-      ],
-    ] as const) {
+    for (
+      let index = 0;
+      index < keeperMembers.length;
+      index += 1
+    ) {
+      const member = keeperMembers[index]!;
       log("info", "keeper_transaction_sent", {
-        kind,
-        label,
-        hash,
-        nonce,
+        kind: member.kind,
+        label: member.label,
+        hash: member.hash,
+        nonce: member.nonce,
         mode: "flashbots",
         targetBlock: targetBlock.toString(),
         prerequisiteHash: parameters.prerequisite.hash,
-        batchTransactionCount: 2,
+        batchTransactionCount: keeperMembers.length,
+        batchPosition: index + 1,
       });
     }
 
@@ -844,65 +1208,54 @@ export async function executePendingFwaBackrun(parameters: {
         status: "expired",
         reason: "target_block_unobserved",
         targetBlock,
+        ...(processHash === undefined ? {} : { processHash }),
         syncHash,
         settleHash,
       };
     }
-    const [syncReceipt, settleReceipt] = await Promise.all([
-      getReceiptOrUndefined(parameters.publicClient, syncHash),
-      getReceiptOrUndefined(parameters.publicClient, settleHash),
-    ]);
+    const receipts = await Promise.all(
+      keeperMembers.map((member) =>
+        getReceiptOrUndefined(
+          parameters.publicClient,
+          member.hash,
+        ),
+      ),
+    );
     let confirmedTransactions = 0;
     let revertedTransactions = 0;
     let expiredTransactions = 0;
     let totalReward = 0n;
     let totalGasCost = 0n;
-    for (const [
-      kind,
-      label,
-      hash,
-      nonce,
-      batchPosition,
-      receipt,
-    ] of [
-      [
-        "pool_sync",
-        `pending_fwa_sync:${roundId}`,
-        syncHash,
-        latestNonce,
-        1,
-        syncReceipt,
-      ],
-      [
-        "pool_settle",
-        `pending_fwa_settle:${roundId}`,
-        settleHash,
-        latestNonce + 1,
-        2,
-        settleReceipt,
-      ],
-    ] as const) {
+    for (
+      let index = 0;
+      index < keeperMembers.length;
+      index += 1
+    ) {
+      const member = keeperMembers[index]!;
+      const receipt = receipts[index];
+      const batchPosition = index + 1;
       if (
         receipt === undefined ||
         receipt.blockNumber !== targetBlock
       ) {
         expiredTransactions += 1;
         log("warn", "keeper_transaction_expired", {
-          kind,
-          label,
-          hash,
-          nonce,
+          kind: member.kind,
+          label: member.label,
+          hash: member.hash,
+          nonce: member.nonce,
           targetBlock: targetBlock.toString(),
           prerequisiteHash: parameters.prerequisite.hash,
           reason: "private lifecycle transaction was not included",
-          batchTransactionCount: 2,
+          batchTransactionCount: keeperMembers.length,
           batchPosition,
           batchTargetBlock: targetBlock.toString(),
         });
         continue;
       }
       const paidReward =
-        receipt.status === "success"
+        receipt.status === "success" &&
+        member.kind !== "fwa_process"
           ? decodedPoolBounty({
               pool: parameters.pool,
               caller: parameters.signer.address,
@@ -920,10 +1273,10 @@ export async function executePendingFwaBackrun(parameters: {
         revertedTransactions += 1;
       }
       log("info", "keeper_receipt", {
-        kind,
-        label,
-        hash,
-        nonce,
+        kind: member.kind,
+        label: member.label,
+        hash: member.hash,
+        nonce: member.nonce,
         block: receipt.blockNumber.toString(),
         status: receipt.status,
         gasUsed: receipt.gasUsed.toString(),
@@ -933,7 +1286,7 @@ export async function executePendingFwaBackrun(parameters: {
         prerequisiteHash: parameters.prerequisite.hash,
         expectedBlock: targetBlock.toString(),
         targetBlockMatched: true,
-        batchTransactionCount: 2,
+        batchTransactionCount: keeperMembers.length,
         batchPosition,
         batchTargetBlock: targetBlock.toString(),
       });
@@ -941,14 +1294,14 @@ export async function executePendingFwaBackrun(parameters: {
     const realizedProfit = totalReward - totalGasCost;
     log("info", "keeper_batch_result", {
       kind: "pending_fwa_fulfillment_backrun",
-      kinds: JSON.stringify(["pool_sync", "pool_settle"]),
+      kinds: JSON.stringify(keeperKinds),
       round: roundId.toString(),
       block:
         confirmedTransactions + revertedTransactions > 0
           ? targetBlock.toString()
           : "",
       targetBlock: targetBlock.toString(),
-      transactionCount: 2,
+      transactionCount: keeperMembers.length,
       includedCount:
         confirmedTransactions + revertedTransactions,
       confirmedTransactions,
@@ -962,7 +1315,7 @@ export async function executePendingFwaBackrun(parameters: {
         exact.effectiveBuilderBidBps.toString(),
     });
     if (
-      confirmedTransactions === 2 &&
+      confirmedTransactions === keeperMembers.length &&
       revertedTransactions === 0 &&
       expiredTransactions === 0
     ) {
@@ -970,6 +1323,7 @@ export async function executePendingFwaBackrun(parameters: {
         status: "confirmed",
         reason: "confirmed",
         targetBlock,
+        ...(processHash === undefined ? {} : { processHash }),
         syncHash,
         settleHash,
         realizedProfitWei: realizedProfit,
@@ -978,12 +1332,13 @@ export async function executePendingFwaBackrun(parameters: {
     return {
       status: "expired",
       reason:
-        expiredTransactions === 2
+        expiredTransactions === keeperMembers.length
           ? "lifecycle_not_included"
           : revertedTransactions > 0
             ? "lifecycle_reverted"
             : "lifecycle_partial",
       targetBlock,
+      ...(processHash === undefined ? {} : { processHash }),
       syncHash,
       settleHash,
       realizedProfitWei: realizedProfit,
