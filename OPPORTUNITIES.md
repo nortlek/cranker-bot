@@ -924,6 +924,29 @@ attempts, and `0.03 ms` for `head_and_fees`, versus roughly `170–500 ms` in th
 preceding window. PostgreSQL showed exactly one open run and one granted signer
 lock; nonce remained `532/532`.
 
+The conservative `parentBaseFee + 12.5%` allowance was safe but unnecessarily
+priced every immediate private target as if its parent were maximally
+congested. The complete subscribed parent header contains `gasUsed` and
+`gasLimit`, so the child's base fee is deterministic under EIP-1559. Private
+planning, pending-funding backruns, and pending pool-pull bounty modeling now
+use that exact next-block value. The public-submission path is unchanged, and a
+private pass without the complete parent gas fields fails closed. Exact bundle
+simulation, profitability floors, the `5 gwei` fee ceiling, builder-bid
+ceilings, and receipt accounting are unchanged.
+
+A replay of 128 consecutive recent parent/child pairs produced zero formula
+mismatches. The old allowance overstated the actual child fee by `11.4831%` at
+the median, `15.0728%` at p90, and as much as `20.3577%`. This is live in
+Railway deployment `92c5cab6-21e2-4f4d-9585-8b64bcd2d7c5` from exact source
+`2af634473ca67c3c4a580f980be1d5d74f4d72c8`; all 260 tests, typecheck, build,
+and diff checks passed. The first active subscribed pass at parent block
+`25646657` used base fee `5,171,672,604 wei`, gas used `16,579,805` of
+`60,000,000`, and priced block `25646658` at exactly `4,882,485,709 wei`.
+The next subscribed header confirmed that value, `16.0816%` below the old
+`5,818,131,679 wei` allowance. The replacement waited for the incumbent signer
+lease, then production converged to one open keeper run and one granted
+advisory lock with no waiting lock.
+
 The header-read fix exposed a second phase of the same publication race. At
 blocks `25639595` and `25639659`, the exact header became available after five
 and six attempts, but the provider briefly returned RPC `-32602` with the
