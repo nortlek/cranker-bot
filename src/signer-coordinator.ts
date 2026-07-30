@@ -106,19 +106,38 @@ export class PendingFundingExecutionController {
   #active: Promise<void> | undefined;
   #abortController: AbortController | undefined;
   #stopping = false;
+  #enabled: boolean;
+
+  constructor(initiallyEnabled = true) {
+    this.#enabled = initiallyEnabled;
+  }
 
   get active(): boolean {
     return this.#active !== undefined;
+  }
+
+  get enabled(): boolean {
+    return this.#enabled;
   }
 
   get stopping(): boolean {
     return this.#stopping;
   }
 
+  activate(): boolean {
+    if (this.#stopping) return false;
+    this.#enabled = true;
+    return true;
+  }
+
   start(
     task: (signal: AbortSignal) => Promise<void>,
   ): Promise<void> | undefined {
-    if (this.#stopping || this.#active !== undefined) {
+    if (
+      !this.#enabled ||
+      this.#stopping ||
+      this.#active !== undefined
+    ) {
       return undefined;
     }
     const abortController = new AbortController();
@@ -137,6 +156,7 @@ export class PendingFundingExecutionController {
 
   async stopAndDrain(): Promise<void> {
     this.#stopping = true;
+    this.#enabled = false;
     this.#abortController?.abort();
     await this.#active;
   }

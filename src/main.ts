@@ -176,6 +176,7 @@ async function closeRuntimeResources(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const startupStartedAt = performance.now();
   const config = loadConfig();
   const sourceRevision =
     process.env.DEPLOY_GIT_SHA ??
@@ -214,17 +215,6 @@ async function main(): Promise<void> {
     throw new Error(
       "DATABASE_URL is required for a fail-closed live signer lease",
     );
-  }
-  if (!config.dryRun) {
-    signerLease = await acquireSignerLease({
-      connectionString: config.databaseUrl!,
-      onWaiting: () => {
-        log("warn", "signer_lease_waiting");
-      },
-    });
-    log("info", "signer_lease_acquired", {
-      waitedMs: signerLease.waitedMs,
-    });
   }
   if (
     config.adaptiveBidding &&
@@ -280,6 +270,9 @@ async function main(): Promise<void> {
   let latestSubscribedHead: KeeperObservedHead | undefined;
   let stopping = false;
   let requestStop: (() => void) | undefined;
+  let activatePendingFundingExecution:
+    | (() => void)
+    | undefined;
   const stopRequested = new Promise<void>((resolve) => {
     requestStop = resolve;
   });
@@ -1569,7 +1562,7 @@ async function main(): Promise<void> {
         const replacementTracker =
           new PendingFundingReplacementTracker();
         const executionController =
-          new PendingFundingExecutionController();
+          new PendingFundingExecutionController(false);
         let candidateResolutionQueue = Promise.resolve();
         let pendingCandidateResolutions = 0;
         let queuedCandidate:
@@ -1578,6 +1571,7 @@ async function main(): Promise<void> {
 
         const executeQueuedCandidate = (): void => {
           if (
+            !executionController.enabled ||
             executionController.active ||
             executionController.stopping
           ) {
@@ -1733,6 +1727,10 @@ async function main(): Promise<void> {
           void execution?.finally(() => {
             executeQueuedCandidate();
           });
+        };
+        activatePendingFundingExecution = () => {
+          if (!executionController.activate()) return;
+          executeQueuedCandidate();
         };
 
         const subscription =
@@ -2004,6 +2002,27 @@ async function main(): Promise<void> {
     }
   } else if (!config.dryRun) {
     throw new Error("PRIVATE_KEY is required when DRY_RUN=false");
+  }
+
+  if (!config.dryRun) {
+    log("info", "signer_initialization_ready", {
+      durationMs: performance.now() - startupStartedAt,
+      pendingFundingReady:
+        !pendingFundingExecutionEnabled(config) ||
+        activatePendingFundingExecution !== undefined,
+    });
+    signerLease = await acquireSignerLease({
+      connectionString: config.databaseUrl!,
+      onWaiting: () => {
+        log("warn", "signer_lease_waiting");
+      },
+    });
+    log("info", "signer_lease_acquired", {
+      waitedMs: signerLease.waitedMs,
+      initializationDurationMs:
+        performance.now() - startupStartedAt,
+    });
+    activatePendingFundingExecution?.();
   }
 
   const accountAddress =

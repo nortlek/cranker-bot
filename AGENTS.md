@@ -90,12 +90,14 @@ The checkout is linked to this project. Confirm before doing anything:
 railway status
 ```
 
-`railway.toml` runs migrations before deployment, disables deployment overlap,
-allows 15 seconds of draining, and restarts on failure. Live instances also
-hold a PostgreSQL advisory signer lease. Failure to acquire the lease is
-fail-closed. The worker verifies the exact lock before each live pass and
-immediately before submission; a lost lease stops the signer. Live mode
-requires `DATABASE_URL`. Telemetry after startup is fail-open.
+`railway.toml` runs migrations before deployment, overlaps replacement
+containers for 60 seconds, allows 15 seconds of draining, and restarts on
+failure. The replacement completes read-only initialization with pending-event
+execution disarmed, then waits for the PostgreSQL advisory signer lease. Only
+the lease holder arms execution and begins keeper passes. Failure to acquire
+the lease is fail-closed. The worker verifies the exact lock before each live
+pass and immediately before submission; a lost lease stops the signer. Live
+mode requires `DATABASE_URL`. Telemetry after startup is fail-open.
 
 `WS_URL`, when configured, supplies the production raw `newHeads` wake-up.
 The keeper validates and retains the notification's block number, hash,
@@ -440,6 +442,7 @@ railway deployment list \
 Then inspect startup logs for:
 
 - migrations completed
+- `signer_initialization_ready` before the replacement requests the lease
 - `signer_lease_waiting` followed by `signer_lease_acquired` during replacement
 - exactly one live signer after the rollout
 - `keeper_started`, with `sourceRevision` equal to the deployed commit and the

@@ -18,11 +18,13 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 17:53 America/Denver, the
-verified snapshot was **$169.95452745 net**, or **67.98%** of the goal, with
-`latest == pending == 569`, net ETH equivalent of
-`0.089304044692971767`, and a fresh `$1,903.10` ETH/USD oracle. Since the
-nonce-560 snapshot, nine successful receipts increased the wallet by exactly
+2026-07-30 23:59 America/Denver**. At 2026-07-29 18:10 America/Denver, the
+verified snapshot was **$170.54683980 net**, or **68.21%** of the goal, with
+`latest == pending == 572`, net ETH equivalent of
+`0.089336909215862492`, and a fresh `$1,909.03` ETH/USD oracle. Three new
+standing-order receipts retained exactly `0.000032864522890725 ETH`; the
+decoded aggregate and wallet delta agree exactly. The preceding nine
+successful receipts from nonces 560–568 increased the wallet by exactly
 `0.000657094625890769 ETH`. Round 305's processor/sync prefix retained
 `0.000114463792007881 ETH`, five standing orders retained
 `0.000298811712187825 ETH`, and round 306's processor/sync prefix retained
@@ -1030,6 +1032,22 @@ US West, US East, and Europe before moving the sole signer. Add a CI gate,
 source-SHA injection, pinned Node image digest, and a health signal for last
 head/pass, lease, and nonce. Do not run active-active signers.
 
+Repeated rollout telemetry found a narrower deployment defect: the replacement
+acquired the signer lease before completing read-only initialization. In the
+`035dd04` rollout it held the lease at `00:06:30 UTC` but did not emit
+`keeper_started` until `00:07:00`, creating about 30 seconds with no active
+keeper. Railway now overlaps replacement containers for 60 seconds. The new
+worker completes canonical contract checks and both WebSocket subscriptions
+with pending execution explicitly disarmed, logs
+`signer_initialization_ready`, and only then requests the advisory lock. The
+old worker remains the sole signer during that initialization; after it drains,
+the replacement acquires the lock, arms its queued pending-event lane, and
+starts normal passes. A stale queued prerequisite still faces the unchanged
+pending-status, nonce, exact-simulation, and profitability gates. The first
+rollout must prove one granted lock throughout, no pre-lease submissions, and
+a materially shorter lease-to-`keeper_started` handoff before this is treated
+as complete.
+
 Do not deploy a keeper executor now. Consolidating a three-call ready cycle
 saves at most `42,000` intrinsic gas before wrapper and reward-forwarding
 overhead—about 2.3% of observed cycle gas—and a monolithic call would have
@@ -1161,14 +1179,21 @@ Malformed requests remain terminal. Persistent failures now include a
 secret-free error name, code, and cause chain so another provider defect can
 be distinguished without broadening the classifier.
 
+Deployment `cbed2686-1b71-4a4b-b81a-e73ad1f0e401` from exact source
+`035dd04d854165dc959e422278d1459649a8a44b` passed the live acceptance test
+at target block `25641989`: the first exact observation received the same
+untyped provider error, retried six times over `500 ms`, and then decoded six
+competitor bids from `2,615` to `8,843 bps`. There was no measurement failure,
+and the adaptive controller durably incorporated the observations.
+
 Acceptance:
 
 - unit tests cover both a genuinely negative suffix and the observed
   individually-negative-but-aggregate-beneficial case
 - cross-subsidized `orders -> pull` dependency floors remain intact
 - logging explains excluded marginal jobs
-- the next transient competitor observation logs a bounded availability wait
-  and a decoded bid instead of an immediate measurement failure
+- production has logged a bounded availability wait followed by decoded bids
+  instead of an immediate measurement failure
 
 ### P1 — Reconstruct full FWA ready-cycle competition
 

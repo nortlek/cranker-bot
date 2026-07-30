@@ -95,6 +95,22 @@ describe("signerNonceIsUsable", () => {
 });
 
 describe("PendingFundingExecutionController", () => {
+  it("keeps pending signer work disarmed until lease handoff", async () => {
+    const controller =
+      new PendingFundingExecutionController(false);
+    const task = vi.fn(async () => undefined);
+
+    expect(controller.enabled).toBe(false);
+    expect(controller.start(task)).toBeUndefined();
+    expect(task).not.toHaveBeenCalled();
+
+    expect(controller.activate()).toBe(true);
+    await controller.start(task);
+
+    expect(controller.enabled).toBe(true);
+    expect(task).toHaveBeenCalledOnce();
+  });
+
   it("aborts and drains active signer work before shutdown completes", async () => {
     const controller = new PendingFundingExecutionController();
     let taskFinished = false;
@@ -136,6 +152,8 @@ describe("PendingFundingExecutionController", () => {
     expect(taskFinished).toBe(true);
     expect(controller.active).toBe(false);
     expect(controller.stopping).toBe(true);
+    expect(controller.enabled).toBe(false);
+    expect(controller.activate()).toBe(false);
     expect(
       controller.start(async () => undefined),
     ).toBeUndefined();

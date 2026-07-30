@@ -217,13 +217,17 @@ record for each process lifetime. `TELEMETRY_BATCH_SIZE`,
 failure buffer. Leave `DATABASE_URL` empty to disable database telemetry.
 
 Live instances that have `DATABASE_URL` also hold a PostgreSQL advisory lease
-for the signer. A replacement Railway deployment waits for the previous
-instance to stop before it begins chain work, preventing rollout overlap from
-racing the same account nonce. Database telemetry remains fail-open after
-startup, but failure to acquire the signer lease is deliberately fail-closed.
-Per-order adaptive builder bids are also stored in PostgreSQL when it is
-configured, so learned competition prices survive Railway's ephemeral
-filesystem and subsequent deployments.
+for the signer. Railway overlaps replacement containers for 60 seconds. The
+replacement performs chain validation and establishes read-only subscriptions
+while pending-event execution is explicitly disarmed, then waits for the
+previous instance to release the lease. Only after acquiring and verifying the
+lease does it arm pending execution and begin ordinary keeper passes. This
+keeps exactly one signer while avoiding a full initialization blackout during
+rollout. Database telemetry remains fail-open after startup, but failure to
+acquire the signer lease is deliberately fail-closed. Per-order adaptive
+builder bids are also stored in PostgreSQL when it is configured, so learned
+competition prices survive Railway's ephemeral filesystem and subsequent
+deployments.
 
 For live execution, use a dedicated keeper EOA funded only with enough ETH for
 gas:
