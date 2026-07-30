@@ -1776,3 +1776,220 @@ Evidence-backed conclusion:
 
 Next action and acceptance criteria:
 ```
+
+## Cross-chain capital-free keeper backlog — 2026-07-30 scan
+
+Status: read-only research complete; no cross-chain signer, transaction,
+deployment, or production mutation was performed. The BNB execution check
+described below used an ephemeral local Anvil fork only.
+
+This is a ranked backlog, not an exhaustive claim that no other protocol pays
+keepers. The scan covered canonical explicit-bounty surfaces on Base,
+Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, and Robinhood Chain. An
+opportunity had to be permissionless, require no principal or approval, pay
+the external caller, and show recent on-chain activity.
+
+| Rank | Chain and action | Evidence-backed conclusion |
+| ---: | --- | --- |
+| 1 | PoolTogether V5 prize claims on Base, Optimism, and Arbitrum | Best next inspector. Daily WETH-denominated caller fees and positive recent claim-stage surplus, but winner discovery, stale-race protection, reward withdrawal, and public-sequencer competition still need solving. |
+| 2 | Robinhood StonkPit `collect` | Fully reconstructed in the dedicated P0 section above. The 1% ETH tip is real, but recent value is thin, ordering is public FCFS, and failed races remain an irreducible cost. |
+| 3 | Beefy harvests on Base, Arbitrum, Optimism, and BNB | Monitor only. `callReward()` materially overstates the native payout on reviewed RewardPool strategies; decoded receipts and a local-fork balance delta were unprofitable. |
+| 4 | Yield Yak reinvests on Avalanche | Dormant/rejected at the snapshot. None of the 30 highest quoted WAVAX candidates in the newest 120-strategy registry slice covered gas, and `onlyEOA` prevents a fail-closed wrapper. |
+| 5 | Polygon, plus remaining BNB/Avalanche surfaces | No qualified candidate found in this bounded pass. Polygon had one active Beefy strategy and no positive native quote; Avalanche Beefy had eight active strategies and no positive native quote. |
+
+### Rank 1 — PoolTogether V5 cross-chain prize claims
+
+Status: permissionless payout and current activity verified; inspector not yet
+implemented.
+
+Canonical deployments:
+
+| Chain | PrizePool | Claimer |
+| --- | --- | --- |
+| Base | `0x45b2010d8a4f08b53c9fa7544c51dfd9733732cb` | `0xcdCE635b774DE77cdF791647601dba64a75547ba` |
+| Optimism | `0xF35fE10ffd0a9672d0095c435fd8767A7fe29B55` | `0x220C9398b0Ee07472bF8906e44574Cb9FE3B8D90` |
+| Arbitrum | `0x52e7910c4c287848c8828e8b17b8371f4ebc5d42` | `0xBEA38368f2A657f00f173764f18F00e841317c73` |
+
+The addresses come from PoolTogether's official
+[Base](https://dev.pooltogether.com/protocol/deployments/base/),
+[Optimism](https://dev.pooltogether.com/protocol/deployments/optimism/), and
+[Arbitrum](https://dev.pooltogether.com/protocol/deployments/arbitrum/)
+manifests. The reviewed Claimer source is
+[`0ea6b67`](https://github.com/GenerationSoftware/pt-v5-claimer/blob/0ea6b676aec4e3ea5d6f7344e5a682b850e520a2/src/Claimer.sol)
+and the PrizePool reward accounting is
+[`fedd70f`](https://github.com/GenerationSoftware/pt-v5-prize-pool/blob/fedd70f3b62086895ee4f0f2224f941e4cdb89b0/src/PrizePool.sol).
+
+`Claimer.claimPrizes(...)` is permissionless and needs no caller principal or
+token approval. It computes a per-claim auction fee, asks each prize vault to
+claim with that fee, and credits successful fees in the PrizePool's WETH reward
+ledger for the selected recipient. `PrizePool.withdrawRewards(...)` realizes
+the WETH. The configured draw period was `86,400` seconds on all three chains.
+
+A current-draw scan on 2026-07-30 decoded every `ClaimedPrize` event in the
+bounded lookback and the full receipt cost, including OP-stack L1 fees:
+
+| Chain / draw | Claims / transactions | Gross claim reward | Receipt gas | Claim-stage surplus |
+| --- | ---: | ---: | ---: | ---: |
+| Base / 804 | 1,373 / 65 | `0.003400054747418055 WETH` | `0.001233210558042408 ETH` | `0.002166844189375647 ETH` |
+| Optimism / 832 | 1,184 / 49 | `0.000335033603623490 WETH` | `0.000058036202122545 ETH` | `0.000276997401500945 ETH` |
+| Arbitrum / 790 | 6 / 1 | `0.000063096451875876 WETH` | `0.000012452873958000 ETH` | `0.000050643577917876 ETH` |
+
+These are protocol-wide one-draw observations, not profit available to this
+keeper. They exclude the later `withdrawRewards` gas and do not imply that
+every reward recipient was the transaction sender. Base showed 11 distinct
+senders, Optimism four, and Arbitrum one. First claims landed 48 seconds, 310
+seconds, and 14,482 seconds after the respective draw award. The Base claim
+window then remained active for at least 25,880 seconds and the Optimism window
+for at least 17,266 seconds. There is real value, but the highest-throughput
+tiers are already competitive.
+
+The Claimer's `_claim` loop catches individual stale/losing claims instead of
+reverting the transaction. `minFeePerClaim` protects the fee auction level but
+does not require any claim to succeed. A competitor can therefore consume the
+candidate set first and leave a raw transaction successfully burning gas for
+zero reward. Do not submit a raw cross-chain `claimPrizes` call.
+
+Recommended next inspector:
+
+1. Add `scripts/inspect-crosschain-pooltogether-claims.ts` with a pinned
+   chain/PrizePool/Claimer/TwabController registry for Base, Optimism, and
+   Arbitrum. It must remain unsigned and use chain-specific discovery RPCs.
+2. Index each `DrawAwarded`, derive winners from canonical TWAB state, and
+   verify every candidate with `isWinner` and `wasClaimed`. Do not trust a
+   hosted winner list without on-chain verification.
+3. Reconstruct at least seven draws of `ClaimedPrize`, `ClaimError`,
+   `IncreaseClaimRewards`, and `WithdrawRewards`, grouping complete competitor
+   sequences and failed races by sender.
+4. Quote batches with the live Claimer curve, exact gas, L1 data fees, and the
+   final reward-withdrawal cost. Rank by conservative retained WETH, not claim
+   count or the current fee alone.
+5. Specify a minimal guard that calls the canonical Claimer and reverts unless
+   its returned aggregate fees meet a caller-supplied floor. Review reward
+   recipient and withdrawal semantics before any helper holds or forwards
+   WETH.
+
+Live prerequisites are a reviewed guard, dry-run evidence across multiple
+draws, explicit authorization for public sequencer submission, and separate
+chain-scoped workers/signers, leases, RPCs, telemetry, and gas balances. No
+generally available private atomic path was verified in this pass. Arbitrum
+also has Timeboost ordering rather than Ethereum builder auctions. Base and
+Optimism use their sequencers. None of these lanes should inherit the Ethereum
+standing-order builder bid.
+
+### Rank 2 — Robinhood StonkPit collection
+
+Status: retain the existing dedicated P0 entry as the authoritative record.
+
+The user-supplied contract, transaction, eight crank blocks, 1% native-ETH tip,
+273-success history, failed-race sample, and public FCFS constraint have
+already been reconstructed above. The next artifact remains the immutable
+minimum-ETH guard plus a read-only latency/win-rate observer. Use a separate
+Robinhood worker and gas-only signer if public submission is later authorized;
+do not mix chain ID `4663` into the Ethereum signer's nonce or lease domain.
+
+### Rank 3 — Beefy multi-chain harvests
+
+Status: monitored/rejected at the snapshot; quotes are not safe eligibility
+signals.
+
+Beefy's canonical vault API returned the following active strategy counts:
+Base 241, Arbitrum 44, Optimism 72, Polygon 1, BNB 20, and Avalanche 8.
+Permissionless `harvest(address callFeeRecipient)` exists on the reviewed
+strategies, and the deployed `StrategyRewardPool` source transfers the charged
+native call fee to that recipient. The source was verified through the
+deployed [Arbitrum implementation](https://arbitrum.blockscout.com/address/0x95c3228308e02F4defC4e8C339907aB19a4F62Cd)
+and matching [Base implementation](https://base.blockscout.com/address/0x68Ecddba8D4CfCa13923fC8d66f2678BF17aB4e1).
+
+The important negative finding is that `callReward()` is not reliably
+denominated in final wrapped-native value on these strategies. It multiplies
+the underlying raw `rewardsAvailable()` units by fee percentages, while the
+actual harvest first swaps the reward token to native. Exact
+`ChargedFees.callFees`, native balance deltas, and receipts contradicted the
+large quotes:
+
+| Chain / sampled strategy | Actual caller reward | Receipt gas | Net |
+| --- | ---: | ---: | ---: |
+| Base `0x0c19E165c9e369edcC819bAD004b17cfAB30aeF5` | `0.000001932494756686 WETH` | `0.000016035532903773 ETH` | `-0.000014103038147087 ETH` |
+| Optimism `0x994Afa36B085d006a911Ce28bA300E8ee71B8bc2` | `0.000000028233767560 WETH` | `0.000000033480348328 ETH` | `-0.000000005246580768 ETH` |
+| Arbitrum `0x3DAfB52975faB6B02eA6Cf4ead926E409Fa23ca0` | `0.000000001292039524 WETH` | `0.000044423658212000 ETH` | `-0.000044422366172476 ETH` |
+
+Optimism's sampled strategy was being harvested about every four to six
+minutes by one incumbent. Base's sample was on an approximately daily service
+cadence. The Arbitrum sample also showed contract-routed and direct
+harvesters. These are protocol-maintenance patterns, not evidence of
+capturable external profit.
+
+The strongest BNB quote made the problem explicit. Strategy
+`0xdC4C4bD3db8e49E41D0F427137040860e5feae` reported
+`0.019321097056222255` through `callReward()`. An unsigned local Anvil fork at
+BNB block `113030784` executed the exact `harvest(recipient)` state transition:
+the recipient gained only `0.000046942928528168 WBNB`, while `2,133,254` gas
+at `0.05 gwei` cost `0.000106662700000000 BNB`, for
+`-0.000059719771471832 BNB` net. No transaction reached BNB Chain.
+
+Do not implement from `callReward()` alone. A future Beefy inspector would
+need a fork/state-diff balance delta in the final native token, exact route
+execution, receipt-history validation, and a fail-closed minimum-reward helper.
+Until one candidate clears those gates repeatedly, this surface ranks below
+Robinhood and PoolTogether.
+
+### Rank 4 — Yield Yak Avalanche reinvests
+
+Status: permissionless bounty verified; currently uneconomic and not safely
+wrappable.
+
+Yield Yak's official
+[reinvest documentation](https://docs.yieldyak.com/for-farmers/reinvest)
+describes the variable caller reward. The current
+[`YakStrategy`](https://github.com/yieldyak/smart-contracts/blob/17d985e2b2270e976458cd751db2d964fdabc896/contracts/YakStrategy.sol)
+exposes `estimateReinvestReward()`, and
+[`BaseStrategy`](https://github.com/yieldyak/smart-contracts/blob/17d985e2b2270e976458cd751db2d964fdabc896/contracts/strategies/BaseStrategy.sol)
+pays `REINVEST_REWARD_BIPS` of reward tokens to `msg.sender`.
+
+At Avalanche block `91,606,516`, the newest 120 entries in Yield Yak's
+[764-strategy subgraph registry](https://github.com/yieldyak/subgraph-strategies/blob/04c1788d99bdc6238acf69b6a29c70bee8b0ce49/config/avalanche.json)
+produced 117 readable contracts, 78 deposit-enabled contracts, and 59 positive
+WAVAX reward quotes. That registry snapshot was last updated in October 2025,
+so this was a bounded candidate sample rather than proof of full 2026
+coverage. Exact `reinvest()` gas estimation for the highest 30 found no
+profitable candidate. The best was
+`0x3bbae5DCb89A9fD650281e2609ACAe9055Fae491`:
+`0.000188124336347297 WAVAX` against `1,185,741` gas at a
+`0.255758051 gwei` max-fee quote, or
+`-0.000115138470803494 AVAX` before any race allowance.
+
+The current base implementation is `onlyEOA`, so a minimum-bounty wrapper
+cannot call it. It also emits `Reinvest` when the post-conversion amount does
+not clear the threshold rather than universally reverting. A stale public call
+can therefore succeed without paying a useful reward. With no private
+Avalanche path verified, leave this lane disabled unless a future raw-EOA
+expected-value study shows enough surplus to cover both wins and stale races.
+
+### Research RPC and ordering notes
+
+These credential-free endpoints were sufficient for the bounded read-only
+scan. They are not production recommendations:
+
+| Chain | Public research RPC | Submission conclusion |
+| --- | --- | --- |
+| Base | `https://mainnet.base.org` | Public sequencer path; no non-leaking atomic path verified. |
+| Optimism | `https://mainnet.optimism.io` | Public sequencer path; no non-leaking atomic path verified. |
+| Arbitrum | `https://arb1.arbitrum.io/rpc` | Public gateway with Timeboost ordering; not an Ethereum builder-bid lane. |
+| Polygon | `https://polygon-bor-rpc.publicnode.com` | Public validator path; no private path verified. |
+| BNB | `https://bsc-rpc.publicnode.com` | Current-state access only in this pass; historical log access required another provider. No private path verified. |
+| Avalanche | `https://api.avax.network/ext/bc/C/rpc` | Public validator path; no private path verified. |
+| Robinhood | `https://rpc.mainnet.chain.robinhood.com` | Documented FCFS public sequencer ordering; no private path verified. |
+
+Production discovery needs paid, rate-isolated providers with the required
+archive/log limits. A relay or sequencer endpoint must not be inferred to be
+private merely because it accepts direct JSON-RPC submissions.
+
+### Cross-chain deployment boundary
+
+Any promoted opportunity must run outside the Ethereum production signer.
+Use one chain-specific gas-only signer and PostgreSQL advisory lease domain per
+chain, a dedicated paid RPC that cannot starve Ethereum discovery, chain ID in
+every telemetry/adaptive-bid key, and an independent nonce gate. Start with a
+read-only observer. Public submission, signer funding, helper deployment, and
+any contract that temporarily receives reward tokens require separate review
+and explicit authorization.
