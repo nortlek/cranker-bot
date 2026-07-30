@@ -18,12 +18,20 @@ net of gas, builder payments, and other fees. The earlier $10 goal was achieved
 at `$11.35632645`.
 
 The active stretch goal is **$250 cumulative verified net realized profit by
-2026-07-30 23:59 America/Denver**. At 2026-07-29 18:49 America/Denver, the
-verified snapshot was **$191.93861291 net**, or **76.77%** of the goal, with
-`latest == pending == 603`, net ETH equivalent of
-`0.101096206780681596`, and a fresh `$1,898.57383405` ETH/USD oracle. Round
-315 added exactly `0.002267704619179513 ETH`: its funding-order/pull pair
-retained `0.001285175373603051 ETH`, and its complete
+2026-07-30 23:59 America/Denver**. At 2026-07-30 08:27 America/Denver, the
+verified snapshot was **$226.20480443 net**, or **90.48%** of the goal, with
+`latest == pending == 667`, net ETH equivalent of
+`0.118220770472857528`, and a fresh `$1,913.41` ETH/USD oracle. The 64
+successful receipts from nonces 603–666 increased the wallet by exactly
+`0.017124563692175932 ETH`. The first five retained
+`0.001058883679268133 ETH` from round 316's pending-purchase pull,
+`0.000925468999074068 ETH` from round 317's pending-purchase pull, and
+`0.001019770537204972 ETH` from round 317's complete lifecycle. The live
+`3c8faa0` worker then recorded 59 receipts from nonces 608–666 and retained
+exactly `0.014120440476628759 ETH`; its PostgreSQL receipt aggregate equals the
+wallet delta exactly. Round 315 had previously added exactly
+`0.002267704619179513 ETH`: its funding-order/pull pair retained
+`0.001285175373603051 ETH`, and its complete
 `processAcquisitions(1) -> syncFwaResult -> settle` lifecycle retained
 `0.000982529245576462 ETH`. Since the nonce-572 snapshot, the preceding 26
 successful receipts increased the wallet by exactly
@@ -1159,10 +1167,9 @@ exact-simulated, versioned V2 adapter is validated.
 
 ### P0 — Reduce acquisition lifecycle latency
 
-Status: lifecycle-first routing is deployed. Processor correctness and gas
-economics are now deferred to mandatory exact private bundle simulation in
-Railway deployment `c3740155-b3c7-4722-be74-21cd4b160be4`; measure the next
-ready lifecycle.
+Status: lifecycle-first routing and the concurrent submission gate are
+deployed. Processor correctness and gas economics remain deferred to mandatory
+exact private bundle simulation.
 
 The ready acquisition path has a short competitive window. `planJobs` should
 read the acquisition lifecycle first and return a profitable lifecycle plan
@@ -1181,6 +1188,17 @@ configured provider measured `224.11 ms` for the serial form and `161.16 ms`
 for the concurrent form, a mean reduction of `62.96 ms` on an actionable
 bundle. The existing `account_gate` timing now covers the entire concurrent
 submission gate and records the observed submission head.
+
+Railway deployment `2444a9c3-f29f-4616-a617-c0ae70592b40` runs exact source
+`3c8faa0d3a62a985eae63e0f622592e98df65d42`. During its overlap handoff the
+old signer stopped at `00:58:03.906Z`, the replacement acquired the advisory
+lease at `00:58:04.172Z`, and `keeper_started` followed at
+`00:58:04.297Z`: 266 ms from old stop to lease acquisition and another 125 ms
+to active passes. PostgreSQL has exactly one open keeper run and one granted
+advisory lock. Across the first 59 actionable passes, the concurrent gate
+averaged `112.68 ms` including the staleness read, compared with the
+pre-change path's separate uninstrumented head round trip followed by its
+nonce/balance gate. There were no fatal or keeper-pass failures.
 
 Acceptance:
 
@@ -1374,6 +1392,11 @@ typed publication-race error for the existing bounded one-second window,
 persist `keeper_receipt_availability_waited` when recovery is needed, and
 leave every other error terminal. This prevents false expiration from
 corrupting batch P&L or competitor-loss learning.
+
+The first 59 production receipts after deployment all reconciled through nonce
+666 without another publication wait. This is healthy evidence that the fix is
+non-disruptive; the next actual delayed-index occurrence remains the live
+acceptance test for `keeper_receipt_availability_waited`.
 
 Next action: if allowlisting is granted, add an operator-checked sponsored
 processor path that verifies the service's FWA address and accounts for the
