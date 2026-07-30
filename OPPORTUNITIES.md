@@ -1200,6 +1200,35 @@ averaged `112.68 ms` including the staleness read, compared with the
 pre-change path's separate uninstrumented head round trip followed by its
 nonce/balance gate. There were no fatal or keeper-pass failures.
 
+Durable target-head correlation then exposed a deeper sender-side deadline
+bug. Since that deployment, 14 batches containing 34 signed transactions were
+submitted after the WebSocket had already observed their target block. Seven
+of 46 measured batch paths exceeded one 12-second slot; the worst took
+`45.67 seconds`. In the block-`25643861` example, the strategy account gate
+finished in `99.59 ms`, but a duplicate private-sender HTTP head/nonce gate
+consumed about `8.4 seconds`. Exact simulations completed before the target
+head arrived, then the final HTTP nonce/balance gate stalled until roughly
+`21 seconds` after that head and returned the stale parent. The sender
+therefore contacted relays for an already-built block despite the
+authoritative WebSocket signal.
+
+The duplicate sender gate is removed. The final gate now reads exact-parent
+latest nonce and balance plus pending nonce through the foreground WebSocket
+client while racing the subscribed target head. It rechecks the signal after
+the state reads and immediately before relay submission. Target arrival or a
+subscription wait timeout is fail-closed; a lagging RPC response can no longer
+authorize a stale bundle. This preserves the earlier strategy account gate,
+`latest == pending`, exact simulation, signer balance, lease, and private-only
+submission invariants. `bundle_stage_timing` now records
+`final_submission_gate`.
+
+Railway deployment `1b38a4c2-715d-4a96-9772-e107cd4176c2` runs exact source
+`252493ae5bd3e304c2538036b6566a8df2834c97`. The replacement waited without
+signing, the old run stopped at `14:59:23.707Z`, and the new run acquired the
+lease and began healthy passes within the following second. PostgreSQL then
+showed one open run and one granted advisory lock; wallet nonces remained
+`667/667`. All 255 tests, typecheck, build, and diff checks passed.
+
 Acceptance:
 
 - ready/fulfilled lifecycle behavior and minimum viable prefixes are unchanged
