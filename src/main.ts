@@ -2169,6 +2169,9 @@ async function main(): Promise<void> {
     pool: poolAddress,
     account: accountAddress,
     accountBalance: eth(balance),
+    minimumProfitFloor: eth(
+      requiredProfit(config.minProfitWei),
+    ),
     dryRun: config.dryRun,
     runOnce: config.runOnce,
     submissionMode: config.submissionMode,

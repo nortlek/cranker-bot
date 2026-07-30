@@ -500,7 +500,8 @@ the bundle with the existing reward-weighted lifecycle, order, and pull bids.
 ### Profit controls
 
 - `MIN_PROFIT_ETH`: optional minimum worst-case profit for the submitted
-  bundle or prefix; defaults to `0`.
+  bundle or prefix; defaults to `0`. Production uses `0.000001 ETH` so a
+  profit-capped quote must retain more than rounding dust.
 - `GAS_LIMIT_MULTIPLIER_BPS`: buffer applied to `eth_estimateGas`.
 - `MAX_FEE_PER_GAS_GWEI`: hard ceiling for the proposed EIP-1559 max fee.
 - `MAX_TRANSACTIONS_PER_PASS`: optional per-block transaction cap; `0` is

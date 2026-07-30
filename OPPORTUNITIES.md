@@ -1362,6 +1362,15 @@ Acceptance:
 
 Status: deployed; continue measuring aggregate prefix outcomes.
 
+The 2026-07-30 production window added six isolated standing-order attempts.
+Every quote was capped by the one-wei positive-profit rule rather than its
+configured adaptive bid. Four inclusions earned `0.0006 ETH` and retained only
+`0.000000000000036564 ETH` in total; two private misses cost nothing. A
+`0.000001 ETH` aggregate minimum lowers those effective bids by only 33–100
+bps, preserves every material lifecycle result in the same window, and ensures
+an inclusion advances realized profit. Production therefore uses that floor;
+the exact prefix simulation and profit-cap logic remain unchanged.
+
 A recent three-order bundle was aggregate-positive but contained two
 individually loss-making `0.0001 ETH` receipts. Durable bid telemetry proved
 that the individual receipt view was misleading: the bundle uses one uniform

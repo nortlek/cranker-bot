@@ -597,6 +597,7 @@ At the last handoff, the configured policy was approximately:
 | Standing-order baseline | 86.44% |
 | Standing-order learned minimum | 10% |
 | Standing-order learned maximum in use | 94.54% |
+| Aggregate minimum retained profit | 0.000001 ETH |
 | Pending-funding standing-order backrun | 10% |
 | Pool pull | 10% |
 | Pool acquisition ready | 3% |
