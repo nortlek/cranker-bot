@@ -169,8 +169,10 @@ traffic cannot delay order-funding candidates. Its
 canonical coordinator, FWA consumer/subscription, and proof-derived request ID
 matched the current pool lifecycle. `pending_fwa_backrun_submitted` is always
 the bounded exact contiguous coordinator nonce prefix ending in the target
-fulfillment, followed by keeper sync and settle; only the two keeper receipts
-enter P&L.
+fulfillment, followed either by keeper sync and settle or by the exact
+parent-queue-count processor, sync, and settle. Both complete alternatives are
+simulated and the highest-profit valid one is selected; only its two or three
+keeper receipts enter P&L.
 
 GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
@@ -562,9 +564,11 @@ These constraints prevent expensive or unsafe regressions:
   that do not finish coverage. Revalidate the prerequisite immediately before
   private submission, price only the pull under the independent pool-pull bid,
   account only the pull receipt, and never submit the public purchase alone.
-- A pending FWA fulfillment backrun is always the exact bounded bundle
+- A pending FWA fulfillment backrun is always one exact bounded bundle:
   `[contiguous public coordinator nonce prefix ending in the target
-  fulfillRandomWords, keeper syncFwaResult, keeper settle]`.
+  fulfillRandomWords, keeper syncFwaResult, keeper settle]`, or
+  `[the same public prefix, keeper processAcquisitions(count),
+  keeper syncFwaResult, keeper settle]`.
   Prove the signed raw transaction targets the coordinator pinned by
   `vrfCoordinatorAndSubId`, has zero value, decodes to the canonical FWA
   consumer/subscription, and derives the pool round's exact `fwaRequestId`
@@ -573,10 +577,18 @@ These constraints prevent expensive or unsafe regressions:
   to be present, signed, still pending, coordinator-targeted, zero-value, and
   selector-matched; reject a chain longer than eight. Require the lifecycle
   pointer, pulling state, unresolved round, and Pending acquisition at the
-  exact parent;
-  simulate and price the complete bundle twice, never offer a prerequisite or
-  sync-only prefix, and account only the keeper receipts. This lane uses the
-  low pool-ready bid, not the ordinary confirmed-head fulfilled bid.
+  exact parent. Derive a processor candidate only from the exact parent FWA
+  queue, with `count` covering every queued sequence through the pool request;
+  never assume one. Simulate and price every complete alternative twice,
+  select the highest-profit valid variant, never offer a prerequisite,
+  processor-only, or sync-only prefix, and account only the selected keeper
+  receipts. This lane uses the low pool-ready bid, not the ordinary
+  confirmed-head fulfilled bid. A classified relay
+  `max fee per gas less than block base fee` response may be retried only
+  against the same relay and target during a bounded 500 ms publication
+  window; signed fee capacity may exceed the exact expected child base fee by
+  one wei while economics continue to charge the exact expected effective gas
+  price.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
   do not wait for a duplicate HTTP block object or provider fee estimate.

@@ -380,13 +380,19 @@ first-come-first-served ordering means a higher fee cannot bypass an earlier
 transaction. Latency, stale-state protection, and expected value matter here;
 Ethereum builder bidding does not.
 
-The permissionless entrypoint is
-`StonkPitLocker.collect(address tipTo)` (`0x06ec16f8`) at
-`0xDeb8d589251717e367d0f3E9dDE5D4dB63968B40`. The user-supplied
-`0xe934e36a439c94017b64a3fece66af12099abf50` is the StonkBroker collection
-token, not the crank target. The locker pays `tipTo` 1% of collected native
-ETH, sends the post-tip ETH 70/30 to the merchant/treasury, and refills the
-green/blue mines with the collected DERP token in a 5:1 ratio.
+The exact verified contract name is `PitLpLocker`. Its permissionless
+`collect(address tipTo) returns (uint256 ethTotal,uint256 pitTotal)` entrypoint
+has selector `0x06ec16f8` and is deployed at
+`0xDeb8d589251717e367d0f3E9dDE5D4dB63968B40`. Blockscout fully verifies
+`src/PitLpLocker.sol` against unchanged Solidity 0.8.24 bytecode; the runtime
+hash is
+`0x339e00a9a51e99629f0f541506d3f489d865841c9c2a2d527b205a2bd8c26099`.
+The user-supplied `0xe934e36a439c94017b64a3fece66af12099abf50`
+is a separate verified `CollectionToken`, displayed as StonkBroker, not the
+crank target or its DERP `pit` token. The locker pays `tipTo` 1% of collected
+native ETH, sends the post-tip ETH 70/30 to the merchant/treasury, and refills
+the green/blue mines with DERP in a 5:1 ratio. The call is nonpayable and needs
+no caller token, approval, inventory, or principal.
 
 `collect` reverts only when both ETH and DERP collection are zero. A DERP-only
 or tiny-ETH collection can therefore succeed while losing gas. The user-linked
@@ -418,6 +424,22 @@ sample's total net. The opportunity is active, but the 50% successful-loss
 rate and incumbent concentration strengthen the case for a minimum-tip guard
 and measured latency before any public submission.
 
+A later refresh at block `23661991` materially changed the short-window
+picture. The prior 100,000 blocks spanned 10,030 seconds and contained only
+five successes: four profitable and one unprofitable. Tips totaled
+`0.000133772263945676 ETH`, gas `0.000022397228946 ETH`, and known net
+`0.000111375034999676 ETH`, about `0.0009594 ETH/day` if that short rate held.
+One address won three of five. The two latest inspected winners paid zero
+priority fee and made no payment outside the source-defined routing, consistent
+with documented FCFS ordering rather than builder bidding.
+
+At the same head, exact direct simulation was callable but economically
+invalid: `0.000078492705890297 ETH` collected, only
+`0.000000784927058902 ETH` tipped, and `0.000005726532 ETH` estimated gas,
+for `-0.000004941604941098 ETH` net. Break-even required
+`0.0005726532000001 ETH`, so current inventory was only 13.7% of break-even.
+There is no current profitable action.
+
 Use `npm run inspect:robinhood` for a current read-only simulation and bounded
 history/competitor sample. Optional knobs are `ROBINHOOD_RPC_URL`,
 `ROBINHOOD_LOOKBACK_BLOCKS`, `ROBINHOOD_MAX_RECEIPTS`, and
@@ -425,10 +447,13 @@ history/competitor sample. Optional knobs are `ROBINHOOD_RPC_URL`,
 
 Live prerequisites:
 
-1. Add a minimal immutable guard contract that calls the locker with the EOA
-   as `tipTo` and reverts unless returned `ethTotal` meets a caller-supplied
-   minimum. This prevents successful token-only/tiny-tip losses but cannot
-   avoid gas spent losing a stale race.
+1. Add a minimal immutable guard specification that pins the verified locker
+   code hash and relationships, calls it with the EOA as `tipTo`, and reverts
+   unless returned `ethTotal` meets a caller-supplied minimum. Compute the
+   minimum as
+   `ceil((exact maximum guard gas cost + retained-profit floor) * 10,000 / 100)`.
+   The helper never holds ETH or DERP. This prevents successful
+   token-only/tiny-tip losses but cannot avoid gas spent losing a stale race.
 2. Run an observer to measure signal-to-inclusion latency, contemporaneous
    competitor win rate, and expected profit after both successful and failed
    calls. Gate on expected value rather than simulated profit alone.
@@ -439,6 +464,11 @@ Live prerequisites:
    funding before enabling it. No private Robinhood submission path has been
    verified, and the current operating boundary forbids switching to public
    submission.
+
+Guard specification and a read-only observer are go; deployment and live
+submission are no-go. Before proposing execution, require at least seven days
+and 100 newly labeled episodes, a conservative positive race-adjusted EV, and
+at least a 2x tip-to-maximum-gas ratio after the retained-profit floor.
 
 ### P0 — Replace the standing-order bid floor with bounded price discovery
 
@@ -632,9 +662,8 @@ none when no exact prefix is profitable.
 
 ### P0 — Backrun same-block FWA VRF fulfillment
 
-Status: deployed and production-enabled on exact source
-`296d9fcf40b3b591407911d64ca34a7c8fb6dd83`, Railway deployment
-`60fd9f86-17e2-4897-8259-0192ce11b369`.
+Status: production-enabled. Exact source and deployment identity are recorded
+by each `keeper_started` event.
 
 Round 355 exposed a confirmed-head state-transition blind spot. Chainlink VRF
 fulfillment transaction
@@ -659,17 +688,21 @@ same FWA consumer and subscription, and the exact pool request ID derived as
 requires `ethPendingRound`, pulling/unresolved round state, matching
 `fwaRequestId`, pool purchaser, and Pending acquisition at the exact parent.
 
-The only submitted shape is a bounded contiguous public coordinator nonce
-prefix ending in the target fulfillment, followed by keeper
-`syncFwaResult` and `settle`. Preliminary and competitively priced versions
-must simulate the complete prefix and both keeper transactions.
-Economics include only simulated sync/settle gas and both pool bounties; raw
-fulfillment cost/value never enters keeper P&L. The full bundle is mandatory,
-the two keeper nonces are contiguous, the signer lease/nonce/balance/head gates
-remain fail closed, and the raw prerequisite must still be pending immediately
-before private one-block submission. The lane starts with the 300-bps
-pool-ready bid because this observed winner paid zero ordering fee; it does not
-inherit the 7,250-bps ordinary fulfilled-state policy.
+The lane evaluates two mandatory full-bundle shapes after the bounded
+contiguous public coordinator nonce prefix ending in the target fulfillment:
+`syncFwaResult -> settle`, and
+`processAcquisitions(count) -> syncFwaResult -> settle`. The exact parent FWA
+queue determines `count`, including every sequence through the pool request;
+it is never hard-coded to one. Preliminary and competitively priced versions
+must simulate every transaction. The highest-profit valid shape is selected.
+Economics include simulated gas for every keeper call but only the sync and
+settle pool bounties; raw fulfillment cost/value never enters keeper P&L. The
+full selected bundle is mandatory, keeper nonces are contiguous, the signer
+lease/nonce/balance/head gates remain fail closed, and every raw prerequisite
+must still be pending immediately before private one-block submission. The
+lane starts with the 300-bps pool-ready bid because the original observed
+winner paid zero ordering fee; it does not inherit the 7,250-bps ordinary
+fulfilled-state policy.
 
 Acceptance:
 
@@ -677,7 +710,8 @@ Acceptance:
   healthy confirmed-head passes
 - enable only after the isolated coordinator subscription reports ready
 - require a real `pending_fwa_candidate_validated` before any simulation
-- inspect both exact full-bundle simulations and reconcile both keeper receipts
+- inspect both exact full-bundle simulations and reconcile all selected keeper
+  receipts
 - treat a missed fulfillment as a lane-specific outcome; do not modify
   confirmed-head fulfilled or standing-order bidding from one observation
 
@@ -699,9 +733,44 @@ continuing ordinary passes. The enabled replacement then reported
 both pending subscriptions, waited 61 seconds for the existing signer lease,
 and acquired it before arming execution. `keeper_started` records the exact
 source and `pendingFwaFulfillmentBackruns=true`; the first confirmed-head
-passes remained healthy. A real target fulfillment has not arrived since
-activation, so candidate-delivery latency, relay inclusion, and receipt P&L
-remain the next live acceptance evidence.
+passes remained healthy.
+
+Round 358 supplied the first real target after activation. The subscription
+validated fulfillment
+`0x9f99244e74aa321c4c5114b523176b211191c4a844aa4292958bd060f7f4965c`
+in about 174 ms while it was still pending. The first same-block simulation
+was rejected by Flashbots with `max fee per gas less than block base fee`
+before that relay had published the fresh parent; the locally derived child
+base fee was later proven exact. The public callback left the acquisition
+Ready rather than Fulfilled. At the confirmed head, the ordinary keeper won
+`processAcquisitions(1) -> syncFwaResult(358) -> settle(358)` in block
+`25648507`, retaining `0.001019844144324376 ETH` after all three receipt gas
+costs.
+
+An exact fork of parent block `25648505` then proved the missing same-block
+Ready variant. Round 358 was the second queued FWA sequence at that parent, so
+`processAcquisitions(1)` correctly processed only the preceding request and
+could not sync the pool. The exact queue-derived
+`processAcquisitions(2) -> sync -> settle` bundle after the public fulfillment
+succeeded completely in block `25648506`. Keeper gas was `2,642,914`,
+`184,774`, and `370,411`; sync and settle emitted
+`0.001194682186698385 ETH` of bounties. With the exact parent base fee, the
+production 90% bounty haircut, and 300-bps bid, the conservative modeled net
+was `0.000532651526749407 ETH`. The implementation now evaluates both direct
+and processor variants, prices actual simulated processor gas instead of its
+signing envelope, clamps that envelope to the configured Ethereum-valid
+maximum, and accounts all selected receipts.
+
+The relay race is handled narrowly: only the exact future-base-fee rejection
+is retried against the same relay and target for at most 500 ms. Signed maximum
+fee capacity carries one extra wei when the configured cap permits, while
+economic accounting still charges the exact expected gas price. Round 359's
+fulfillment arrived through the pending provider only after mining (77 ms from
+hash observation to a receipt-bearing transaction), so no same-block strategy
+could act. The ordinary fulfilled-state bundle then lost at 7,251 effective
+bps to a competitor whose observed payment required about 7,320 bps against
+our planned gross reward. This single exact loss is record-only and does not
+justify raising the fulfilled bid ceiling.
 
 ### P0 — Remove arbitrary FWA processor gas and queue cutoffs
 
@@ -2008,12 +2077,12 @@ described below used an ephemeral local Anvil fork only.
 The broader rejected-candidate evidence and chain-isolation requirements are
 recorded in
 [`research/CROSS_CHAIN_KEEPERS_2026-07-30.md`](./research/CROSS_CHAIN_KEEPERS_2026-07-30.md).
-The follow-up identified two additional positive cross-chain liquidation
-surfaces: Nerite on Arbitrum and Aesyx on Avalanche. Both are licensed Liquity
-V2 friendly forks, so the existing mainnet Liquity planner provides a useful
-read-only inspection shape, but neither has been added to live code. Maker/Sky
-still has stronger mainnet gross economics; the repository's bark/redo
-inspectors found no current eligible auction at the snapshot.
+The follow-up identified three additional positive cross-chain liquidation
+surfaces: Nerite on Arbitrum, Quill on Scroll, and Aesyx on Avalanche. All are
+Liquity V2 friendly forks, so the existing mainnet Liquity planner provides a
+useful read-only inspection shape, but none has been added to live code.
+Maker/Sky still has stronger mainnet gross economics; the repository's
+bark/redo inspectors found no current eligible auction at the snapshot.
 
 This is a ranked backlog, not an exhaustive claim that no other protocol pays
 keepers. The scan covered canonical explicit-bounty surfaces on Base,
@@ -2024,9 +2093,10 @@ the external caller, and show recent on-chain activity.
 | Rank | Chain and action | Evidence-backed conclusion |
 | ---: | --- | --- |
 | 1 | Nerite Liquity V2 liquidations on Arbitrum | Strongest next inspector. Complete history found 40 wins and 30 failed races; the latest 30 wins were positive, the current state set is tiny, and stale calls fail closed. |
-| 2 | PoolTogether V5 prize claims on Base, Optimism, and Arbitrum | Daily WETH-denominated fees and positive current-draw aggregate surplus, but individual margins can be tiny and raw stale batches can succeed for zero reward without a guard. |
-| 3 | Aesyx Liquity V2 liquidations on Avalanche | Exact sAVAX and BTC.b liquidation payouts dwarfed gas, but only two successful events were found and the sAVAX event attracted 12 failed calls. |
-| 4 | Robinhood StonkPit `collect` | The 1% ETH tip remains positive in aggregate, but half of the refreshed successful calls lost gas and one incumbent captured 70% of wins. |
+| 2 | Quill Liquity V2 liquidations on Scroll | Three direct wins each cleared gas on fixed `0.005 WETH` alone, but cadence is sparse, no trove is currently eligible, and one bot submitted 281 failed calls. |
+| 3 | PoolTogether V5 prize claims on Base, Optimism, and Arbitrum | Daily WETH-denominated fees and positive current-draw aggregate surplus, but individual margins can be tiny and raw stale batches can succeed for zero reward without a guard. |
+| 4 | Aesyx Liquity V2 liquidations on Avalanche | Exact sAVAX and BTC.b liquidation payouts dwarfed gas, but only two successful events were found and the sAVAX event attracted 12 failed calls. |
+| 5 | Robinhood StonkPit `collect` | The latest exact inventory is unprofitable and the newest 100,000-block window fell to five calls, despite positive aggregate history. |
 
 Beefy, Yield Yak, Equilibria, Aura, Aerodrome, Compound III, Wombex, and the
 unverified current Synthetix Base settlement surface are not part of the
@@ -2123,7 +2193,57 @@ reusable Liquity logic, protocol-native stale revert, and lack of a guard,
 approval, custody, or principal make this the first cross-chain implementation
 ahead of PoolTogether.
 
-### Rank 2 — PoolTogether V5 cross-chain prize claims
+### Rank 2 — Quill Liquity V2 liquidations on Scroll
+
+Status: canonical active deployment, reward, three direct wins, failed-call
+history, and current state verified; add to the shared unsigned Liquity-fork
+inspector.
+
+Quill's official
+[active contract list](https://docs.quill.finance/documentation/contract-addresses)
+distinguishes its current Scroll deployment from legacy v0:
+
+| Branch | TroveManager | AddressesRegistry |
+| --- | --- | --- |
+| WETH | `0x9d2ad9712f3905f3e7803c92d027a197b4c8da90` | `0xe58a321eed288c84fd0b4f6d4892d099054caebd` |
+| wstETH | `0xa57aae77fbb22f9c1fb55d516e44b856614e143e` | `0xbe4b85734a046b34b24c2538cba6205c98a74aeb` |
+| weETH | `0xf645d67733b76e9d69908108d2eef6bec53dd7c8` | `0x6a036d49287fd7d6808629e95f831a1addc62b95` |
+| SCR | `0x862ec870184a66fd3ed6bd7e122bc18355002076` | `0x1cb0f2a6ba0c22388dd28550a90ec5d46c82cdba` |
+
+All four managers share runtime hash
+`0x252f909328ecc10871cccd0de6c49f3e1e4b3a57a97b3a71d7dde57a36007fab`.
+The deployed source exposes permissionless
+`batchLiquidateTroves(uint256[])`, selector `0xef49a6b4`, and pays
+`msg.sender` fixed `0.005 WETH` per trove plus 0.5% of collateral capped at
+two collateral tokens. It needs no value, approval, debt token, principal, or
+Stability Pool deposit and reverts when nothing is liquidatable.
+
+The active manager histories exposed three successful direct calls:
+
+- SCR [transaction `0x343a…1e4a`](https://scrollscan.com/tx/0x343aa3a02569dc2ec804c4e78ea69cf443342b5c5ef143da828abab924be1e4a):
+  `0.005 WETH + 2 SCR` reward and `0.000002362791489195 ETH` gas.
+- SCR [transaction `0x7bfb…8c0d`](https://scrollscan.com/tx/0x7bfbcf757c08ef81e9e25d8d4944f46dd0cfe36a2a91226bccb38dda76ff8c0d):
+  `0.005 WETH + 2 SCR` reward and `0.000000088075340347 ETH` gas.
+- WETH [transaction `0x7eff…81a1`](https://scrollscan.com/tx/0x7eff03aed0cc1d11390a7925340b1a0f3a7af17146104336b6d3368c993081a1):
+  `0.005457065092856536 WETH` reward and
+  `0.000004250268729804 ETH` gas.
+
+The direct SCR history also contained 281 failed calls from one address,
+burning `0.000008191269552834 ETH`; speculative public retries are not safe.
+At pinned Scroll block `34525512`, the four branches contained only five
+troves. Exact batch simulation returned `NothingToLiquidate` for WETH, wstETH,
+and weETH, and `OnlyOneTroveLeft` for SCR. There is no current action.
+
+Add Quill to the Nerite inspector with chain ID 534352, active/v0 separation,
+runtime/registry/feed/collateral validation, sequencer-sentinel state, exact
+trove selection, and fixed-WETH-only conservative economics. Live remains
+no-go until three new eligibility episodes and 30 labeled outcomes establish
+positive race-adjusted EV, with at least `0.001 ETH` fixed-only net and a 4x
+reward-to-maximum-cost ratio. Any future sender needs an independently funded
+Scroll worker, signer, lease, RPC, telemetry, and explicit public-submission
+authorization.
+
+### Rank 3 — PoolTogether V5 cross-chain prize claims
 
 Status: permissionless payout and current activity verified; inspector not yet
 implemented.
@@ -2219,7 +2339,7 @@ these lanes should inherit the Ethereum standing-order builder bid.
 Base and Optimism each provide a 30–100 transaction current-draw sample, but
 seven-draw and failed-race evidence is incomplete and Arbitrum is under-sampled.
 
-### Rank 3 — Aesyx Liquity V2 liquidations
+### Rank 4 — Aesyx Liquity V2 liquidations
 
 Status: canonical deployments and positive exact payouts verified; activity is
 too sparse for a live lane.
@@ -2251,19 +2371,20 @@ trove state, and keep Avalanche signing disabled. At pinned Avalanche block
 `91613748`, sAVAX exposed one trove id and BTC.b three; both exact full-array
 simulations reverted `NothingToLiquidate`.
 
-### Rank 4 — Robinhood StonkPit collection
+### Rank 5 — Robinhood StonkPit collection
 
 Status: retain the existing dedicated P0 entry as the authoritative record.
 
-The user-supplied contract, transaction, eight crank blocks, 1% native-ETH tip,
-273-success history, failed-race sample, and public FCFS constraint have
-already been reconstructed above. The 2026-07-30 refresh found 30 successes
-over 10,025 seconds, of which 15 lost money, and one incumbent captured 21
-wins. Net after known successful and failed gas was
-`0.000192600921929417 ETH`. The next artifact remains the immutable minimum-ETH
-guard plus a read-only latency/win-rate observer. Use a separate Robinhood
-worker and gas-only signer if public submission is later authorized; do not
-mix chain ID `4663` into the Ethereum signer's nonce or lease domain.
+The verified `PitLpLocker`, clue token, linked transaction, 1% native-ETH tip,
+273-success history, failed-race sample, and public FCFS constraint have been
+reconstructed above. A later 100,000-block refresh found only five successes
+over 10,030 seconds, one unprofitable, with
+`0.000111375034999676 ETH` aggregate net. Current exact simulation was
+unprofitable by `0.000004941604941098 ETH`. The next artifact remains the
+immutable minimum-ETH guard specification plus a read-only latency/win-rate
+observer. Use a separate Robinhood worker and gas-only signer if public
+submission is later authorized; do not mix chain ID `4663` into the Ethereum
+signer's nonce or lease domain.
 
 ### Rejected — Beefy multi-chain harvests
 

@@ -80,8 +80,9 @@ Each new block, the keeper:
 1. Reads `roundCount` for the newest funding round and `ethPendingRound` for
    the independently resolving acquisition. It prioritizes
    `syncFwaResult → settle` for fulfilled acquisitions. When the acquisition is
-   ready and is next in FWA's sequence, it builds
-   `processAcquisitions(1) → syncFwaResult → settle` instead. Direct
+   ready and is within the configured FWA processing window, it builds
+   `processAcquisitions(count) → syncFwaResult → settle`, where `count`
+   includes every queued sequence through that acquisition. Direct
    `settle`/`settleForcedEth` remains available for claimable rounds.
 2. While planning that lifecycle prefix, revalidates a bounded cache of the
    highest-fee standing orders against the same head block. It waits at most
@@ -137,15 +138,22 @@ When `ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS=true`, another isolated
 hash-only subscription watches the canonical VRF coordinator. It accepts only
 an exact signed `fulfillRandomWords` whose decoded consumer, subscription, and
 proof-derived request ID match the pool's current pending FWA acquisition. The
-keeper exact-simulates and privately submits only
+keeper exact-simulates and privately submits only one of two complete
+alternatives:
 `[contiguous public coordinator nonce prefix ending in the target fulfillment,
-syncFwaResult(round), settle(round)]`. The bounded prefix is necessary when
-the oracle has earlier pending fulfillments; it is never sent alone, and only
-the two keeper receipts enter P&L. This closes
-the same-block state transition where the callback self-processes the
-acquisition before a confirmed-head planner can observe `fulfilled`. The lane
-uses the low `POOL_BUILDER_BID_BPS` policy rather than the high ordinary
-fulfilled-state bid.
+syncFwaResult(round), settle(round)]` or
+`[the same public prefix, processAcquisitions(count),
+syncFwaResult(round), settle(round)]`. The exact parent-state FWA queue defines
+`count`; it includes every sequence through the pool's request rather than
+assuming the request is next. Both alternatives must fully simulate, and the
+keeper selects the highest-profit valid one. The bounded public prefix is
+necessary when the oracle has earlier pending fulfillments; neither it nor a
+partial keeper prefix is ever sent alone, and only the selected two or three
+keeper receipts enter P&L. This captures callbacks that either self-process to
+`fulfilled` or leave the acquisition `ready` before a confirmed-head planner
+can observe the intermediate state. The lane uses the low
+`POOL_BUILDER_BID_BPS` policy rather than the high ordinary fulfilled-state
+bid.
 
 Candidate gas estimates run with bounded concurrency and retain fee-ranked
 ordering. When `WS_URL` is configured, a raw `newHeads` subscription supplies
@@ -374,9 +382,10 @@ successful `crank` fees are sent to that keeper address.
 - `ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS`: enables a separate hash-only
   coordinator subscription for the pool's exact pending FWA request. It
   derives the request ID from the fulfillment proof, verifies the canonical
-  consumer/subscription and raw signed transaction, and permits only the
-  atomic private `bounded contiguous coordinator prefix → sync → settle`
-  bundle. It requires `WS_URL` and private submission and defaults to `false`.
+  consumer/subscription and raw signed transaction, and permits only a fully
+  simulated atomic private `bounded contiguous coordinator prefix → optional
+  exact-count processor → sync → settle` bundle. It requires `WS_URL` and
+  private submission and defaults to `false`.
 - `PENDING_FUNDING_BUILDER_BID_BPS`: independent builder bid for the
   pending-funding lane. It defaults to 1000 bps and deliberately does not
   inherit or update the much higher confirmed-head standing-order adaptive
@@ -504,7 +513,7 @@ alternative is atomic, and the shortest alternative is raised when a plan has
 dependencies. For example, a three-order coverage plan followed by `pull`
 offers only the four-transaction bundle. A ready acquisition never offers its
 unpaid processor alone: the minimum planning dependency is
-`processAcquisitions(1) → syncFwaResult`. When an exact-simulated selected
+`processAcquisitions(count) → syncFwaResult`. When an exact-simulated selected
 lifecycle includes `settle` or `settleForcedEth`, settlement is also part of
 the submission floor; builders are not offered a same-nonce alternative that
 stops before it. A selected lifecycle without settlement retains its existing

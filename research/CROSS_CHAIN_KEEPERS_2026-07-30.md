@@ -23,16 +23,17 @@ comparisons at the sampled block/explorer price, not realized P&L.
 
 ## Positive backlog
 
-Only the following four candidates retained positive observed economics after
+Only the following five candidates retained positive observed economics after
 gas. This is an inspector order, not authorization to fund a signer or submit
 public transactions.
 
 | Rank | Candidate | Chain | Next action | Why |
 | ---: | --- | --- | --- | --- |
 | 1 | Nerite Liquity V2 liquidations | Arbitrum | Build a read-only fork-registry inspector | Complete scan found 40 wins and 30 failed races; the latest 30 wins were positive, the state set is tiny, and the protocol itself rejects stale calls |
-| 2 | PoolTogether V5 prize claims | Base, Optimism, Arbitrum | Build the existing proposed read-only inspector | Current draws had positive aggregate surplus, but individual margins can be tiny and raw stale batches can succeed for zero reward without a guard |
-| 3 | Aesyx Liquity V2 liquidations | Avalanche | Add to the same fork inspector | Both historical successes paid far more than gas, but only two wins were found and the sAVAX event attracted 12 failed calls |
-| 4 | StonkPit `collect` | Robinhood Chain | Add the minimum-tip guard specification and latency observer | A fresh 100,000-block sample remained positive in aggregate, but half of successful calls lost money and one incumbent won 70% |
+| 2 | Quill Liquity V2 liquidations | Scroll | Add four active branches to the same inspector | Three direct wins each cleared gas on fixed `0.005 WETH` alone, but one stale bot submitted 281 failed calls and no trove is currently eligible |
+| 3 | PoolTogether V5 prize claims | Base, Optimism, Arbitrum | Build the existing proposed read-only inspector | Current draws had positive aggregate surplus, but individual margins can be tiny and raw stale batches can succeed for zero reward without a guard |
+| 4 | Aesyx Liquity V2 liquidations | Avalanche | Add to the same fork inspector | Both historical successes paid far more than gas, but only two wins were found and the sAVAX event attracted 12 failed calls |
+| 5 | StonkPit `collect` | Robinhood Chain | Add the minimum-tip guard specification and latency observer | The newest exact state is unprofitable and the latest 100,000-block cadence fell to five calls, despite positive aggregate history |
 
 Maker/Sky and Liquity V1 remain worthwhile Ethereum research, but they are
 listed in the mainnet appendix rather than used to inflate the cross-chain
@@ -210,7 +211,98 @@ public sender. **This remains the first implementation choice** because the
 candidate set is tiny, the existing Liquity V2 planner is reusable, stale
 calls fail closed, and no helper, custody, approval, or principal is required.
 
-## 2. PoolTogether V5 claims on Base, Optimism, and Arbitrum
+## 2. Quill Liquity V2 liquidations on Scroll
+
+### Canonical active deployment and reward
+
+Liquity's official [fork list](https://www.liquity.org/forks) identifies Quill
+as the live Scroll friendly fork. Quill's official
+[contract page](https://docs.quill.finance/documentation/contract-addresses)
+clearly separates the following active deployment from its legacy v0
+contracts:
+
+| Branch | AddressesRegistry | TroveManager | PriceFeed | Collateral |
+| --- | --- | --- | --- | --- |
+| WETH | `0xe58a321eed288c84fd0b4f6d4892d099054caebd` | `0x9d2ad9712f3905f3e7803c92d027a197b4c8da90` | `0xb3b7b3764a445bea9a50321e5df024f4daa9f5c9` | `0x5300000000000000000000000000000000000004` |
+| wstETH | `0xbe4b85734a046b34b24c2538cba6205c98a74aeb` | `0xa57aae77fbb22f9c1fb55d516e44b856614e143e` | `0x1f07651182559bf23240632484669bc01c5b9afb` | `0xf610a9dfb7c89644979b4a0f27063e9e7d7cda32` |
+| weETH | `0x6a036d49287fd7d6808629e95f831a1addc62b95` | `0xf645d67733b76e9d69908108d2eef6bec53dd7c8` | `0x4f2be395032c67396f5d1e10c8abfb1df7267eef` | `0x01f0a31698c4d065659b9bdc21b3610292a1c506` |
+| SCR | `0x1cb0f2a6ba0c22388dd28550a90ec5d46c82cdba` | `0x862ec870184a66fd3ed6bd7e122bc18355002076` | `0xeee530331ebb3dd1067859dc712905386e5c0661` | `0xd29687c813d741e2f938f4ac377128810e217b1b` |
+
+The active `CollateralRegistry` is
+`0x358d90036e70542ae24b3813c0efecc1f8811442` and USDQ is
+`0xdb9e8f82d6d45fff803161f2a5f75543972b229a`. Scrollscan serves the deployed
+`TroveManager.sol` source and ABI; all four managers have identical runtime
+hash
+`0x252f909328ecc10871cccd0de6c49f3e1e4b3a57a97b3a71d7dde57a36007fab`.
+The manager also checks Quill's Scroll sequencer sentinel before liquidation.
+
+The permissionless entrypoint is the same
+`batchLiquidateTroves(uint256[])` selector `0xef49a6b4`. The deployed source:
+
+- reverts `EmptyData`, `NothingToLiquidate`, or `OnlyOneTroveLeft` rather than
+  silently succeeding;
+- pays `msg.sender` fixed `0.005 WETH` per liquidated trove;
+- pays 0.5% of collateral, capped at two collateral tokens;
+- requires no value, debt token, Stability Pool deposit, principal, or
+  approval.
+
+This reward is five times Nerite's fixed reserve and is conservatively valuable
+without pricing variable collateral.
+
+### Historical calls, failures, and economics
+
+The four active manager address histories contained three successful direct
+liquidations:
+
+| Branch / date | Transaction | Fixed / variable reward | Receipt cost | Fixed-only net |
+| --- | --- | ---: | ---: | ---: |
+| SCR / 2025-07-14 | [`0x343a…1e4a`](https://scrollscan.com/tx/0x343aa3a02569dc2ec804c4e78ea69cf443342b5c5ef143da828abab924be1e4a) | `0.005 WETH + 2 SCR` | `0.000002362791489195 ETH` | `0.004997637208510805 ETH` |
+| SCR / 2025-10-18 | [`0x7bfb…8c0d`](https://scrollscan.com/tx/0x7bfbcf757c08ef81e9e25d8d4944f46dd0cfe36a2a91226bccb38dda76ff8c0d) | `0.005 WETH + 2 SCR` | `0.000000088075340347 ETH` | `0.004999911924659653 ETH` |
+| WETH / 2026-02-05 | [`0x7eff…81a1`](https://scrollscan.com/tx/0x7eff03aed0cc1d11390a7925340b1a0f3a7af17146104336b6d3368c993081a1) | `0.005 WETH + 0.000457065092856536 WETH` | `0.000004250268729804 ETH` | `0.005452814824126732 ETH` |
+
+All three were transaction position zero, used zero value, and exposed no
+positive native internal transfer or meaningful priority payment. The WETH
+winner and latest SCR winner were the same address that appears in the Nerite
+sample, evidence that an established Liquity searcher already covers both
+chains.
+
+Direct history on the active SCR manager also contained 281 failures from one
+address, burning `0.000008191269552834 ETH`. Many were repeated in consecutive
+one-second Scroll blocks around the same event. That spam was cheap relative
+to one fixed reward, but it demonstrates that naïve speculative retries are
+not acceptable. The active-address scan may omit contract-routed calls; a
+complete event-topic index remains an inspector requirement.
+
+At pinned Scroll block 34,525,512, the live set contained only five troves:
+WETH 1, wstETH 2, weETH 1, and SCR 1. Exact full-array simulation returned
+`NothingToLiquidate` for WETH, wstETH, and weETH, and `OnlyOneTroveLeft` for
+SCR. **There is no current action.**
+
+### Inspector decision and thresholds
+
+Add Quill to the same unsigned registry-driven inspector as Nerite:
+
+1. Verify Scroll chain ID 534352, active rather than v0 addresses, the common
+   runtime hash, registry/feed/collateral relationships, and sequencer-sentinel
+   state.
+2. Enumerate the five-trove set at an exact block, derive only unhealthy
+   active/zombie IDs, and exact-call/estimate the selected batch from the
+   eventual EOA.
+3. Use fixed WETH alone for the send gate. Treat collateral compensation as
+   upside until an exact trace proves the delta and a conservative oracle
+   haircut values it.
+4. Reconstruct all `Liquidation` events, including helper-routed calls, and
+   label every failed race, ordering cost, and observed winner.
+
+**Inspector: go alongside Nerite. Live lane: no-go.** Require at least three
+new live eligibility episodes, 30 labeled competitor outcomes, fixed-only net
+of at least `0.001 ETH`, fixed reward at least 4x maximum total fee, and a
+positive lower-confidence race-adjusted EV before proposing execution. Use a
+separate Scroll worker/signer/lease/RPC/gas budget and obtain explicit
+authorization for public submission. The fixed reward is compelling, but
+three sparse historical wins do not establish capturable share.
+
+## 3. PoolTogether V5 claims on Base, Optimism, and Arbitrum
 
 ### Canonical contracts, ABI, and runtime pins
 
@@ -369,7 +461,7 @@ winner-indexing surface, transaction-level margin, and withdrawal accounting
 are materially more complex than Nerite's small, protocol-fail-closed trove
 set.
 
-## 3. Aesyx Liquity V2 liquidations on Avalanche
+## 4. Aesyx Liquity V2 liquidations on Avalanche
 
 ### Canonical contracts and exact payouts
 
@@ -410,42 +502,168 @@ complete history with reward-token prices at each block. Avalanche submission
 is public and no private path was verified, so historical profitability is
 not authority to fund or run a signer.
 
-## 4. Robinhood StonkPit collection
+## 5. Robinhood StonkPit collection
+
+### Canonical target and chain metadata
 
 Robinhood's official
-[chain overview](https://docs.robinhood.com/chain/) confirms strict
-first-come-first-served sequencer ordering and ETH gas. Its
-[connection guide](https://docs.robinhood.com/chain/connecting/) identifies
-chain ID 4663 and warns that the public RPC is rate-limited and not intended
-for production.
+[chain overview](https://docs.robinhood.com/chain/) identifies the network as
+an Ethereum-compatible Arbitrum L2 using ETH for gas. It documents strict
+first-come-first-served sequencer ordering: arrival time, not a higher fee,
+determines ordering. The official
+[connection guide](https://docs.robinhood.com/chain/connecting/) gives mainnet
+chain ID `4663`, the Blockscout explorer, a public RPC, sequencer feed, and
+sequencer submission endpoint. It explicitly labels those public endpoints
+rate-limited and recommends a production provider such as Alchemy, including
+WebSocket and archive service.
 
-The permissionless target is
-`StonkPitLocker.collect(address tipTo)` at
-`0xDeb8d589251717e367d0f3E9dDE5D4dB63968B40`, not the user-supplied
-`0xe934e36a439c94017b64a3fece66af12099abf50` collection token. It pays
-`tipTo` 1% of collected native ETH. Because token-only collections can succeed,
-raw execution has a successful-loss mode.
+The exact crank target is the fully verified, non-proxy `PitLpLocker` at
+[`0xDeb8…8B40`](https://robinhoodchain.blockscout.com/address/0xDeb8d589251717e367d0f3E9dDE5D4dB63968B40?tab=contract),
+not “StonkPitLocker.” Blockscout verifies `src/PitLpLocker.sol`, Solidity
+0.8.24, Cancun EVM, 200 optimizer runs, and reports unchanged deployed
+bytecode. The runtime code hash is
+`0x339e00a9a51e99629f0f541506d3f489d865841c9c2a2d527b205a2bd8c26099`.
 
-`npm run inspect:robinhood` was rerun at block 23,475,850. In the preceding
-100,000 blocks, spanning 10,025 seconds, it found:
+The constructor and current getters agree on the canonical relationships:
 
-- 30 successful collections: 15 profitable and 15 unprofitable after gas
-- `0.000317510029095417 ETH` gross tips
-- `0.000121748509676 ETH` successful-call gas
-- one failed race costing `0.00000316059749 ETH`
-- `0.000192600921929417 ETH` net after all known gas, an unclaimed
-  protocol-wide rate of about `0.00165992216 ETH/day`
+| Role | Address / value |
+| --- | --- |
+| Position manager | `0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3` |
+| Position token id | `476274` |
+| WETH | `0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73` |
+| DERP / `pit` | `0x6543B7746ca744C4bb2198191E71f40FF04C41b9` |
+| Merchant | `0x3bFfE8c3c53d1432088a771D095Db018c3006Eb9` |
+| Treasury | `0x63F19619665bF970c2A78e5A463397a3829706ae` |
+| Green mine | `0x2d0da469115232aD00159757f9d25f81D498206D` |
+| Blue mine | `0x6FeD5aE5d486A59081FDC040179CEBDA4be80511` |
+| LP vault | `0xD66C4e61fe2D334a53Af8f595886F50Db32A5378` |
+| Tip / merchant split / blue divisor | `100 bps / 7,000 bps / 6` |
 
-One incumbent won 21 of the 30 calls and retained
-`0.00016867380355997 ETH`, about 87.6% of the whole sampled net. This confirms
-that the opportunity remains real but latency dominated.
+The user's clue address,
+[`0xe934…bF50`](https://robinhoodchain.blockscout.com/address/0xe934e36a439c94017b64a3fece66af12099abf50?tab=contract),
+is a separate fully verified `CollectionToken`, shown by the explorer as
+StonkBroker (`STONKBROKER`). It is neither the locker nor its `pit` token.
 
-**Verdict: keep behind Nerite, PoolTogether, and Aesyx.** The next artifact is
-an immutable minimum-ETH guard specification plus a read-only observer using a
-production-grade WebSocket/sequencer path. Measure notification-to-inclusion
-latency, incumbent share, and expected profit including failed races. Public
-submission and a dedicated Robinhood signer still require explicit
-authorization.
+### Exact ABI and reward mechanism
+
+The permissionless entrypoint is
+`collect(address tipTo) returns (uint256 ethTotal,uint256 pitTotal)`, selector
+`0x06ec16f8`. It is nonpayable, requires no token, approval, inventory, or
+principal, and is protected by a reentrancy guard.
+
+The call collects the locked full-range WETH/DERP position's entire fee
+inventory, unwraps WETH, and pays:
+
+- `floor(ethTotal * 100 / 10_000)` ETH to `tipTo`, or to `msg.sender` when
+  `tipTo == address(0)`;
+- 70% of post-tip ETH to the merchant and 30% to the treasury;
+- five-sixths of DERP to the green mine and one-sixth to the blue mine.
+
+It reverts `NothingToCollect` only when both ETH and DERP totals are zero.
+A DERP-only collection or an ETH total below execution cost can therefore
+succeed and lose money. The protocol provides no minimum-tip argument.
+
+The user-linked
+[transaction `0x8ff0…dd35`](https://robinhoodchain.blockscout.com/tx/0x8ff04cc39b1dac6bb16a02e5910a5216946ead38ca76a692b2ea6aa00502dd35)
+at block 22,628,894 called the verified locker directly with zero value:
+
+- collected `0.000711473512236046 WETH` and
+  `3,141.667739094243986948 DERP`;
+- paid `0.000007114735122360 ETH` to the caller;
+- consumed `221,279` gas at `0.000000022498 ETH/gas`, costing
+  `0.000004978334942 ETH`;
+- retained `0.000002136400180360 ETH`, a 1.43x reward-to-gas ratio.
+
+Its decoded transfers exactly match the verified source's 70/30 ETH and 5:1
+DERP routes. No capital or approval was involved.
+
+### Frequency, competitors, and fee behavior
+
+The lifetime-bounded scan through block 22,635,502 found 273 successful calls:
+176 profitable and 97 unprofitable after receipt gas. Gross tips were
+`0.013750746559413902 ETH`, successful gas was
+`0.001378067039562 ETH`, and 23 failed races cost another
+`0.000072785051656 ETH`. Early outliers dominate that history.
+
+At block 23,475,850, a 100,000-block/10,025-second window found 30 successes,
+only 15 profitable, plus one failed race. Net after known gas was
+`0.000192600921929417 ETH`. One incumbent won 21 calls and retained 87.6% of
+the aggregate net.
+
+The 2026-07-30 refresh at block 23,661,991 shows that the rate has already
+changed materially. Its 100,000-block window lasted 10,030 seconds and found:
+
+- five successes, four profitable and one unprofitable, with no failed direct
+  call in the bounded explorer sample;
+- `0.000133772263945676 ETH` of tips and
+  `0.000022397228946 ETH` of receipt gas;
+- `0.000111375034999676 ETH` protocol-wide net, a short-window extrapolation
+  of about `0.0009594 ETH/day`;
+- three of five wins by one address, which retained
+  `0.000112202441808644 ETH`.
+
+The two latest inspected winners used zero `maxPriorityFeePerGas` and contained
+no payment outside the contract's documented tip/merchant/treasury routes.
+That is consistent with Robinhood's FCFS policy: there is no evidence for a
+builder-bid lane, and paying priority fees should not improve position.
+
+At that same head, exact direct-call simulation was executable but
+unprofitable:
+
+- `ethTotal = 0.000078492705890297 ETH`;
+- gross caller tip `0.000000784927058902 ETH`;
+- estimated direct gas `272,692` at `0.021 gwei`, costing
+  `0.000005726532 ETH`;
+- net `-0.000004941604941098 ETH`;
+- direct-call break-even inventory `0.0005726532000001 ETH`.
+
+The current inventory was only 13.7% of break-even. **There is no current
+profitable action.**
+
+### Safe guard, observer, and deployment boundary
+
+Raw `collect` should never be submitted. A minimal immutable wrapper should
+pin the locker code hash and relationships, call
+`collect(rewardEOA)`, then revert unless returned `ethTotal` is at least a
+caller-supplied `minEthTotal`. The EOA receives the tip directly; the guard
+never holds ETH or DERP. An outer revert rolls back an otherwise successful
+token-only or tiny-ETH collection:
+
+```solidity
+(uint256 ethTotal,) = PIT_LP_LOCKER.collect(rewardEOA);
+require(ethTotal >= minEthTotal, "INSUFFICIENT_ETH_FEES");
+```
+
+`minEthTotal` must be computed from exact guard gas, the transaction's maximum
+fee, and the configured profit floor:
+
+`ceil((maxGasCost + minProfit) * 10_000 / 100)`.
+
+This removes the successful-loss mode but not the gas loss from arriving after
+another collector. The observer must therefore measure:
+
+- WebSocket/sequencer-feed signal-to-submission and signal-to-inclusion
+  latency;
+- qualifying guarded inventories, incumbents, stale reverts, and observed
+  capture share;
+- exact receipt gas and race-adjusted expected value;
+- whether direct documented sequencer submission reduces arrival latency
+  relative to an ordinary provider without implying privacy.
+
+Any future live worker needs its own chain-4663 signer, gas budget, nonce and
+lease domain, RPC/WebSocket capacity, durable telemetry, and realized-P&L
+baseline. It must not run inside the Ethereum/Flashbots signer or inherit an
+Ethereum builder bid. Public sequencer submission and signer funding still
+require explicit authorization.
+
+**Verdict: guard specification and read-only latency observer are go; guard
+deployment and live submission are no-go.** Require at least seven days and
+100 newly observed qualifying/non-qualifying episodes, a lower-confidence
+positive race-adjusted EV, at least a 2x tip-to-maximum-gas ratio, and a
+configured retained-profit floor before proposing public execution. The
+current state is unprofitable and the latest cadence is six times lower than
+the prior 100,000-block sample, so historical aggregate profit cannot justify
+funding this lane.
 
 ## Mainnet appendix
 
@@ -763,10 +981,11 @@ arbitrage without explicit authorization.
 ## Recommended next implementation order
 
 1. Add one unsigned Liquity-fork inspector covering the eight canonical Nerite
-   managers and two canonical Aesyx managers. Pin state, verify deployed
+   managers, four active Quill managers, and two canonical Aesyx managers. Pin
+   state, distinguish Quill active/v0 deployments, verify deployed
    relationships and bytecode, replay all liquidation receipts, decode fixed
    and collateral compensation, and report stale-race expected value by
-   branch/caller.
+   chain/branch/caller.
 2. Build the already-specified PoolTogether claim inspector and reconstruct at
    least seven draws on each chain before designing a guard.
 3. Extend `inspect:robinhood` with durable read-only latency, incumbent-share,
