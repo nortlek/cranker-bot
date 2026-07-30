@@ -1950,8 +1950,8 @@ the external caller, and show recent on-chain activity.
 
 | Rank | Chain and action | Evidence-backed conclusion |
 | ---: | --- | --- |
-| 1 | Nerite Liquity V2 liquidations on Arbitrum | Strongest next inspector. Exact sampled calls retained `0.0009905–0.0015625 ETH` from fixed/variable WETH compensation after gas, although liquidations are sparse and public Timeboost competition causes failed races. |
-| 2 | PoolTogether V5 prize claims on Base, Optimism, and Arbitrum | Daily WETH-denominated caller fees and positive recent aggregate claim-stage surplus, but winner discovery, stale-race protection, reward withdrawal, and public-sequencer competition still need solving. |
+| 1 | Nerite Liquity V2 liquidations on Arbitrum | Strongest next inspector. Complete history found 40 wins and 30 failed races; the latest 30 wins were positive, the current state set is tiny, and stale calls fail closed. |
+| 2 | PoolTogether V5 prize claims on Base, Optimism, and Arbitrum | Daily WETH-denominated fees and positive current-draw aggregate surplus, but individual margins can be tiny and raw stale batches can succeed for zero reward without a guard. |
 | 3 | Aesyx Liquity V2 liquidations on Avalanche | Exact sAVAX and BTC.b liquidation payouts dwarfed gas, but only two successful events were found and the sAVAX event attracted 12 failed calls. |
 | 4 | Robinhood StonkPit `collect` | The 1% ETH tip remains positive in aggregate, but half of the refreshed successful calls lost gas and one incumbent captured 70% of wins. |
 
@@ -1962,8 +1962,9 @@ research file.
 
 ### Rank 1 — Nerite Liquity V2 liquidations
 
-Status: canonical deployments, permissionless payout, and sampled positive
-economics verified; inspector not yet implemented.
+Status: canonical deployments, permissionless payout, complete known
+liquidation-event history, and current state verified; unsigned inspector is
+the next implementation.
 
 Nerite's official
 [deployment page](https://docs.nerite.org/docs/technical-documentation/contracts)
@@ -1982,27 +1983,41 @@ TroveManagers:
 | COMP | `0xcfc1b1098d53951811210b6b88feb6a8572267fe` |
 | tBTC | `0x285b3d3813d7a132d3f1ab48bb5a585e1363cdeb` |
 
-The canonical
-[`TroveManager`](https://github.com/NeriteOrg/nerite/blob/main/contracts/src/TroveManager.sol)
-exposes `batchLiquidateTroves(uint256[])`, reverts when nothing is eligible,
-and sends fixed WETH plus variable collateral compensation to `msg.sender`.
-The source sets the fixed reserve to `0.001 WETH` per liquidated trove and
-needs no caller principal, approval, or Stability Pool deposit.
+The reviewed ABI/source is pinned to Nerite commit
+[`2076006`](https://github.com/NeriteOrg/nerite/tree/2076006c133eae54a8e1f681e1cec7fd76e81d95).
+`TroveManager.batchLiquidateTroves(uint256[])` (selector `0xef49a6b4`) is
+permissionless, reverts `NothingToLiquidate` when no supplied debt can be
+liquidated, and pays `msg.sender` fixed WETH plus variable collateral
+compensation. The fixed reserve is `0.001 WETH` per trove and the collateral
+share is 0.125%, subject to the cap. No caller principal, approval, debt token,
+transaction value, or Stability Pool deposit is required.
 
-A bounded latest-address-page sample across all eight managers found 25
-successful and 30 failed calls. The most recent success was the tBTC branch at
-block `470338894` on 2026-06-05:
+A complete `Liquidation`-topic scan found 42 events in 40 successful
+transactions from 2025-09-25 through 2026-06-25. Five senders won
+`15 / 10 / 10 / 4 / 1` transactions; 25 called a manager directly and 15 used
+helpers. The most recent success was tBTC at block `477214808`:
 
-- [transaction `0xdbc4…1512`](https://arbitrum.blockscout.com/tx/0xdbc45fd68f2db6cfca8ab2a51a120cea9b66c2efbb199aab3506d23414191512)
-- `0.001 WETH` caller compensation
-- `0.000009470127948 ETH` gas
-- `0.000990529872052 ETH` retained before optional WETH-unwrapping gas
+- [transaction `0xa943…871c`](https://arbitrum.blockscout.com/tx/0xa943b8224459e00164d2ea2df1918363bff8d855e3683fb23485aca2d904871c)
+- `0.001 WETH` fixed compensation and zero variable collateral
+- `0.000021148876476 ETH` receipt cost
+- `0.000978851123524 ETH` fixed-only retained value
 
-A stale competitor reverted in the next block and lost
-`0.000002730999794 ETH`. A WETH-branch sample retained
-`0.001562497736752 ETH` after gas from `0.001675 WETH` compensation. The
-latest observed call was a failed wstETH attempt on 2026-07-01, so this is
-event-driven rather than continuously callable.
+All 40 successes paid `0.043 WETH` fixed compensation and spent
+`0.074282686571337 ETH` in gas. Five old wins were economically negative
+because of extreme gas bidding, including approximate losses of `$63` and
+`$108`; a live lane must never copy those clearing prices. The most recent 30
+were all positive under an indicative event-price/nearest-day conversion,
+producing about `$158.76` reward, `$12.26` gas, and `$146.50` net. These USD
+values are comparative estimates, not realized P&L.
+
+Thirty failed direct calls burned `0.003479717830511 ETH`: 22 decoded
+`NothingToLiquidate`, one `EmptyData`, and seven were unclassified. One old
+outlier was `0.003221850519552 ETH`; the other 29 averaged about
+`0.000008892 ETH`. A tBTC bot submitted 13 stale failures on one day. The
+protocol fails closed, but public races still cost gas. Fully paginated traces
+of the latest ten wins showed no separate native beneficiary payment; their
+observable ordering cost was receipt gas/L1/priority fees. This does not prove
+that no off-chain arrangement existed.
 
 At pinned Arbitrum block `489358880`, the eight managers exposed 15 trove ids.
 Exact full-array gas simulation found no current action: six branches reverted
@@ -2011,17 +2026,29 @@ Exact full-array gas simulation found no current action: six branches reverted
 
 Recommended next inspector:
 
-1. Add one unsigned Liquity-fork registry script with all eight canonical
-   managers, price feeds, MCRs, collateral tokens, and deployed relationship
-   checks.
-2. Replay every available successful and failed liquidation receipt, decoding
-   fixed WETH, collateral compensation, gas, sender, target order, and
-   counterfactual stale-race loss.
-3. Inspect all current troves at one pinned Arbitrum block and report exact
-   eligibility without signing.
-4. Require current repeated expected value before proposing a separate
-   Arbitrum worker. Timeboost/public sequencing is not an Ethereum
-   builder-bid lane.
+1. Add one unsigned, chain-ID-42161 Liquity-fork registry script that verifies
+   all eight official AddressesRegistry/manager/feed/collateral relationships
+   and deployed bytecode at startup.
+2. At one exact WebSocket block, enumerate the small trove set, read
+   branch-specific risk parameters, identify only unhealthy active/zombie
+   troves, and exact-call/estimate the specific batch from the eventual EOA.
+3. Use only fixed WETH as the conservative send-gate reward unless an exact
+   trace proves variable collateral deltas. Persist live eligibility, arrival,
+   competitor, success, stale-revert, token-delta, and full L1/gas telemetry.
+4. Keep signing disabled until at least three new eligibility episodes and 30
+   live competitor outcomes are observed. A proposed live attempt must have
+   at least `0.00025 ETH` fixed-only net, reward at least 4x maximum cost, fee
+   budget no more than 25% of fixed WETH, observed win probability at least
+   10%, and lower-confidence race-adjusted EV at least `0.0001 ETH`.
+5. Auto-disable after three consecutive stale reverts or rolling failed gas
+   above 10% of realized gross. Any authorized live worker needs a separate
+   Arbitrum signer, gas balance, RPC, nonce/lease domain, and bid policy.
+
+**Go for the inspector; no-go for live submission now.** There is no current
+eligible trove and no live latency/share evidence. The small candidate set,
+reusable Liquity logic, protocol-native stale revert, and lack of a guard,
+approval, custody, or principal make this the first cross-chain implementation
+ahead of PoolTogether.
 
 ### Rank 2 — PoolTogether V5 cross-chain prize claims
 
@@ -2030,11 +2057,11 @@ implemented.
 
 Canonical deployments:
 
-| Chain | PrizePool | Claimer |
-| --- | --- | --- |
-| Base | `0x45b2010d8a4f08b53c9fa7544c51dfd9733732cb` | `0xcdCE635b774DE77cdF791647601dba64a75547ba` |
-| Optimism | `0xF35fE10ffd0a9672d0095c435fd8767A7fe29B55` | `0x220C9398b0Ee07472bF8906e44574Cb9FE3B8D90` |
-| Arbitrum | `0x52e7910c4c287848c8828e8b17b8371f4ebc5d42` | `0xBEA38368f2A657f00f173764f18F00e841317c73` |
+| Chain | PrizePool | Claimer | TwabController |
+| --- | --- | --- | --- |
+| Base | `0x45b2010d8a4f08b53c9fa7544c51dfd9733732cb` | `0xcdCE635b774DE77cdF791647601dba64a75547ba` | `0x7e63601F7e28C758Feccf8CDF02F6598694f44C6` |
+| Optimism | `0xF35fE10ffd0a9672d0095c435fd8767A7fe29B55` | `0x220C9398b0Ee07472bF8906e44574Cb9FE3B8D90` | `0xCB0672dE558Ad8F122C0E081f0D35480aB3be167` |
+| Arbitrum | `0x52e7910c4c287848c8828e8b17b8371f4ebc5d42` | `0xBEA38368f2A657f00f173764f18F00e841317c73` | `0x971ECc4E75c5FcFd8fc3eADc8F0c900b5914DC75` |
 
 The addresses come from PoolTogether's official
 [Base](https://dev.pooltogether.com/protocol/deployments/base/),
@@ -2045,11 +2072,14 @@ manifests. The reviewed Claimer source is
 and the PrizePool reward accounting is
 [`fedd70f`](https://github.com/GenerationSoftware/pt-v5-prize-pool/blob/fedd70f3b62086895ee4f0f2224f941e4cdb89b0/src/PrizePool.sol).
 
-`Claimer.claimPrizes(...)` is permissionless and needs no caller principal or
-token approval. It computes a per-claim auction fee, asks each prize vault to
-claim with that fee, and credits successful fees in the PrizePool's WETH reward
-ledger for the selected recipient. `PrizePool.withdrawRewards(...)` realizes
-the WETH. The configured draw period was `86,400` seconds on all three chains.
+`Claimer.claimPrizes(vault,tier,winners,prizeIndices,feeRecipient,minFeePerClaim)`
+is permissionless and needs no caller principal, value, or token approval. It
+computes a per-claim auction fee, asks the prize vault to claim each candidate,
+and returns `feePerClaim * successfulClaimCount`. Successful fees are credited
+in the PrizePool's WETH reward ledger for the explicit recipient; only that
+recipient can later call `PrizePool.withdrawRewards(...)`. The configured draw
+period was `86,400` seconds, auction duration `21,600` seconds, and maximum fee
+portion 10% on all three chains.
 
 A current-draw scan on 2026-07-30 decoded every `ClaimedPrize` event in the
 bounded lookback and the full receipt cost, including OP-stack L1 fees:
@@ -2066,14 +2096,19 @@ every reward recipient was the transaction sender. Base showed 11 distinct
 senders, Optimism four, and Arbitrum one. First claims landed 48 seconds, 310
 seconds, and 14,482 seconds after the respective draw award. The Base claim
 window then remained active for at least 25,880 seconds and the Optimism window
-for at least 17,266 seconds. There is real value, but the highest-throughput
-tiers are already competitive.
+for at least 17,266 seconds. An Optimism transaction retained only
+`0.000000004066399079 ETH` after execution and L1 data cost despite the
+positive draw aggregate. There is real value, but transaction-level batching,
+not claim count, determines profitability.
 
 The Claimer's `_claim` loop catches individual stale/losing claims instead of
 reverting the transaction. `minFeePerClaim` protects the fee auction level but
 does not require any claim to succeed. A competitor can therefore consume the
 candidate set first and leave a raw transaction successfully burning gas for
-zero reward. Do not submit a raw cross-chain `claimPrizes` call.
+zero reward. Do not submit a raw cross-chain `claimPrizes` call. At the pinned
+head, the three claim windows were open, but no authoritative unclaimed,
+profitable account set had been derived; no current candidate is classified
+eligible.
 
 Recommended next inspector:
 
@@ -2085,22 +2120,31 @@ Recommended next inspector:
    hosted winner list without on-chain verification.
 3. Reconstruct at least seven draws of `ClaimedPrize`, `ClaimError`,
    `IncreaseClaimRewards`, and `WithdrawRewards`, grouping complete competitor
-   sequences and failed races by sender.
+   sequences and failed races by sender. Require at least 30 successful
+   transactions and all observable zero-reward/failed races per chain;
+   Arbitrum currently has only one successful transaction in the sample.
 4. Quote batches with the live Claimer curve, exact gas, L1 data fees, and the
    final reward-withdrawal cost. Rank by conservative retained WETH, not claim
    count or the current fee alone.
-5. Specify a minimal guard that calls the canonical Claimer and reverts unless
-   its returned aggregate fees meet a caller-supplied floor. Review reward
-   recipient and withdrawal semantics before any helper holds or forwards
-   WETH.
+5. Specify a minimal immutable guard that calls the canonical Claimer with the
+   keeper EOA as `feeRecipient`, then reverts unless returned `totalFees` meets
+   a caller-supplied `minTotalFees`. This rolls back a fully stale nested batch
+   without the helper holding or forwarding WETH. It does not eliminate public
+   stale-revert gas.
 
-Live prerequisites are a reviewed guard, dry-run evidence across multiple
-draws, explicit authorization for public sequencer submission, and separate
-chain-scoped workers/signers, leases, RPCs, telemetry, and gas balances. No
-generally available private atomic path was verified in this pass. Arbitrum
-also has Timeboost ordering rather than Ethereum builder auctions. Base and
-Optimism use their sequencers. None of these lanes should inherit the Ethereum
-standing-order builder bid.
+For each future candidate, `minTotalFees` must cover exact maximum success
+cost, amortized withdrawal, the retained-profit floor, and at least a 2x
+reward-to-cost ratio. Require lower-confidence race-adjusted EV
+`p(win) * netWin - (1 - p(win)) * staleRevertCost > 0`, multiple positive
+draws, and withdrawal inventory at least 10x withdrawal gas. Live prerequisites
+are a reviewed guard, explicit authorization for public sequencer submission,
+and separate chain-scoped workers/signers, leases, RPCs, telemetry, and gas
+balances. No generally available private atomic path was verified. None of
+these lanes should inherit the Ethereum standing-order builder bid.
+
+**Go for the inspector second; no-go for guard deployment or live submission.**
+Base and Optimism each provide a 30–100 transaction current-draw sample, but
+seven-draw and failed-race evidence is incomplete and Arbitrum is under-sampled.
 
 ### Rank 3 — Aesyx Liquity V2 liquidations
 
