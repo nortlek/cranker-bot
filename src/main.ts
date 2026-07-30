@@ -64,6 +64,7 @@ import {
 import {
   LatestHeadSignal,
   parseNewHeadsPayload,
+  readBeforeTargetBlock,
   retryTransientRead,
 } from "./heads.js";
 import { minimumLifecycleSubmissionPrefix } from "./lifecycle.js";
@@ -704,34 +705,15 @@ async function main(): Promise<void> {
         let retainReservation = false;
         try {
           await assertSignerLeaseHeld();
-          const [submissionHead, latestNonce, pendingNonce] =
-            await Promise.all([
-              publicClient.getBlockNumber(),
-              publicClient.getTransactionCount({
-                address: signer.address,
-                blockTag: "latest",
-              }),
-              publicClient.getTransactionCount({
-                address: signer.address,
-                blockTag: "pending",
-              }),
-            ]);
-          if (
-            submissionHead >= targetBlock ||
-            !signerNonceIsUsable({
-              account: signer.address,
-              expectedNonce: firstPlannedRequest.nonce,
-              latestNonce,
-              pendingNonce,
-            })
-          ) {
+          const observedTarget =
+            headSignal.latestAfter(targetBlock - 1n);
+          if (observedTarget !== undefined) {
             log("info", "signer_submission_gate_rejected", {
               targetBlock: targetBlock.toString(),
-              currentBlock: submissionHead.toString(),
+              currentBlock: observedTarget.toString(),
               expectedNonce: firstPlannedRequest.nonce,
-              latestNonce,
-              pendingNonce,
               lane: "normal_keeper_pass",
+              reason: "target_block_already_observed",
             });
             return { hashes: [], targetBlock, relayCount: 0 };
           }
@@ -1272,28 +1254,54 @@ async function main(): Promise<void> {
         if (minimumEconomicPrefix > selected.length) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
+        const finalGateStartedAt = performance.now();
+        const finalGate = await readBeforeTargetBlock({
+          headSignal,
+          targetBlock,
+          timeoutMs: Math.min(
+            config.receiptTimeoutMs,
+            config.headStaleTimeoutMs,
+          ),
+          read: () =>
+            Promise.all([
+              exactStateClient.getTransactionCount({
+                address: signer.address,
+                blockNumber: targetBlock - 1n,
+              }),
+              exactStateClient.getTransactionCount({
+                address: signer.address,
+                blockTag: "pending",
+              }),
+              exactStateClient.getBalance({
+                address: signer.address,
+                blockNumber: targetBlock - 1n,
+              }),
+            ]),
+        });
+        log("info", "bundle_stage_timing", {
+          stage: "final_submission_gate",
+          durationMs: performance.now() - finalGateStartedAt,
+          targetBlock: targetBlock.toString(),
+          result: finalGate.status,
+          exactStateTransport,
+        });
+        if (finalGate.status === "target_observed") {
+          log("info", "bundle_target_expired_before_submission", {
+            targetBlock: targetBlock.toString(),
+            currentBlock:
+              finalGate.observedBlock?.toString() ?? "",
+            expectedNonce: firstPlannedRequest.nonce,
+            action: "skip_submission",
+            reason: "subscribed_target_head_observed",
+          });
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
         const [
-          finalSubmissionHead,
           finalLatestNonce,
           finalPendingNonce,
           finalAccountBalance,
-        ] = await Promise.all([
-          publicClient.getBlockNumber(),
-          publicClient.getTransactionCount({
-            address: signer.address,
-            blockTag: "latest",
-          }),
-          publicClient.getTransactionCount({
-            address: signer.address,
-            blockTag: "pending",
-          }),
-          publicClient.getBalance({
-            address: signer.address,
-            blockTag: "latest",
-          }),
-        ]);
+        ] = finalGate.value;
         if (
-          finalSubmissionHead >= targetBlock ||
           !signerNonceIsUsable({
             account: signer.address,
             expectedNonce: firstPlannedRequest.nonce,
@@ -1303,11 +1311,12 @@ async function main(): Promise<void> {
         ) {
           log("info", "bundle_target_expired_before_submission", {
             targetBlock: targetBlock.toString(),
-            currentBlock: finalSubmissionHead.toString(),
+            currentBlock: "",
             expectedNonce: firstPlannedRequest.nonce,
             latestNonce: finalLatestNonce,
             pendingNonce: finalPendingNonce,
             action: "skip_submission",
+            reason: "signer_nonce_unavailable",
           });
           return { hashes: [], targetBlock, relayCount: 0 };
         }
@@ -1325,6 +1334,19 @@ async function main(): Promise<void> {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
         await assertSignerLeaseHeld();
+        const observedAtRelaySubmission =
+          headSignal.latestAfter(targetBlock - 1n);
+        if (observedAtRelaySubmission !== undefined) {
+          log("info", "bundle_target_expired_before_submission", {
+            targetBlock: targetBlock.toString(),
+            currentBlock:
+              observedAtRelaySubmission.toString(),
+            expectedNonce: firstPlannedRequest.nonce,
+            action: "skip_submission",
+            reason: "subscribed_target_head_observed",
+          });
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
         const minimumSubmissionPrefix =
           minimumLifecycleSubmissionPrefix(
             selectedRequests,

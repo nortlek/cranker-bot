@@ -144,6 +144,12 @@ up to one second. HTTP is only a subscription-liveness watchdog: if it proves
 that the subscription missed a head, the process exits for a supervised
 restart rather than switching to a second planning path.
 
+Private submission uses that subscribed head as its target-block deadline as
+well. The final exact-parent nonce and balance gate runs on the WebSocket RPC
+and races arrival of the target head. A slow or lagging state read therefore
+causes the bundle to be skipped, never submitted to an already-built block.
+`bundle_stage_timing` reports this gate as `final_submission_gate`.
+
 `lastRoundBought` and the pool's state remain the authoritative replay
 protection. A new batch starts only when the keeper account has no existing
 pending nonce gap; after a restart, this prevents the bot from duplicating

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   LatestHeadSignal,
   parseNewHeadsPayload,
+  readBeforeTargetBlock,
   retryTransientRead,
 } from "../src/heads.js";
 
@@ -85,6 +86,76 @@ describe("LatestHeadSignal", () => {
     signal.close();
 
     await expect(waiting).resolves.toBe(false);
+  });
+});
+
+describe("readBeforeTargetBlock", () => {
+  it("returns an exact-state result while the target is still future", async () => {
+    const signal = new LatestHeadSignal();
+    signal.observe(100n);
+    await expect(
+      readBeforeTargetBlock({
+        headSignal: signal,
+        targetBlock: 101n,
+        timeoutMs: 1_000,
+        read: async () => "ready",
+      }),
+    ).resolves.toEqual({ status: "ready", value: "ready" });
+    signal.close();
+  });
+
+  it("rejects a gate after the target was already observed", async () => {
+    const signal = new LatestHeadSignal();
+    signal.observe(101n);
+    await expect(
+      readBeforeTargetBlock({
+        headSignal: signal,
+        targetBlock: 101n,
+        timeoutMs: 1_000,
+        read: async () => "stale",
+      }),
+    ).resolves.toEqual({
+      status: "target_observed",
+      observedBlock: 101n,
+    });
+    signal.close();
+  });
+
+  it("lets the subscribed target head preempt a stalled RPC gate", async () => {
+    const signal = new LatestHeadSignal();
+    signal.observe(100n);
+    const stalled = new Promise<string>(() => {});
+    const result = readBeforeTargetBlock({
+      headSignal: signal,
+      targetBlock: 101n,
+      timeoutMs: 1_000,
+      read: () => stalled,
+    });
+    signal.observe(101n);
+    await expect(result).resolves.toEqual({
+      status: "target_observed",
+      observedBlock: 101n,
+    });
+    signal.close();
+  });
+
+  it("rechecks the head after an RPC gate resolves", async () => {
+    const signal = new LatestHeadSignal();
+    signal.observe(100n);
+    const result = readBeforeTargetBlock({
+      headSignal: signal,
+      targetBlock: 101n,
+      timeoutMs: 1_000,
+      read: async () => {
+        signal.observe(101n);
+        return "stale";
+      },
+    });
+    await expect(result).resolves.toEqual({
+      status: "target_observed",
+      observedBlock: 101n,
+    });
+    signal.close();
   });
 });
 

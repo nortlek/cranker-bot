@@ -124,10 +124,16 @@ second head path. Exact fixed-block state reads tolerate up to one second of
 publication skew by retrying only classified `BlockNotFound`, the observed
 provider `-32602` fresh-state messages, and viem's typed
 `InvalidInputRpcError[-32000]`; raw or untyped `-32000` errors and all other
-classes remain immediate failures. The same WebSocket signal wakes private
-target-block receipt finalization, after which the foreground exact-state
-client must serve that exact target block before receipts are classified. A
-target block can be available slightly before its receipt index; only viem's typed
+classes remain immediate failures. The subscribed head is also the
+authoritative private-submission deadline. The final exact-parent nonce and
+balance gate races arrival of the target head, so a stalled or lagging RPC
+response cannot authorize a stale bundle. Do not reintroduce a duplicate HTTP
+head/nonce gate inside the private sender: the strategy account gate and final
+target-bound gate already enforce `latest == pending`, balance, and signer
+lease safety. The same WebSocket signal wakes target-block receipt
+finalization, after which the foreground exact-state client must serve that
+exact target block before receipts are classified. A target block can be
+available slightly before its receipt index; only viem's typed
 `TransactionReceiptNotFoundError` receives a bounded one-second publication
 wait. Other receipt errors remain terminal. Successful waits emit
 `keeper_receipt_availability_waited` before the authoritative

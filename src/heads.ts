@@ -136,6 +136,71 @@ export class LatestHeadSignal {
   }
 }
 
+export type TargetBoundReadResult<Value> =
+  | {
+      readonly status: "ready";
+      readonly value: Value;
+    }
+  | {
+      readonly status: "target_observed";
+      readonly observedBlock?: bigint;
+    };
+
+/**
+ * Completes an exact-state gate only while the target block is still in the
+ * future. The subscribed head is authoritative for the deadline: a lagging or
+ * stalled RPC read must never make a stale private bundle look submit-able.
+ */
+export async function readBeforeTargetBlock<Value>(parameters: {
+  readonly headSignal: LatestHeadSignal;
+  readonly targetBlock: bigint;
+  readonly timeoutMs: number;
+  readonly read: () => Promise<Value>;
+}): Promise<TargetBoundReadResult<Value>> {
+  if (parameters.targetBlock <= 0n) {
+    throw new Error("target block must be positive");
+  }
+  if (
+    !Number.isSafeInteger(parameters.timeoutMs) ||
+    parameters.timeoutMs < 1
+  ) {
+    throw new Error("target-bound read timeout must be positive");
+  }
+  const parentBlock = parameters.targetBlock - 1n;
+  const alreadyObserved =
+    parameters.headSignal.latestAfter(parentBlock);
+  if (alreadyObserved !== undefined) {
+    return {
+      status: "target_observed",
+      observedBlock: alreadyObserved,
+    };
+  }
+  return Promise.race([
+    parameters.read().then((value) => {
+      const observedBlock =
+        parameters.headSignal.latestAfter(parentBlock);
+      return observedBlock === undefined
+        ? ({ status: "ready", value } as const)
+        : ({
+            status: "target_observed",
+            observedBlock,
+          } as const);
+    }),
+    parameters.headSignal
+      .waitForNewer(parentBlock, parameters.timeoutMs)
+      .then(() => {
+        const observedBlock =
+          parameters.headSignal.latestAfter(parentBlock);
+        return {
+          status: "target_observed",
+          ...(observedBlock === undefined
+            ? {}
+            : { observedBlock }),
+        } as const;
+      }),
+  ]);
+}
+
 export async function retryTransientRead<Value>(parameters: {
   readonly read: () => Promise<Value>;
   readonly shouldRetry: (error: unknown) => boolean;
