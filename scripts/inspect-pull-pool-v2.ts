@@ -1,6 +1,5 @@
 import {
   createPublicClient,
-  encodeFunctionData,
   formatEther,
   formatGwei,
   getAddress,
@@ -8,7 +7,6 @@ import {
   keccak256,
   parseAbi,
   type Address,
-  type Hex,
 } from "viem";
 import { mainnet } from "viem/chains";
 
@@ -36,6 +34,26 @@ const V2_POOL_CREATION_TRANSACTION =
   "0x369e1819e8477df92540e26919a168d9bfd99d2b73907657b6fb0d9ca258f64c";
 const V2_FACTORY_CREATION_TRANSACTION =
   "0x2a2ccc02b072fbd8e7133b4e8cc405a28b355d63d7f0eda17b24e7a334b55e1a";
+const V2_POOL_VERIFIED_SOURCE =
+  "https://etherscan.io/address/0x03C45c9C594b19ca5Fde54f38C7e6b6A5f2329d7#code";
+const V2_FACTORY_VERIFIED_SOURCE =
+  "https://etherscan.io/address/0xc62cEF28ccDbaBE147eCD3Baf4492119aCf4c657#code";
+
+const ROUND_STATE_NAMES = [
+  "none",
+  "open",
+  "pulling",
+  "claimable",
+  "settled",
+  "refunding",
+] as const;
+const OUTCOME_NAMES = [
+  "none",
+  "tokens",
+  "bid_to_eth",
+  "forced_eth",
+  "refunded",
+] as const;
 
 const COMPONENTS = [
   {
@@ -107,9 +125,9 @@ const poolAbi = parseAbi([
   "function FWA() pure returns(address)",
   "function FWA_REWARDS() pure returns(address)",
   "function FWA_TOKEN() pure returns(address)",
-  "function config() view returns(uint96,uint64,uint16,uint16,uint96,uint96,uint64,uint64,uint32,uint16,uint16,uint16)",
+  "function config() view returns(uint96 ticketPrice,uint64 fundingDuration,uint16 headroomBps,uint16 feeCapBps,uint96 crankBountyCap,uint96 vrfAllowance,uint64 bountyTipWei,uint64 stallTimeout,uint32 maxTickets,uint16 maxConcurrentOpen,uint16 maxConcurrentPulls,uint16 referralBps)",
   "function ticketsNeeded(uint256) view returns(uint256)",
-  "function getRound(uint256) view",
+  "function getRound(uint256 roundId) view returns ((uint96 ticketPrice,uint16 feeBps,uint16 headroomBps,uint16 feeCapBps,uint96 crankBountyCap,uint96 vrfAllowance,uint64 bountyTipWei,uint64 stallTimeout,uint64 fundingDeadline,uint32 ticketsSold,uint32 maxTickets,uint16 referralBps,uint32 referredTickets,uint256 minPoolWeightedValue,uint256 escrow,uint256 feeOwed,uint256 refundPool,uint256 ethPot,uint256 tokenPot,uint256 fwaRequestId,uint256 acquisitionSpent,uint256 bidValue,uint256 listingId,uint64 allocatedAt,uint64 pullingAt,uint8 state,uint8 outcome,bool fwaResolved,bool feeClaimed,bool nftHeld,bool rewardCredited,uint128 creditTaken,uint256 backingAtAlloc,uint128 forcedEthTaken,uint256 referralPool,uint128 rewardAmount))",
 ]);
 
 const factoryAbi = parseAbi([
@@ -118,16 +136,110 @@ const factoryAbi = parseAbi([
   "function allOrders() view returns(address[])",
 ]);
 
-function dataWords(data: Hex | undefined): readonly string[] {
-  if (data === undefined || data === "0x") return [];
-  const body = data.slice(2);
-  if (body.length % 64 !== 0) {
-    throw new Error("V2 getRound returned malformed ABI data");
-  }
-  return Array.from(
-    { length: body.length / 64 },
-    (_, index) => `0x${body.slice(index * 64, (index + 1) * 64)}`,
-  );
+const lifecycleAbi = parseAbi([
+  "event RoundOpened(uint256 indexed roundId)",
+  "event RoundSettled(uint256 indexed roundId,uint8 outcome,uint256 tokenPot,uint256 ethPot)",
+  "event RoundVoided(uint256 indexed roundId,uint256 refundPool)",
+]);
+
+type V2Round = {
+  readonly ticketPrice: bigint;
+  readonly feeBps: number;
+  readonly headroomBps: number;
+  readonly feeCapBps: number;
+  readonly crankBountyCap: bigint;
+  readonly vrfAllowance: bigint;
+  readonly bountyTipWei: bigint;
+  readonly stallTimeout: bigint;
+  readonly fundingDeadline: bigint;
+  readonly ticketsSold: number;
+  readonly maxTickets: number;
+  readonly referralBps: number;
+  readonly referredTickets: number;
+  readonly minPoolWeightedValue: bigint;
+  readonly escrow: bigint;
+  readonly feeOwed: bigint;
+  readonly refundPool: bigint;
+  readonly ethPot: bigint;
+  readonly tokenPot: bigint;
+  readonly fwaRequestId: bigint;
+  readonly acquisitionSpent: bigint;
+  readonly bidValue: bigint;
+  readonly listingId: bigint;
+  readonly allocatedAt: bigint;
+  readonly pullingAt: bigint;
+  readonly state: number;
+  readonly outcome: number;
+  readonly fwaResolved: boolean;
+  readonly feeClaimed: boolean;
+  readonly nftHeld: boolean;
+  readonly rewardCredited: boolean;
+  readonly creditTaken: bigint;
+  readonly backingAtAlloc: bigint;
+  readonly forcedEthTaken: bigint;
+  readonly referralPool: bigint;
+  readonly rewardAmount: bigint;
+};
+
+function namedValue(names: readonly string[], value: number): string {
+  return names[value] ?? `unknown_${value}`;
+}
+
+function describeRound(
+  roundId: bigint,
+  round: V2Round,
+  ticketsNeeded: bigint,
+): Record<string, unknown> {
+  return {
+    roundId: roundId.toString(),
+    stateCode: round.state,
+    state: namedValue(ROUND_STATE_NAMES, round.state),
+    outcomeCode: round.outcome,
+    outcome: namedValue(OUTCOME_NAMES, round.outcome),
+    ticketsNeeded: ticketsNeeded.toString(),
+    snapshot: {
+      ticketPriceEth: formatEther(round.ticketPrice),
+      feeBps: round.feeBps,
+      headroomBps: round.headroomBps,
+      feeCapBps: round.feeCapBps,
+      crankBountyCapEth: formatEther(round.crankBountyCap),
+      vrfAllowanceEth: formatEther(round.vrfAllowance),
+      bountyTipGwei: formatGwei(round.bountyTipWei),
+      stallTimeoutSeconds: round.stallTimeout.toString(),
+      fundingDeadline: round.fundingDeadline.toString(),
+      ticketsSold: round.ticketsSold,
+      maxTickets: round.maxTickets,
+      referralBps: round.referralBps,
+      referredTickets: round.referredTickets,
+      minPoolWeightedValue: round.minPoolWeightedValue.toString(),
+    },
+    accounting: {
+      escrowEth: formatEther(round.escrow),
+      feeOwedEth: formatEther(round.feeOwed),
+      refundPoolEth: formatEther(round.refundPool),
+      ethPot: formatEther(round.ethPot),
+      tokenPot: formatEther(round.tokenPot),
+      acquisitionSpentEth: formatEther(round.acquisitionSpent),
+      referralPoolEth: formatEther(round.referralPool),
+      rewardAmount: formatEther(round.rewardAmount),
+    },
+    fwa: {
+      requestId: round.fwaRequestId.toString(),
+      bidValueEth: formatEther(round.bidValue),
+      listingId: round.listingId.toString(),
+      allocatedAt: round.allocatedAt.toString(),
+      pullingAt: round.pullingAt.toString(),
+      fwaResolved: round.fwaResolved,
+      backingAtAllocEth: formatEther(round.backingAtAlloc),
+      creditTakenEth: formatEther(round.creditTaken),
+      forcedEthTakenEth: formatEther(round.forcedEthTaken),
+    },
+    flags: {
+      feeClaimed: round.feeClaimed,
+      nftHeld: round.nftHeld,
+      rewardCredited: round.rewardCredited,
+    },
+  };
 }
 
 async function main(): Promise<void> {
@@ -330,40 +442,53 @@ async function main(): Promise<void> {
     throw new Error("PullPool V2 bytecode or deployment relationships changed");
   }
 
-  let currentRound:
-    | {
-        readonly roundId: string;
-        readonly ticketsNeeded: string;
-        readonly rawWordCount: number;
-        readonly rawWords: readonly string[];
-      }
-    | undefined;
-  if (currentOpenRound > 0n) {
-    const [ticketsNeeded, rawRound] = await Promise.all([
-      client.readContract({
-        address: V2_POOL,
-        abi: poolAbi,
-        functionName: "ticketsNeeded",
-        args: [currentOpenRound],
-        blockNumber,
-      }),
-      client.call({
-        to: V2_POOL,
-        data: encodeFunctionData({
+  const lifecycleLogs = await client.getLogs({
+    address: V2_POOL,
+    events: lifecycleAbi,
+    fromBlock: poolCreationReceipt.blockNumber,
+    toBlock: blockNumber,
+    strict: true,
+  });
+  const activeRoundIds = new Set<bigint>();
+  for (const log of lifecycleLogs) {
+    const roundId = log.args.roundId;
+    if (log.eventName === "RoundOpened") {
+      activeRoundIds.add(roundId);
+    } else {
+      activeRoundIds.delete(roundId);
+    }
+  }
+  const orderedActiveRoundIds = [...activeRoundIds].sort((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  const activeRounds = await Promise.all(
+    orderedActiveRoundIds.map(async (roundId) => {
+      const [round, ticketsNeeded] = await Promise.all([
+        client.readContract({
+          address: V2_POOL,
           abi: poolAbi,
           functionName: "getRound",
-          args: [currentOpenRound],
+          args: [roundId],
+          blockNumber,
         }),
-        blockNumber,
-      }),
-    ]);
-    const rawWords = dataWords(rawRound.data);
-    currentRound = {
-      roundId: currentOpenRound.toString(),
-      ticketsNeeded: ticketsNeeded.toString(),
-      rawWordCount: rawWords.length,
-      rawWords,
-    };
+        client.readContract({
+          address: V2_POOL,
+          abi: poolAbi,
+          functionName: "ticketsNeeded",
+          args: [roundId],
+          blockNumber,
+        }),
+      ]);
+      return describeRound(roundId, round as V2Round, ticketsNeeded);
+    }),
+  );
+  if (
+    activeRounds.length === 0 &&
+    (currentOpenRound > 0n || pendingPullCount > 0n)
+  ) {
+    throw new Error(
+      "PullPool V2 active-round event index disagrees with contract state",
+    );
   }
 
   console.log(
@@ -380,6 +505,13 @@ async function main(): Promise<void> {
         factoryCreationTransaction: V2_FACTORY_CREATION_TRANSACTION,
         factoryCreationBlock:
           factoryCreationReceipt.blockNumber.toString(),
+        verifiedSource: {
+          pool: V2_POOL_VERIFIED_SOURCE,
+          factory: V2_FACTORY_VERIFIED_SOURCE,
+          match: "exact",
+          compiler: "0.8.28",
+          evmVersion: "cancun",
+        },
       },
       bytecodeValid,
       relationshipsValid,
@@ -413,15 +545,15 @@ async function main(): Promise<void> {
         bountyTipGwei: formatGwei(poolConfig[6]),
         stallTimeoutSeconds: poolConfig[7].toString(),
         maxTickets: poolConfig[8].toString(),
-        extra9: poolConfig[9].toString(),
-        extra10: poolConfig[10].toString(),
-        extra11: poolConfig[11].toString(),
+        maxConcurrentOpen: poolConfig[9].toString(),
+        maxConcurrentPulls: poolConfig[10].toString(),
+        referralBps: poolConfig[11].toString(),
       },
       factory: {
         orderCount: orderCount.toString(),
         orders: orders.map((address: Address) => getAddress(address)),
       },
-      ...(currentRound === undefined ? {} : { currentRound }),
+      activeRounds,
       launchReady:
         bytecodeValid &&
         relationshipsValid &&
@@ -429,10 +561,10 @@ async function main(): Promise<void> {
         !deprecated &&
         roundCount > 0n,
       action: paused
-        ? "wait_for_unpause_and_source_verification"
+        ? "wait_for_unpause"
         : roundCount === 0n
           ? "wait_for_first_round"
-          : "decode_round_and_dry_run_before_live_enablement",
+          : "build_versioned_adapter_and_dry_run_before_live_enablement",
     }),
   );
 }

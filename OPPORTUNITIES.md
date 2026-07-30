@@ -1351,14 +1351,19 @@ calls, delegatecall, approvals, retained balances, and public submission.
 ### P0 — Discover and support the announced PullPool V2
 
 Status: the canonical deployer suite is identified on-chain and has a
-fail-closed read-only inspector. The pool remains paused with no rounds or
-orders, and verified source is not yet available; live execution is not
-enabled.
+fail-closed read-only inspector. Both the pool and standing-order factory now
+have exact-match verified source. The pool remains paused with no rounds or
+orders; live execution is not enabled.
 
 On 2026-07-28, [the pool author reported](https://x.com/ripe0x/status/2082297793478082570)
 that subscriptions are filling new pools almost as soon as they open and that a
 V2 pool contract is nearly finished, with higher capacity and support for
 running more pools more often.
+
+On 2026-07-30, [the author announced the V2 cutover](https://x.com/ripe0x/status/2082945402030936554):
+concurrent rounds, beneficiary and referral parameters, a 4% protocol fee, and
+reduced funding headroom. The post said the switch was planned for later that
+day.
 
 This has two immediate implications:
 
@@ -1381,44 +1386,66 @@ the factory's immutable `POOL()` points back to V2 and its runtime hash is
 Runtime selectors expose the familiar permissionless `pull`,
 `syncFwaResult`, `settle`, and `settleForcedEth` calls, but V2 replaces the
 single `ethPendingRound` pointer with `firstOpenRound`, `currentOpenRound`, and
-`pendingPullCount`, and expands `getRound` to 35 ABI words. The immutable FWA,
+`pendingPullCount`. Exact-match verified source names the complete 36-component
+`Round` tuple and the three formerly unknown config fields. The immutable FWA,
 FWA rewards, and FWA token addresses exactly match V1. The configured
 `0.005 ETH` ticket, `0.0015 ETH` bounty cap, `0.01 ETH` VRF allowance, and
-`2 gwei` bounty tip also match V1; three new trailing config fields are
-currently `1`, `1`, and `150` and must be named from canonical source rather
-than guessed.
+`2 gwei` bounty tip also match V1. The deployment constructor supplied four
+concurrently open rounds and four concurrent pulls, but the authoritative live
+`config()` at block `25648950` is currently `1 / 1`. The owner-settable source
+bounds are 16 open rounds and 64 pulls, so the cutover may change these values
+again; a planner must read them at its exact parent block. The referral
+carve-out is 150 bps of referred acquisition spend and comes from, rather than
+on top of, the 400-bps protocol fee. Headroom is 300 bps.
+
+Every lifecycle call remains permissionless and pays
+`min((measured gas + 40,000) * (block.basefee + bountyTipWei),
+crankBountyCap)` from that round's escrow. `pull` advances one named round;
+`syncFwaResult` maps that round's FWA request into Claimable or Refunding; and
+`settle` or `settleForcedEth` closes only that round. There is no authoritative
+single lifecycle pointer. A keeper must retain an event-indexed active round
+set from `RoundOpened`, remove `RoundSettled` and `RoundVoided`, and exact-read
+every remaining round at the planning block.
+
+The verified V2 standing order retains permissionless `crank()`, but adds an
+owner-settable pool, owner-settable beneficiary, immutable referrer, and
+`minSecondsBetweenBuys`. Its target is the pool's lowest eligible open round,
+and it may self-open a round when none exists. This requires a V2-specific
+decoder and pacing gate; V1's `lastRoundBought`-only prefilter is insufficient.
 
 At block `25640704`, the pool was paused, not deprecated, and had
 `roundCount == 0`, `currentOpenRound == 0`, `pendingPullCount == 0`, and zero
 accounted ETH. The new factory had zero orders. `npm run
 inspect:pull-pool-v2` pins and verifies all seven deployed component hashes,
 both creation transactions, deployer ownership, the factory relationship,
-immutable FWA relationships, configuration, launch state, and any current
-round's raw ABI words. It fails closed on a relationship or bytecode mismatch.
+immutable FWA relationships, configuration, launch state, and event-indexed
+active rounds decoded against the verified 36-component tuple. It fails closed
+on a relationship, bytecode, or lifecycle-index mismatch.
 
-A fresh inspection at block `25642153` again matched all seven pinned runtime
-hashes and every relationship. V2 remained paused and not deprecated, with
+A fresh inspection at block `25648898` again matched all seven pinned runtime
+hashes, every relationship, and the newly verified ABI. V2 remained paused and
+not deprecated, with
 `roundCount == 0`, `firstOpenRound == 1`, `currentOpenRound == 0`,
 `pendingPullCount == 0`, zero accounted ETH, and zero factory orders. No V2
 execution path is justified yet.
 
 Next action:
 
-- monitor the identified pool/factory and the author's canonical channels for
-  unpause, first-round creation, order deployment, and verified source
-- name and decode the expanded round/config fields from verified source or
-  authoritative live event/state evidence
+- monitor the identified pool/factory for unpause, first-round creation, and
+  order deployment
 - determine whether subscriptions migrate, whether V1 remains active, and how
   multiple concurrent pools are enumerated
-- refactor discovery/planning toward a verified pool registry or versioned
-  adapters instead of blindly replacing the pinned V1 constants
-- extend the existing read-only V2 inspector with live event/competition
-  history once the first round opens
-- add exact sequence simulation, independent V2 bid scopes, telemetry, and
-  startup relationship checks
+- add a versioned V2 adapter with an event-indexed active-round set, exact
+  fixed-block reads, per-round FWA request mapping, and V2 standing-order
+  pacing/recipient/referrer decoding
+- add exact lifecycle and order simulation, independent V2 bid scopes,
+  telemetry, startup relationship checks, and pending-fulfillment routing that
+  does not assume one FWA request
+- dry-run the first live rounds and measure competitor payments before enabling
+  any V2 submission
 
-Do not infer the 35-word round semantics from field position alone or enable
-calls against an unopened pool. Keep V1 live while V2 is paused and until an
+Do not replace V1 constants or enable calls against an unopened pool. Keep V1
+live while V2 is paused and until an
 exact-simulated, versioned V2 adapter is validated.
 
 ### P0 — Reduce acquisition lifecycle latency
