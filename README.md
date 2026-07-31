@@ -652,9 +652,11 @@ sizes can face materially different clearing percentages.
   record wins while missed orders process their observed competitors.
 
 Pool-pull and lifecycle competition are measured separately from standing
-orders. A missed pull scans the target block's `Pulled` event; a missed sync or
-settlement aggregates the winning transaction's `CrankBountyPaid` events for
-that round. Both paths record the winning transaction, cranker, gross pool
+orders. A missed pull scans the target block's `Pulled` events but accepts only
+the exact missed round IDs; concurrent-round pulls are unrelated evidence. A
+missed sync or settlement aggregates the winning transaction's
+`CrankBountyPaid` events for that round. Both paths record the winning
+transaction, cranker, gross pool
 reward, priority payment, direct beneficiary payment, and a
 pool-reward-normalized bid upper bound. Exact, counterfactually profitable V2
 pull observations update their own adaptive scope. V1 pull and lifecycle

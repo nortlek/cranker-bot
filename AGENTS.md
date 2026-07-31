@@ -319,6 +319,9 @@ Production PostgreSQL stores:
 After an ordinary PoolPull miss, `pool_competitor_bid_observed` stores the
 winning transaction, round, cranker, gross pool bounty, priority payment,
 direct beneficiary payment, and a pool-reward-normalized bid upper bound.
+The observed `Pulled` event must match an exact missed round ID; V2 can have
+concurrent rounds, so a pull for another round is neither a competitor win nor
+bid evidence for the attempted round.
 `pool_pull_bid_observation` distinguishes a target-block competitor win from a
 miss with no competing pull. V1 observations remain record-only. Exact,
 counterfactually profitable V2 evidence updates the independent durable

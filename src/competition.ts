@@ -192,6 +192,51 @@ export function aggregatePoolCrankBounties(
   return total;
 }
 
+export function filterRelevantPoolPulls(
+  entries: readonly {
+    readonly transactionHash: Hash | null;
+    readonly args: {
+      readonly roundId: bigint;
+      readonly cranker: Address;
+    };
+  }[],
+  parameters: {
+    readonly lostRoundIds: readonly bigint[];
+    readonly ourTransactionHashes: readonly Hash[];
+  },
+): readonly {
+  readonly transactionHash: Hash;
+  readonly roundId: bigint;
+  readonly cranker: Address;
+}[] {
+  const lostRounds = new Set(
+    parameters.lostRoundIds.map((roundId) =>
+      roundId.toString(),
+    ),
+  );
+  const ourHashes = new Set(
+    parameters.ourTransactionHashes.map((hash) =>
+      hash.toLowerCase(),
+    ),
+  );
+  return entries.flatMap((entry) => {
+    if (
+      entry.transactionHash === null ||
+      !lostRounds.has(entry.args.roundId.toString()) ||
+      ourHashes.has(entry.transactionHash.toLowerCase())
+    ) {
+      return [];
+    }
+    return [
+      {
+        transactionHash: entry.transactionHash,
+        roundId: entry.args.roundId,
+        cranker: entry.args.cranker,
+      },
+    ];
+  });
+}
+
 export function groupRelevantPoolLifecycleBounties(
   entries: readonly {
     readonly transactionHash: Hash | null;
@@ -495,10 +540,12 @@ export async function observeWinningPoolPullBids(
   parameters: {
     readonly targetBlock: bigint;
     readonly pool: Address;
+    readonly lostRoundIds: readonly bigint[];
     readonly ourTransactionHashes: readonly Hash[];
     readonly traceConfig: CompetitionTraceConfig;
   },
 ): Promise<readonly WinningPoolPullBidObservation[]> {
+  if (parameters.lostRoundIds.length === 0) return [];
   const [block, pulledLogs] = await Promise.all([
     publicClient.getBlock({
       blockNumber: parameters.targetBlock,
@@ -511,19 +558,12 @@ export async function observeWinningPoolPullBids(
       strict: true,
     }),
   ]);
-  const ourHashes = new Set(
-    parameters.ourTransactionHashes.map((hash) =>
-      hash.toLowerCase(),
-    ),
-  );
-  const competitorPulls = pulledLogs.filter(
-    (
-      entry,
-    ): entry is typeof entry & {
-      readonly transactionHash: Hash;
-    } =>
-      entry.transactionHash !== null &&
-      !ourHashes.has(entry.transactionHash.toLowerCase()),
+  const competitorPulls = filterRelevantPoolPulls(
+    pulledLogs,
+    {
+      lostRoundIds: parameters.lostRoundIds,
+      ourTransactionHashes: parameters.ourTransactionHashes,
+    },
   );
   const baseFeePerGas = block.baseFeePerGas ?? 0n;
   return Promise.all(
@@ -541,11 +581,11 @@ export async function observeWinningPoolPullBids(
       const grossPoolReward = aggregatePoolCrankBounties(
         receipt.logs,
         parameters.pool,
-        entry.args.roundId,
+        entry.roundId,
       );
       if (grossPoolReward <= 0n) {
         throw new Error(
-          `competitor pool pull ${entry.transactionHash} emitted no round-${entry.args.roundId} crank bounty`,
+          `competitor pool pull ${entry.transactionHash} emitted no round-${entry.roundId} crank bounty`,
         );
       }
       const calculated = calculateWinningBidBps({
@@ -557,8 +597,8 @@ export async function observeWinningPoolPullBids(
       });
       return {
         transactionHash: entry.transactionHash,
-        roundId: entry.args.roundId,
-        cranker: entry.args.cranker,
+        roundId: entry.roundId,
+        cranker: entry.cranker,
         grossPoolReward,
         priorityPayment: calculated.priorityPayment,
         directBeneficiaryPayment: directPayment,

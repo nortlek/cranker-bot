@@ -620,12 +620,21 @@ async function main(): Promise<void> {
         }
         return;
       }
+      const lostRoundIds = [
+        ...new Map(
+          missed.map((attempt) => [
+            attempt.roundId.toString(),
+            attempt.roundId,
+          ]),
+        ).values(),
+      ];
       try {
         const observationRead = await retryTransientRead({
           read: () =>
             observeWinningPoolPullBids(publicClient, {
               targetBlock: outcome.targetBlock,
               pool: outcome.pool,
+              lostRoundIds,
               ourTransactionHashes: outcome.attempts.map(
                 (attempt) => attempt.hash,
               ),

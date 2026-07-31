@@ -16,6 +16,7 @@ import {
   calculateWinningBidBps,
   competitionRegistryBlockNumber,
   directBeneficiaryPaymentFromOperations,
+  filterRelevantPoolPulls,
   groupRelevantPoolLifecycleBounties,
   isTransientCompetitionObservationError,
 } from "../src/competition.js";
@@ -266,6 +267,50 @@ describe("aggregatePoolCrankBounties", () => {
         302n,
       ),
     ).toBe(1_200n);
+  });
+});
+
+describe("filterRelevantPoolPulls", () => {
+  it("keeps only competitor pulls for the exact missed rounds", () => {
+    const competitorHash =
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
+    const otherRoundHash =
+      "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as Hash;
+    const ourHash =
+      "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" as Hash;
+
+    expect(
+      filterRelevantPoolPulls(
+        [
+          {
+            transactionHash: competitorHash,
+            args: { roundId: 46n, cranker: CALLER },
+          },
+          {
+            transactionHash: otherRoundHash,
+            args: { roundId: 47n, cranker: CALLER },
+          },
+          {
+            transactionHash: ourHash,
+            args: { roundId: 46n, cranker: CALLER },
+          },
+          {
+            transactionHash: null,
+            args: { roundId: 46n, cranker: CALLER },
+          },
+        ],
+        {
+          lostRoundIds: [46n],
+          ourTransactionHashes: [ourHash],
+        },
+      ),
+    ).toEqual([
+      {
+        transactionHash: competitorHash,
+        roundId: 46n,
+        cranker: CALLER,
+      },
+    ]);
   });
 });
 

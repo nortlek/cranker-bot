@@ -1498,18 +1498,18 @@ lane may feed competitor evidence.
 
 The first production probe exposed a second feedback distinction. After three
 wins at a 6,901-bps target, the controller probed 6,877 bps. It missed round 46
-despite offering an effective 6,878 bps; the winning transaction required only
-5,775 bps against our planned gross. All four relays accepted the bundle, so
-this was not evidence that the probe price was too low. The controller still
-recovered to 6,902 bps because every probe miss was previously treated as a
-price loss. The reusable state machine now recovers only when a measured
-competitor paid at least our effective bid. Unmeasured misses and cheaper
-winners hold the active probe for another observation instead of overpaying to
-solve a delivery, timing, or state-conflict loss.
+despite offering an effective 6,878 bps. All four relays accepted the bundle.
+The observer initially attributed a 5,775-bps pull to the miss, but that pull
+was for concurrent round 47 rather than attempted round 46. Production now
+filters `Pulled` logs to exact missed round IDs before recording or learning
+from them. Independently, the reusable state machine now recovers only when a
+measured same-lane competitor paid at least our effective bid. Unmeasured
+misses and cheaper winners hold the active probe for another observation
+instead of overpaying to solve a delivery, timing, or state-conflict loss.
 
 Next action: observe the current V2 6,902-bps win streak and verify that its
-next downward probe holds through a non-price miss and recovers only from a
-genuinely higher winner. Implement multi-request V2
+next downward probe holds through a non-price miss, ignores concurrent-round
+pulls, and recovers only from a genuinely higher same-round winner. Implement multi-request V2
 pending-FWA routing only from exact live evidence; do not re-enable either V1
 pending decoder against V2.
 
