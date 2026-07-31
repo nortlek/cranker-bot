@@ -638,7 +638,7 @@ These constraints prevent expensive or unsafe regressions:
   not leak into the public mempool.
 - Pool lifecycle, pool pull, standing orders, the default-off LiveBid sweep,
   Liquity, and Convex each have independent bidding policies. Do not apply the
-  standing order's high bid to a thin-margin lane. LiveBid bidding is not a
+  standing-order policy to a thin-margin lane. LiveBid bidding is not a
   safety control: its `sweep()` can succeed with zero reward after another
   transaction empties the adapter earlier in the same block.
 - V2 pool pulls start at `POOL_PULL_BUILDER_BID_BPS` and learn exact aggregate
@@ -691,9 +691,9 @@ At the last handoff, the configured policy was approximately:
 
 | Lane | Builder bid |
 | --- | ---: |
-| Standing-order baseline | 86.44% |
+| Standing-order baseline | 10% |
 | Standing-order learned minimum | 10% |
-| Standing-order learned maximum in use | 94.54% |
+| Standing-order learned maximum | 99% profitability-capped policy ceiling |
 | Aggregate minimum retained profit | 0.000001 ETH |
 | Pending-funding standing-order backrun | 10% |
 | Pool pull | V1 10%; V2 adaptive from 10% to profitability boundary |

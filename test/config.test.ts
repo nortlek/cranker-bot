@@ -22,6 +22,7 @@ const originalLiveBidSweep =
   process.env.ENABLE_LIVE_BID_SWEEP;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
+const originalBuilderBidBps = process.env.BUILDER_BID_BPS;
 const originalPoolBuilderBidBps =
   process.env.POOL_BUILDER_BID_BPS;
 const originalPoolPullBuilderBidBps =
@@ -79,6 +80,11 @@ afterEach(() => {
     process.env.PENDING_FUNDING_BUILDER_BID_BPS =
       originalPendingFundingBuilderBidBps;
   }
+  if (originalBuilderBidBps === undefined) {
+    delete process.env.BUILDER_BID_BPS;
+  } else {
+    process.env.BUILDER_BID_BPS = originalBuilderBidBps;
+  }
   if (originalPoolBuilderBidBps === undefined) {
     delete process.env.POOL_BUILDER_BID_BPS;
   } else {
@@ -123,6 +129,14 @@ describe("LiveBid sweep", () => {
     process.env.ENABLE_LIVE_BID_SWEEP = "true";
 
     expect(loadConfig().enableLiveBidSweep).toBe(true);
+  });
+});
+
+describe("standing-order builder bid", () => {
+  it("starts new targets at ten percent", () => {
+    delete process.env.BUILDER_BID_BPS;
+
+    expect(loadConfig().builderBidBps).toBe(1_000n);
   });
 });
 

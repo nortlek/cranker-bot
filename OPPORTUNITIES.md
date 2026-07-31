@@ -596,6 +596,16 @@ simulated gas, builder identity, and target history. A hierarchical cohort
 prior may initialize unseen targets only after exact same-lane samples show it
 improves expected retained profit without materially reducing eventual wins.
 
+On 2026-07-31 the user selected the more aggressive retained-margin policy:
+reset every standing-order target to a `1,000 bps` baseline and let only new,
+exact same-target competition raise it. This replaces the `8,644 bps`
+production default and clears the old lane's bracket/probe evidence while
+retaining all historical observations in `keeper_events`. Other adaptive
+scopes and every non-standing-order lane remain unchanged. Monitor eventual
+rather than only first-target wins: an unopposed private miss costs no gas and
+must not raise the target, while an exact higher competitor should still move
+that target immediately to the measured payment plus the configured step.
+
 ### P0 — Make the live signer lease continuously fail-closed
 
 Status: implemented and validated; deploy after the nonce/lifecycle gate.
@@ -2154,7 +2164,7 @@ Next action:
 - price LUSD and collateral conservatively
 - study recent liquidation competition
 - start with a lane-specific bid model around 25–35% of gross only if current
-  history supports it; do not inherit the standing-order 81% bid
+  history supports it; do not inherit another lane's bid policy
 
 ### PoolTogether prize claims
 

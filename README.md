@@ -322,8 +322,9 @@ successful `crank` fees are sent to that keeper address.
 - `FLASHBOTS_AUTH_PRIVATE_KEY`: optional relay reputation key. It signs only
   relay authentication messages; when omitted, `PRIVATE_KEY` is used.
 - `RELAY_TIMEOUT_MS`: timeout for relay simulation and submission calls.
-- `BUILDER_BID_BPS`: starting bid and lower bound for every order. The default
-  is `8100` (81%).
+- `BUILDER_BID_BPS`: starting bid for every standing order. The default is
+  `1000` (10%); exact measured competitors can raise each target independently
+  up to the profitability boundary.
 - `POOL_BUILDER_BID_BPS`: builder share for a ready
   `processAcquisitions → sync → settle` chain. The default is `300` (3%),
   just above the incumbent's observed 2.5% direct Titan payment.
@@ -348,7 +349,7 @@ successful `crank` fees are sent to that keeper address.
   fee cap, wallet gas reserve, and positive-profit requirement.
 - `CONVEX_BUILDER_BID_BPS`: independent builder share for Convex earmarks and
   expired-lock kicks. It defaults to `1000` (10%) so thin caller incentives do
-  not inherit the 81% standing-order bid.
+  not inherit another lane's policy.
 - `STAKEDAO_BUILDER_BID_BPS`: independent builder share for Stake DAO Curve
   harvests. It defaults to `1000` (10%) and never inherits the standing-order
   bid.

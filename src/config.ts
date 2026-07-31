@@ -334,7 +334,7 @@ export function loadConfig(): KeeperConfig {
       } requires WS_URL`,
     );
   }
-  const builderBidBps = integerEnv("BUILDER_BID_BPS", 8_100, {
+  const builderBidBps = integerEnv("BUILDER_BID_BPS", 1_000, {
     min: 0,
     max: 10_000,
   });
