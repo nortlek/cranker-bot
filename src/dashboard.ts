@@ -567,6 +567,23 @@ export async function startDashboardServer(
         return;
       }
 
+      if (
+        request.method === "GET" ||
+        request.method === "HEAD" ||
+        request.method === undefined
+      ) {
+        const assetResponse = await assets.fetch(
+          new Request(url, {
+            headers,
+            method: request.method ?? "GET",
+          }),
+        );
+        if (assetResponse.status !== 404) {
+          await writeResponse(request, response, assetResponse);
+          return;
+        }
+      }
+
       const body = await requestBody(request);
       const fetchRequest = new Request(url, {
         headers,
