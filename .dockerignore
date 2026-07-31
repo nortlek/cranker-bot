@@ -4,6 +4,15 @@
 .keeper-bid-state.json
 .keeper.pid
 *.log
-dist
 node_modules
+dist
 starting_balance.txt
+.wrangler
+
+dashboard/.git
+dashboard/.next
+dashboard/.vinext
+dashboard/.wrangler
+dashboard/dist
+dashboard/node_modules
+dashboard/tsconfig.tsbuildinfo

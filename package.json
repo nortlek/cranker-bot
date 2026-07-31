@@ -8,7 +8,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run build:keeper && npm run build:dashboard",
+    "build:keeper": "tsc -p tsconfig.build.json",
+    "build:dashboard": "npm --prefix dashboard ci --ignore-scripts --prefer-offline --no-audit --no-fund && npm --prefix dashboard run build",
     "codex:update": "node --env-file-if-exists=.env scripts/codex-update.mjs",
     "db:migrate": "node dist/migrate.js",
     "db:migrate:dev": "tsx src/migrate.ts",

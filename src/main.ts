@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   createPublicClient,
   createWalletClient,
+  formatUnits,
   getAddress,
   http,
   keccak256,
@@ -18,6 +19,7 @@ import {
   factoryAbi,
   fwaAbi,
   poolAbi,
+  chainlinkPriceFeedAbi,
   vaultFactoryAbi,
 } from "./abi.js";
 import {
@@ -37,6 +39,7 @@ import {
   DIRECT_COINBASE_PAYMENT_GAS_LIMIT,
   DIRECT_COINBASE_PAYMENT_HELPER_ADDRESS,
   DIRECT_COINBASE_PAYMENT_HELPER_CODE_HASH,
+  ETH_USD_FEED_ADDRESS,
 } from "./constants.js";
 import {
   loadConfig,
@@ -44,6 +47,10 @@ import {
   pendingFundingExecutionEnabled,
 } from "./config.js";
 import { DiscordWebhookNotifier } from "./discord.js";
+import {
+  startDashboardServer,
+  type DashboardRuntime,
+} from "./dashboard.js";
 import {
   appendDirectCoinbasePayment,
   requiredSignerBalance,
@@ -153,6 +160,7 @@ let closePendingFundingRuntime:
 let closePendingFwaRuntime:
   | (() => Promise<void>)
   | undefined;
+let dashboardRuntime: DashboardRuntime | undefined;
 
 class SignerLeaseLostError extends Error {
   constructor(cause: unknown) {
@@ -208,6 +216,7 @@ async function closeRuntimeResources(): Promise<void> {
         adaptiveBidController?.close(),
         telemetrySink?.close(),
         discordNotifier?.flush(),
+        dashboardRuntime?.close(),
       ]);
     } finally {
       await signerLease?.release();
@@ -290,6 +299,33 @@ async function main(): Promise<void> {
       retryDelay: 500,
       timeout: 20_000,
     }),
+  });
+  dashboardRuntime = await startDashboardServer({
+    ...(config.databaseUrl === undefined
+      ? {}
+      : { databaseUrl: config.databaseUrl }),
+    ethUsd: async () => {
+      const round = await publicClient.readContract({
+        address: ETH_USD_FEED_ADDRESS,
+        abi: chainlinkPriceFeedAbi,
+        functionName: "latestRoundData",
+      });
+      const [roundId, answer, , updatedAt, answeredInRound] =
+        round;
+      const ageSeconds =
+        BigInt(Math.floor(Date.now() / 1_000)) - updatedAt;
+      if (
+        answer <= 0n ||
+        updatedAt === 0n ||
+        answeredInRound < roundId ||
+        ageSeconds < 0n ||
+        ageSeconds >
+          BigInt(config.firmEthOracleMaxAgeSeconds)
+      ) {
+        throw new Error("ETH/USD oracle round is incomplete or stale");
+      }
+      return Number(formatUnits(answer, 8));
+    },
   });
   let exactStateClient: StrategyContext["publicClient"] =
     publicClient;
