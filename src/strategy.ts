@@ -36,8 +36,10 @@ import {
   liveBidAdapterAbi,
   multicall3BalanceAbi,
   poolAbi,
+  poolV2Abi,
   stakeDaoAccountantAbi,
   standingOrderAbi,
+  standingOrderV2Abi,
   vaultFactoryAbi,
 } from "./abi.js";
 import { nextBlockBaseFeePerGas } from "./base-fee.js";
@@ -96,6 +98,10 @@ import {
 } from "./lifecycle.js";
 import type { PrivateBatchOutcome } from "./keeper.js";
 import { buildNoncePlan } from "./nonces.js";
+import {
+  readPullPoolV2Routing,
+  type PullPoolV2RoundSnapshot,
+} from "./pull-pool-v2.js";
 import {
   conservativeCrvToEthWei,
   conservativeStakeDaoHarvesterFee,
@@ -370,6 +376,12 @@ export interface StrategyContext {
   readonly observePoolLifecycleBatch?:
     | ((outcome: PoolLifecycleBatchOutcome) => Promise<void>)
     | undefined;
+  /**
+   * A read-only check started alongside planning and awaited before any live
+   * account gate or submission. It keeps launch monitoring off the critical
+   * planning path without allowing an obsolete pool version to submit.
+   */
+  readonly preSubmissionGate?: (() => Promise<void>) | undefined;
 }
 
 interface OrderCandidate {
@@ -377,6 +389,11 @@ interface OrderCandidate {
   readonly crankFee: bigint;
   readonly ticketsPerRound: bigint;
   readonly requiresNativeBalance: boolean;
+  readonly configuredPool?: Address;
+  readonly recipient?: Address;
+  readonly referrer?: Address;
+  readonly minSecondsBetweenBuys?: bigint;
+  readonly lastBuyAt?: bigint;
 }
 
 interface EligibleOrder extends OrderCandidate {
@@ -409,6 +426,18 @@ interface PoolRoundSnapshot {
   readonly bountyTipWei: bigint;
   readonly fwaRequestId: bigint;
   readonly state: number;
+}
+
+function fromPullPoolV2Round(
+  round: PullPoolV2RoundSnapshot,
+): PoolRoundSnapshot {
+  return {
+    ticketPrice: round.ticketPrice,
+    crankBountyCap: round.crankBountyCap,
+    bountyTipWei: round.bountyTipWei,
+    fwaRequestId: round.fwaRequestId,
+    state: round.state,
+  };
 }
 
 interface ConvexPool {
@@ -845,15 +874,25 @@ async function getRoundSnapshot(
   client: PublicClient<Transport, Chain>,
   pool: Address,
   roundId: bigint,
+  poolVersion: KeeperConfig["poolVersion"],
   blockNumber?: bigint,
 ): Promise<PoolRoundSnapshot> {
-  const round = await client.readContract({
-    address: pool,
-    abi: poolAbi,
-    functionName: "getRound",
-    args: [roundId],
-    ...(blockNumber === undefined ? {} : { blockNumber }),
-  });
+  const round =
+    poolVersion === "v2"
+      ? await client.readContract({
+          address: pool,
+          abi: poolV2Abi,
+          functionName: "getRound",
+          args: [roundId],
+          ...(blockNumber === undefined ? {} : { blockNumber }),
+        })
+      : await client.readContract({
+          address: pool,
+          abi: poolAbi,
+          functionName: "getRound",
+          args: [roundId],
+          ...(blockNumber === undefined ? {} : { blockNumber }),
+        });
   return {
     ticketPrice: round.ticketPrice,
     crankBountyCap: round.crankBountyCap,
@@ -1008,10 +1047,13 @@ export async function resolvePlanningHead(parameters: {
 
 async function getOrderCandidates(
   client: PublicClient<Transport, Chain>,
-  factoryAddress: Address,
-  vaultFactoryAddress: Address | undefined,
+  config: KeeperConfig,
   blockNumber: bigint,
 ): Promise<OrderCandidate[]> {
+  const factoryAddress = config.factoryAddress;
+  const vaultFactoryAddress = config.enableVaults
+    ? config.vaultFactoryAddress
+    : undefined;
   const [orders, vaults] = await Promise.all([
     client.readContract({
       address: factoryAddress,
@@ -1032,7 +1074,15 @@ async function getOrderCandidates(
   const standingOrders = new Set(
     orders.map((address) => address.toLowerCase()),
   );
-  const [feeResults, ticketResults] = await Promise.all([
+  const [
+    feeResults,
+    ticketResults,
+    poolResults,
+    recipientResults,
+    referrerResults,
+    intervalResults,
+    lastBuyAtResults,
+  ] = await Promise.all([
     client.multicall({
       allowFailure: true,
       blockNumber,
@@ -1051,6 +1101,61 @@ async function getOrderCandidates(
         functionName: "ticketsPerRound" as const,
       })),
     }),
+    config.poolVersion === "v2"
+      ? client.multicall({
+          allowFailure: true,
+          blockNumber,
+          contracts: subscriptions.map((address) => ({
+            address,
+            abi: standingOrderV2Abi,
+            functionName: "pool" as const,
+          })),
+        })
+      : Promise.resolve([]),
+    config.poolVersion === "v2"
+      ? client.multicall({
+          allowFailure: true,
+          blockNumber,
+          contracts: subscriptions.map((address) => ({
+            address,
+            abi: standingOrderV2Abi,
+            functionName: "recipient" as const,
+          })),
+        })
+      : Promise.resolve([]),
+    config.poolVersion === "v2"
+      ? client.multicall({
+          allowFailure: true,
+          blockNumber,
+          contracts: subscriptions.map((address) => ({
+            address,
+            abi: standingOrderV2Abi,
+            functionName: "REFERRER" as const,
+          })),
+        })
+      : Promise.resolve([]),
+    config.poolVersion === "v2"
+      ? client.multicall({
+          allowFailure: true,
+          blockNumber,
+          contracts: subscriptions.map((address) => ({
+            address,
+            abi: standingOrderV2Abi,
+            functionName: "minSecondsBetweenBuys" as const,
+          })),
+        })
+      : Promise.resolve([]),
+    config.poolVersion === "v2"
+      ? client.multicall({
+          allowFailure: true,
+          blockNumber,
+          contracts: subscriptions.map((address) => ({
+            address,
+            abi: standingOrderV2Abi,
+            functionName: "lastBuyAt" as const,
+          })),
+        })
+      : Promise.resolve([]),
   ]);
 
   const candidates: OrderCandidate[] = [];
@@ -1058,18 +1163,46 @@ async function getOrderCandidates(
     const address = subscriptions[index];
     const fee = feeResults[index];
     const tickets = ticketResults[index];
+    const configuredPool = poolResults[index];
+    const recipient = recipientResults[index];
+    const referrer = referrerResults[index];
+    const interval = intervalResults[index];
+    const lastBuyAt = lastBuyAtResults[index];
     if (
-      address !== undefined &&
-      fee?.status === "success" &&
-      tickets?.status === "success"
+      address === undefined ||
+      fee?.status !== "success" ||
+      tickets?.status !== "success"
+    ) {
+      continue;
+    }
+    const base = {
+      address,
+      crankFee: fee.result,
+      ticketsPerRound: BigInt(tickets.result),
+      requiresNativeBalance: standingOrders.has(
+        address.toLowerCase(),
+      ),
+    } satisfies OrderCandidate;
+    if (config.poolVersion !== "v2") {
+      candidates.push(base);
+      continue;
+    }
+    if (
+      configuredPool?.status === "success" &&
+      getAddress(configuredPool.result) ===
+        config.expectedPoolAddress &&
+      recipient?.status === "success" &&
+      referrer?.status === "success" &&
+      interval?.status === "success" &&
+      lastBuyAt?.status === "success"
     ) {
       candidates.push({
-        address,
-        crankFee: fee.result,
-        ticketsPerRound: BigInt(tickets.result),
-        requiresNativeBalance: standingOrders.has(
-          address.toLowerCase(),
-        ),
+        ...base,
+        configuredPool: getAddress(configuredPool.result),
+        recipient: getAddress(recipient.result),
+        referrer: getAddress(referrer.result),
+        minSecondsBetweenBuys: interval.result,
+        lastBuyAt: lastBuyAt.result,
       });
     }
   }
@@ -1085,11 +1218,12 @@ async function getOrderCandidates(
 
 async function refreshCachedOrderCandidates(parameters: {
   readonly client: PublicClient<Transport, Chain>;
+  readonly config: KeeperConfig;
   readonly candidates: readonly OrderCandidate[];
   readonly blockNumber: bigint;
 }): Promise<readonly OrderCandidate[]> {
   if (parameters.candidates.length === 0) return [];
-  const [feeResults, ticketResults] = await Promise.all([
+  const [feeResults, ticketResults, poolResults] = await Promise.all([
     parameters.client.multicall({
       allowFailure: true,
       blockNumber: parameters.blockNumber,
@@ -1108,21 +1242,52 @@ async function refreshCachedOrderCandidates(parameters: {
         functionName: "ticketsPerRound" as const,
       })),
     }),
+    parameters.config.poolVersion === "v2"
+      ? parameters.client.multicall({
+          allowFailure: true,
+          blockNumber: parameters.blockNumber,
+          contracts: parameters.candidates.map((candidate) => ({
+            address: candidate.address,
+            abi: standingOrderV2Abi,
+            functionName: "pool" as const,
+          })),
+        })
+      : Promise.resolve([]),
   ]);
   return parameters.candidates.flatMap((candidate, index) => {
     const fee = feeResults[index];
     const tickets = ticketResults[index];
-    return fee?.status === "success" && tickets?.status === "success"
-      ? [
-          {
-            address: candidate.address,
-            crankFee: fee.result,
-            ticketsPerRound: BigInt(tickets.result),
-            requiresNativeBalance:
-              candidate.requiresNativeBalance,
-          },
-        ]
-      : [];
+    const configuredPool = poolResults[index];
+    if (
+      fee?.status !== "success" ||
+      tickets?.status !== "success"
+    ) {
+      return [];
+    }
+    if (parameters.config.poolVersion === "v2") {
+      if (
+        configuredPool?.status !== "success" ||
+        getAddress(configuredPool.result) !==
+          parameters.config.expectedPoolAddress
+      ) {
+        return [];
+      }
+      return [
+        {
+          ...candidate,
+          crankFee: fee.result,
+          ticketsPerRound: BigInt(tickets.result),
+          configuredPool: getAddress(configuredPool.result),
+        },
+      ];
+    }
+    return [
+      {
+        ...candidate,
+        crankFee: fee.result,
+        ticketsPerRound: BigInt(tickets.result),
+      },
+    ];
   });
 }
 
@@ -3358,6 +3523,7 @@ async function planLifecycleFundingSuffix(parameters: {
   );
   const candidates = await refreshCachedOrderCandidates({
     client: parameters.client,
+    config: parameters.config,
     candidates: cached,
     blockNumber: parameters.headBlockNumber,
   });
@@ -3401,19 +3567,28 @@ async function planJobs(parameters: {
   readonly headTimestamp: bigint;
 }): Promise<PlannedJobs> {
   const skipped = new Map<string, number>();
-  const [roundCount, ethPendingRound, fwa, token] = await Promise.all([
-    parameters.client.readContract({
-      address: parameters.config.expectedPoolAddress,
-      abi: poolAbi,
-      functionName: "roundCount",
-      blockNumber: parameters.headBlockNumber,
-    }),
-    parameters.client.readContract({
-      address: parameters.config.expectedPoolAddress,
-      abi: poolAbi,
-      functionName: "ethPendingRound",
-      blockNumber: parameters.headBlockNumber,
-    }),
+  const routingRead =
+    parameters.config.poolVersion === "v2"
+      ? readPullPoolV2Routing(
+          parameters.client,
+          parameters.headBlockNumber,
+        )
+      : Promise.all([
+          parameters.client.readContract({
+            address: parameters.config.expectedPoolAddress,
+            abi: poolAbi,
+            functionName: "roundCount",
+            blockNumber: parameters.headBlockNumber,
+          }),
+          parameters.client.readContract({
+            address: parameters.config.expectedPoolAddress,
+            abi: poolAbi,
+            functionName: "ethPendingRound",
+            blockNumber: parameters.headBlockNumber,
+          }),
+        ]);
+  const [routingReadResult, fwa, token] = await Promise.all([
+    routingRead,
     parameters.client.readContract({
       address: parameters.config.expectedPoolAddress,
       abi: poolAbi,
@@ -3427,23 +3602,88 @@ async function planJobs(parameters: {
       blockNumber: parameters.headBlockNumber,
     }),
   ]);
+  let fundingRoundId: bigint | undefined;
+  let fundingRoundSnapshot: PoolRoundSnapshot | undefined;
+  let lifecycleRounds: readonly {
+    readonly roundId: bigint;
+    readonly snapshot: PoolRoundSnapshot;
+  }[];
+  if (parameters.config.poolVersion === "v2") {
+    const v2Routing =
+      routingReadResult as Awaited<
+        ReturnType<typeof readPullPoolV2Routing>
+      >;
+    fundingRoundId = v2Routing.fundingRound?.roundId;
+    fundingRoundSnapshot =
+      v2Routing.fundingRound === undefined
+        ? undefined
+        : fromPullPoolV2Round(v2Routing.fundingRound);
+    lifecycleRounds = v2Routing.lifecycleRounds.map((round) => ({
+      roundId: round.roundId,
+      snapshot: fromPullPoolV2Round(round),
+    }));
+    log("debug", "pull_pool_v2_routing", {
+      activeRounds: JSON.stringify(
+        v2Routing.activeRoundIds.map((roundId) =>
+          roundId.toString(),
+        ),
+      ),
+      lifecycleRounds: JSON.stringify(
+        lifecycleRounds.map((round) =>
+          round.roundId.toString(),
+        ),
+      ),
+      fundingRound: fundingRoundId?.toString() ?? "",
+      currentOpenRound:
+        v2Routing.currentOpenRound.toString(),
+      pendingPullCount:
+        v2Routing.pendingPullCount.toString(),
+    });
+  } else {
+    const [roundCount, ethPendingRound] =
+      routingReadResult as readonly [bigint, bigint];
+    const routing = routeRoundIds({
+      roundCount,
+      ethPendingRound,
+    });
+    fundingRoundId = routing.fundingRoundId;
+    lifecycleRounds =
+      routing.lifecycleRoundId === undefined
+        ? []
+        : [
+            {
+              roundId: routing.lifecycleRoundId,
+              snapshot: await getRoundSnapshot(
+                parameters.client,
+                parameters.config.expectedPoolAddress,
+                routing.lifecycleRoundId,
+                parameters.config.poolVersion,
+                parameters.headBlockNumber,
+              ),
+            },
+          ];
+  }
   const tokenAddress = getAddress(token);
   if (tokenAddress !== parameters.config.expectedFwaTokenAddress) {
     throw new Error(
       `pool FWA token ${tokenAddress} does not match expected token ${parameters.config.expectedFwaTokenAddress}`,
     );
   }
-  const routing = routeRoundIds({ roundCount, ethPendingRound });
   const fundingRoundPromise =
-    routing.fundingRoundId === undefined ||
-    routing.fundingRoundId === routing.lifecycleRoundId
+    fundingRoundId === undefined ||
+    lifecycleRounds.some(
+      (round) => round.roundId === fundingRoundId,
+    )
       ? Promise.resolve(undefined)
-      : getRoundSnapshot(
-          parameters.client,
-          parameters.config.expectedPoolAddress,
-          routing.fundingRoundId,
-          parameters.headBlockNumber,
-        );
+      : fundingRoundSnapshot !== undefined
+        ? Promise.resolve(fundingRoundSnapshot)
+        : getRoundSnapshot(
+            parameters.client,
+            parameters.config.expectedPoolAddress,
+            fundingRoundId,
+            parameters.config.poolVersion,
+            parameters.headBlockNumber,
+          );
   const plannerBase = {
     client: parameters.client,
     account: parameters.account,
@@ -3457,9 +3697,8 @@ async function planJobs(parameters: {
   } as const;
   const lifecycleFundingSkipped = new Map<string, number>();
   const lifecycleFundingPromise =
-    routing.fundingRoundId === undefined ||
-    routing.lifecycleRoundId === undefined ||
-    routing.fundingRoundId === routing.lifecycleRoundId
+    fundingRoundId === undefined ||
+    lifecycleRounds.length === 0
       ? undefined
       : planLifecycleFundingSuffix({
           client: parameters.client,
@@ -3467,7 +3706,7 @@ async function planJobs(parameters: {
           config: parameters.config,
           pool: parameters.config.expectedPoolAddress,
           fwa: getAddress(fwa),
-          fundingRoundId: routing.fundingRoundId,
+          fundingRoundId,
           fundingRound: fundingRoundPromise,
           headBlockNumber: parameters.headBlockNumber,
           maxFeePerGas: parameters.maxFeePerGas,
@@ -3505,21 +3744,12 @@ async function planJobs(parameters: {
     return grossReward - gasCost;
   };
 
-  let lifecyclePrimary:
-    | Awaited<ReturnType<typeof planPrimaryJobs>>
-    | undefined;
-  if (routing.lifecycleRoundId !== undefined) {
-    const lifecycleRound = await getRoundSnapshot(
-      parameters.client,
-      parameters.config.expectedPoolAddress,
-      routing.lifecycleRoundId,
-      parameters.headBlockNumber,
-    );
-    lifecyclePrimary = await planPrimaryJobs({
+  for (const lifecycleRound of lifecycleRounds) {
+    const lifecyclePrimary = await planPrimaryJobs({
       ...plannerBase,
       candidates: [],
-      roundCount: routing.lifecycleRoundId,
-      round: lifecycleRound,
+      roundCount: lifecycleRound.roundId,
+      round: lifecycleRound.snapshot,
     });
     const profit = primaryProfit(lifecyclePrimary);
     const exactSimulationDeferred =
@@ -3530,7 +3760,7 @@ async function planJobs(parameters: {
         profit >= requiredProfit(parameters.config.minProfitWei))
     ) {
       const enriched =
-        routing.fundingRoundId === undefined
+        fundingRoundId === undefined
           ? {
               jobs: lifecyclePrimary.jobs,
               minimumViablePrefix:
@@ -3543,12 +3773,13 @@ async function planJobs(parameters: {
               lifecycleMinimumViablePrefix:
                 lifecyclePrimary.minimumViablePrefix,
               headBlockNumber: parameters.headBlockNumber,
-              fundingRoundId: routing.fundingRoundId,
+              fundingRoundId,
               funding: lifecycleFundingPromise,
               timeoutMs: LIFECYCLE_FUNDING_WAIT_MS,
             });
       log("debug", "lifecycle_fast_path_selected", {
-        round: routing.lifecycleRoundId.toString(),
+        poolVersion: parameters.config.poolVersion,
+        round: lifecycleRound.roundId.toString(),
         jobs: enriched.jobs.length,
         baseJobs: lifecyclePrimary.jobs.length,
         fundingEnriched: enriched.enriched,
@@ -3586,10 +3817,7 @@ async function planJobs(parameters: {
     () =>
       getOrderCandidates(
         parameters.client,
-        parameters.config.factoryAddress,
-        parameters.config.enableVaults
-          ? parameters.config.vaultFactoryAddress
-          : undefined,
+        parameters.config,
         parameters.headBlockNumber,
       ),
   );
@@ -3665,19 +3893,22 @@ async function planJobs(parameters: {
         | Awaited<ReturnType<typeof planPrimaryJobs>>
         | undefined;
       if (
-        routing.fundingRoundId !== undefined &&
-        routing.fundingRoundId !== routing.lifecycleRoundId &&
+        fundingRoundId !== undefined &&
+        !lifecycleRounds.some(
+          (round) => round.roundId === fundingRoundId,
+        ) &&
         fundingRound !== undefined
       ) {
         fundingPrimary = await planPrimaryJobs({
           ...plannerBase,
           candidates,
-          roundCount: routing.fundingRoundId,
+          roundCount: fundingRoundId,
           round: fundingRound,
         });
       } else if (
-        routing.lifecycleRoundId === undefined &&
-        routing.fundingRoundId === undefined
+        fundingRoundId === undefined &&
+        (parameters.config.poolVersion === "v2" ||
+          lifecycleRounds.length === 0)
       ) {
         fundingPrimary = await planPrimaryJobs({
           ...plannerBase,
@@ -3738,7 +3969,7 @@ async function planJobs(parameters: {
     readonly profit: bigint;
     readonly label: string;
   }> = [];
-  for (const primary of [lifecyclePrimary, fundingPrimary]) {
+  for (const primary of [fundingPrimary]) {
     if (primary === undefined || primary.jobs.length === 0) continue;
     const profit = primaryProfit(primary);
     if (
@@ -4224,6 +4455,7 @@ export async function runKeeperPass(
   ) {
     throw new Error("live mode requires a configured transaction sender");
   }
+  await context.preSubmissionGate?.();
   const accountAddress =
     typeof context.account === "string"
       ? context.account

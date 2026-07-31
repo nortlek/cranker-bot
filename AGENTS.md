@@ -766,9 +766,20 @@ npm run inspect:pull-pool-v2
 The inspector pins the canonical deployer's creation transactions, all known
 component bytecode hashes, the V2 order-factory relationship, immutable FWA
 relationships, exact-match verified source metadata, its 36-component round
-layout, event-indexed active rounds, and launch state. V2 is not a live keeper
-lane while the pool is paused or until a separately exact-simulated versioned
-adapter has been validated against live rounds.
+layout, event-indexed active rounds, and launch state. Production includes a
+temporary fail-closed automatic selector. It remains on V1 while canonical V2
+is pristine and paused. A verified V2 unpause or first round requests a
+supervised restart, and startup then selects the V2 pool/factory only after all
+seven runtime hashes and relationships match. A launched V2 is not allowed to
+fall back to V1 automatically.
+
+The V2 adapter reconstructs concurrent active rounds from `RoundOpened`,
+`RoundSettled`, and `RoundVoided`, exact-reads every retained round at the
+subscribed parent, decodes mutable order pool/recipient/referrer/pacing state,
+and keeps ordinary exact simulation, private submission, and profit gates.
+V1-only vault and pending-event decoders are deliberately disarmed while V2 is
+selected. Remove the temporary selector and V1 branch only after the cutover
+has been stable and the user asks for cleanup.
 
 Third-party CLIs may echo environment-derived URLs, including embedded API
 keys. Inspect their source or filter/suppress output before running them. Do not

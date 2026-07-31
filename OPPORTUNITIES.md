@@ -1350,10 +1350,12 @@ calls, delegatecall, approvals, retained balances, and public submission.
 
 ### P0 — Discover and support the announced PullPool V2
 
-Status: the canonical deployer suite is identified on-chain and has a
-fail-closed read-only inspector. Both the pool and standing-order factory now
-have exact-match verified source. The pool remains paused with no rounds or
-orders; live execution is not enabled.
+Status: the canonical deployer suite is identified on-chain, has a fail-closed
+read-only inspector, and now has a temporary automatic V1/V2 production
+selector plus a versioned confirmed-head adapter. Both the pool and
+standing-order factory have exact-match verified source. At block `25649160`
+the pool remained paused with no rounds or orders, so production still selects
+V1.
 
 On 2026-07-28, [the pool author reported](https://x.com/ripe0x/status/2082297793478082570)
 that subscriptions are filling new pools almost as soon as they open and that a
@@ -1429,24 +1431,35 @@ not deprecated, with
 `pendingPullCount == 0`, zero accounted ETH, and zero factory orders. No V2
 execution path is justified yet.
 
-Next action:
+Implementation:
 
-- monitor the identified pool/factory for unpause, first-round creation, and
-  order deployment
-- determine whether subscriptions migrate, whether V1 remains active, and how
-  multiple concurrent pools are enumerated
-- add a versioned V2 adapter with an event-indexed active-round set, exact
-  fixed-block reads, per-round FWA request mapping, and V2 standing-order
-  pacing/recipient/referrer decoding
-- add exact lifecycle and order simulation, independent V2 bid scopes,
-  telemetry, startup relationship checks, and pending-fulfillment routing that
-  does not assume one FWA request
-- dry-run the first live rounds and measure competitor payments before enabling
-  any V2 submission
+- startup and every V1 planning head verify the activation signal without
+  putting that check on the planning critical path; it is awaited as a
+  mandatory pre-submission gate
+- activation requests a supervised restart, whose startup pins all seven
+  runtime hashes, the factory/pool link, and immutable FWA relationships before
+  selecting V2
+- the V2 planner incrementally indexes `RoundOpened`, removes
+  `RoundSettled`/`RoundVoided`, exact-reads every active round, and validates
+  `currentOpenRound` plus `pendingPullCount`
+- every concurrent pulling/claimable round is considered independently and
+  the lowest covered/open funding round is routed separately
+- the V2 order decoder requires its mutable `pool()` to remain canonical and
+  reads recipient, immutable referrer, buy interval, and last-buy time before
+  exact `crank()` estimation
+- V1 vaults, final-ticket pending backruns, and single-pending-round FWA
+  backruns are disarmed after V2 selection instead of being reused with the
+  wrong ABI
+- confirmed-head lifecycle/orders retain private complete-bundle simulation,
+  lane-specific bids, nonce/balance/lease gates, and receipt accounting
+- V2 fulfilled lifecycle starts at the low ready-cycle bid instead of
+  inheriting V1's 72.5% fulfilled bid; raise it only from exact V2 competition
+  evidence
 
-Do not replace V1 constants or enable calls against an unopened pool. Keep V1
-live while V2 is paused and until an
-exact-simulated, versioned V2 adapter is validated.
+Next action: let the deployed selector observe the cutover, then audit the first
+V2 rounds, order migration, competitor payments, and any missed callbacks.
+Implement multi-request V2 pending-FWA routing only from exact live evidence;
+do not re-enable either V1 pending decoder against V2.
 
 ### P0 — Reduce acquisition lifecycle latency
 

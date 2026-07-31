@@ -100,6 +100,11 @@ import {
 } from "./pending-funding.js";
 import { PostgresAdaptiveBidPersistence } from "./postgres-adaptive-bidding.js";
 import {
+  configurePullPoolV2,
+  readPullPoolV2ActivationSignal,
+  readPullPoolV2LaunchState,
+} from "./pull-pool-v2.js";
+import {
   estimatedJobReward,
   isFreshBlockReadUnavailable,
   runKeeperPass,
@@ -165,6 +170,13 @@ class HeadSubscriptionStaleError extends Error {
   }
 }
 
+class PullPoolVersionTransitionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PullPoolVersionTransitionError";
+  }
+}
+
 async function assertSignerLeaseHeld(): Promise<void> {
   if (signerLeaseFailure !== undefined) {
     throw signerLeaseFailure;
@@ -205,7 +217,7 @@ async function closeRuntimeResources(): Promise<void> {
 
 async function main(): Promise<void> {
   const startupStartedAt = performance.now();
-  const config = loadConfig();
+  let config = loadConfig();
   const sourceRevision =
     process.env.DEPLOY_GIT_SHA ??
     process.env.RAILWAY_GIT_COMMIT_SHA ??
@@ -393,6 +405,49 @@ async function main(): Promise<void> {
       staleTimeoutMs: config.headStaleTimeoutMs,
     });
   }
+  const v2LaunchState =
+    await readPullPoolV2LaunchState(publicClient);
+  const v2ActivationObserved =
+    !v2LaunchState.paused ||
+    v2LaunchState.roundCount > 0n;
+  if (
+    v2ActivationObserved &&
+    (!v2LaunchState.bytecodeValid ||
+      !v2LaunchState.relationshipsValid)
+  ) {
+    throw new Error(
+      "PullPool V2 activated without matching pinned bytecode and relationships",
+    );
+  }
+  if (
+    v2LaunchState.deprecated &&
+    v2LaunchState.roundCount > 0n
+  ) {
+    throw new Error(
+      "PullPool V2 was launched and is now deprecated; automatic fallback is disabled",
+    );
+  }
+  if (v2LaunchState.selected) {
+    config = configurePullPoolV2(config);
+  }
+  log(
+    v2LaunchState.selected ? "info" : "debug",
+    "pull_pool_version_selected",
+    {
+      poolVersion: config.poolVersion,
+      v2Paused: v2LaunchState.paused,
+      v2Deprecated: v2LaunchState.deprecated,
+      v2RoundCount: v2LaunchState.roundCount.toString(),
+      v2BytecodeValid: v2LaunchState.bytecodeValid,
+      v2RelationshipsValid:
+        v2LaunchState.relationshipsValid,
+      pendingFundingBackruns:
+        pendingFundingExecutionEnabled(config),
+      pendingFwaFulfillmentBackruns:
+        pendingFwaFulfillmentExecutionEnabled(config),
+    },
+  );
+
   const chainId = await publicClient.getChainId();
   if (chainId !== CHAIN_ID) {
     throw new Error(`expected Ethereum mainnet chain id 1, received ${chainId}`);
@@ -2914,6 +2969,7 @@ async function main(): Promise<void> {
   const balance = await publicClient.getBalance({ address: accountAddress });
   log("info", "keeper_started", {
     chainId,
+    poolVersion: config.poolVersion,
     factory: config.factoryAddress,
     vaultFactory: config.vaultFactoryAddress,
     pool: poolAddress,
@@ -3060,6 +3116,60 @@ async function main(): Promise<void> {
           },
           async () => {
             log("debug", "new_block", { block: block.toString() });
+            const versionCheck =
+              config.poolVersion !== "v1"
+                ? Promise.resolve<
+                    | { readonly roundCount: bigint }
+                    | { readonly error: unknown }
+                    | undefined
+                  >(undefined)
+                : (async () => {
+                    const activation =
+                      await readPullPoolV2ActivationSignal(
+                        exactStateClient,
+                        block,
+                      );
+                    if (!activation.activated) return undefined;
+                    const verified =
+                      await readPullPoolV2LaunchState(
+                        exactStateClient,
+                        block,
+                      );
+                    if (!verified.selected) {
+                      throw new Error(
+                        "PullPool V2 activation failed pinned runtime verification",
+                      );
+                    }
+                    return {
+                      roundCount: activation.roundCount,
+                    };
+                  })().catch((error: unknown) => ({ error }));
+            let transitionLogged = false;
+            const assertPoolVersionCurrent =
+              async (): Promise<void> => {
+                const transition = await versionCheck;
+                if (transition === undefined) return;
+                if ("error" in transition) {
+                  throw transition.error;
+                }
+                if (!transitionLogged) {
+                  transitionLogged = true;
+                  log(
+                    "warn",
+                    "pull_pool_v2_transition_detected",
+                    {
+                      block: block.toString(),
+                      roundCount:
+                        transition.roundCount.toString(),
+                      action:
+                        "supervised_restart_into_verified_v2_adapter",
+                    },
+                  );
+                }
+                throw new PullPoolVersionTransitionError(
+                  `PullPool V2 activated at block ${block}`,
+                );
+              };
             if (!config.dryRun) {
               await assertSignerLeaseHeld();
             }
@@ -3079,7 +3189,9 @@ async function main(): Promise<void> {
               observePrivateBatch,
               observePoolPullBatch,
               observePoolLifecycleBatch,
+              preSubmissionGate: assertPoolVersionCurrent,
             });
+            await assertPoolVersionCurrent();
             if (passResult.sent === 0) {
               scheduleColdPlannerRefresh({
                 discoveryClient,
@@ -3112,6 +3224,13 @@ async function main(): Promise<void> {
         log("error", "head_subscription_stale", {
           reason: error.message,
           ...errorFingerprint(error),
+          action: "restarting_worker",
+        });
+        throw error;
+      }
+      if (error instanceof PullPoolVersionTransitionError) {
+        log("warn", "pull_pool_version_restart_requested", {
+          reason: error.message,
           action: "restarting_worker",
         });
         throw error;

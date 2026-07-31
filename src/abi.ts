@@ -34,6 +34,34 @@ export const standingOrderAbi = parseAbi([
   "error ZeroTickets()",
 ]);
 
+export const standingOrderV2Abi = parseAbi([
+  "function OWNER() view returns (address)",
+  "function REFERRER() view returns (address)",
+  "function pool() view returns (address)",
+  "function recipient() view returns (address)",
+  "function crankFee() view returns (uint96)",
+  "function ticketsPerRound() view returns (uint32)",
+  "function lastRoundBought() view returns (uint256)",
+  "function minSecondsBetweenBuys() view returns (uint64)",
+  "function lastBuyAt() view returns (uint64)",
+  "function crank()",
+  "event Cranked(uint256 indexed roundId, uint32 tickets, uint256 cost, uint256 fee, address indexed caller)",
+  "error AlreadyBought()",
+  "error BadPool()",
+  "error BadRecipient()",
+  "error FeeAboveMax()",
+  "error FwaNotPricing()",
+  "error InsufficientBalance()",
+  "error IntervalAboveMax()",
+  "error NotOwner()",
+  "error PoolPaused()",
+  "error RoundCovered()",
+  "error RoundDeadlinePassed()",
+  "error RoundFull()",
+  "error TooSoon()",
+  "error ZeroTickets()",
+]);
+
 export const poolAbi = parseAbi([
   "function FWA() view returns (address)",
   "function FWA_TOKEN() view returns (address)",
@@ -59,6 +87,49 @@ export const poolAbi = parseAbi([
   "error PreviousRoundLive()",
   "error VrfLegTooHigh()",
   "error WrongState()",
+]);
+
+export const poolV2Abi = parseAbi([
+  "function FWA() pure returns (address)",
+  "function FWA_REWARDS() pure returns (address)",
+  "function FWA_TOKEN() pure returns (address)",
+  "function owner() view returns (address)",
+  "function paused() view returns (bool)",
+  "function deprecated() view returns (bool)",
+  "function roundCount() view returns (uint256)",
+  "function firstOpenRound() view returns (uint256)",
+  "function currentOpenRound() view returns (uint256)",
+  "function pendingPullCount() view returns (uint256)",
+  "function ticketsNeeded(uint256 roundId) view returns (uint256)",
+  "function getRound(uint256 roundId) view returns ((uint96 ticketPrice, uint16 feeBps, uint16 headroomBps, uint16 feeCapBps, uint96 crankBountyCap, uint96 vrfAllowance, uint64 bountyTipWei, uint64 stallTimeout, uint64 fundingDeadline, uint32 ticketsSold, uint32 maxTickets, uint16 referralBps, uint32 referredTickets, uint256 minPoolWeightedValue, uint256 escrow, uint256 feeOwed, uint256 refundPool, uint256 ethPot, uint256 tokenPot, uint256 fwaRequestId, uint256 acquisitionSpent, uint256 bidValue, uint256 listingId, uint64 allocatedAt, uint64 pullingAt, uint8 state, uint8 outcome, bool fwaResolved, bool feeClaimed, bool nftHeld, bool rewardCredited, uint128 creditTaken, uint256 backingAtAlloc, uint128 forcedEthTaken, uint256 referralPool, uint128 rewardAmount))",
+  "function config() view returns (uint96 ticketPrice, uint64 fundingDuration, uint16 headroomBps, uint16 feeCapBps, uint96 crankBountyCap, uint96 vrfAllowance, uint64 bountyTipWei, uint64 stallTimeout, uint32 maxTickets, uint16 maxConcurrentOpen, uint16 maxConcurrentPulls, uint16 referralBps)",
+  "function buyTickets(uint256 roundId, uint32 tickets, address recipient, address referrer) payable",
+  "function buyIntoCurrentRound(uint32 tickets, address recipient, address referrer) payable",
+  "function pull(uint256 roundId)",
+  "function syncFwaResult(uint256 roundId)",
+  "function settle(uint256 roundId)",
+  "function settleForcedEth(uint256 roundId)",
+  "event RoundOpened(uint256 indexed roundId)",
+  "event CrankBountyPaid(uint256 indexed roundId, address indexed cranker, uint256 amount)",
+  "event Pulled(uint256 indexed roundId, uint256 fwaRequestId, uint256 spent, address indexed cranker)",
+  "event RoundClaimable(uint256 indexed roundId, uint256 listingId)",
+  "event RoundSettled(uint256 indexed roundId, uint8 outcome, uint256 tokenPot, uint256 ethPot)",
+  "event RoundVoided(uint256 indexed roundId, uint256 refundPool)",
+  "error FwaNotPricing()",
+  "error IsDeprecated()",
+  "error IsPaused()",
+  "error ListingNotReady()",
+  "error NotCovered()",
+  "error OpenCapReached()",
+  "error PullCapReached()",
+  "error VrfLegTooHigh()",
+  "error WrongState()",
+]);
+
+export const poolV2LifecycleAbi = parseAbi([
+  "event RoundOpened(uint256 indexed roundId)",
+  "event RoundSettled(uint256 indexed roundId, uint8 outcome, uint256 tokenPot, uint256 ethPot)",
+  "event RoundVoided(uint256 indexed roundId, uint256 refundPool)",
 ]);
 
 export const fwaAbi = parseAbi([

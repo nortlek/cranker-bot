@@ -75,10 +75,29 @@ cost.
 
 ## Keeper behavior
 
+At startup the worker verifies the pinned V2 suite and selects V2 only after
+the canonical pool has been unpaused or has opened its first round. Until then
+it remains on V1. While V1 is selected, a V2 activation check runs alongside
+ordinary planning and becomes a mandatory pre-submission gate. Activation
+requests a supervised restart; the replacement re-verifies all seven V2
+runtime hashes and immutable relationships before selecting the V2
+pool/factory. A launched V2 is never silently replaced by V1 if it is later
+paused, deprecated, or fails verification.
+
+V2 reconstructs every active round from `RoundOpened`, `RoundSettled`, and
+`RoundVoided`, exact-reads those rounds at the subscribed parent, and routes
+concurrent funding and acquisition work independently. Its standing-order
+decoder also binds the mutable pool, recipient, referrer, and pacing fields.
+The V1 vault registry and V1-only pending funding/FWA decoders are disarmed
+under V2; confirmed-head V2 orders and lifecycle calls remain private,
+exact-simulated, and profit-gated.
+
 Each new block, the keeper:
 
-1. Reads `roundCount` for the newest funding round and `ethPendingRound` for
-   the independently resolving acquisition. It prioritizes
+1. Under V1, reads `roundCount` for the newest funding round and
+   `ethPendingRound` for the independently resolving acquisition. Under V2,
+   uses the event-indexed active set and per-round snapshots instead. It
+   prioritizes
    `syncFwaResult → settle` for fulfilled acquisitions. When the acquisition is
    ready and is within the configured FWA processing window, it builds
    `processAcquisitions(count) → syncFwaResult → settle`, where `count`

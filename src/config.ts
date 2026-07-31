@@ -18,6 +18,7 @@ import {
 
 export const ETHEREUM_TRANSACTION_GAS_LIMIT = 16_777_216;
 export const FWA_PROCESS_DISCOVERY_MAX_COUNT = 50;
+export type PullPoolVersion = "v1" | "v2";
 
 export interface KeeperConfig {
   readonly rpcUrl: string;
@@ -57,6 +58,7 @@ export interface KeeperConfig {
   readonly telemetryBatchSize: number;
   readonly telemetryFlushMs: number;
   readonly telemetryMaxQueue: number;
+  readonly poolVersion: PullPoolVersion;
   readonly factoryAddress: Address;
   readonly vaultFactoryAddress: Address;
   readonly expectedPoolAddress: Address;
@@ -537,6 +539,7 @@ export function loadConfig(): KeeperConfig {
       { min: 10, max: 60_000 },
     ),
     telemetryMaxQueue,
+    poolVersion: "v1",
     factoryAddress: getAddress(
       process.env.FACTORY_ADDRESS || FACTORY_ADDRESS,
     ),

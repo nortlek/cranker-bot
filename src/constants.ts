@@ -7,6 +7,70 @@ export const FACTORY_ADDRESS = getAddress(
 export const POOL_ADDRESS = getAddress(
   "0xB2D80254af189854Bf90D2C338d87236d67D2bF3",
 );
+export const PULL_POOL_V2_ADDRESS = getAddress(
+  "0x03C45c9C594b19ca5Fde54f38C7e6b6A5f2329d7",
+);
+export const PULL_POOL_V2_FACTORY_ADDRESS = getAddress(
+  "0xc62cEF28ccDbaBE147eCD3Baf4492119aCf4c657",
+);
+export const PULL_POOL_FWA_ADDRESS = getAddress(
+  "0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c",
+);
+export const PULL_POOL_V2_DEPLOYMENT_BLOCK = 25_639_384n;
+export const PULL_POOL_V2_COMPONENTS = [
+  {
+    label: "pool",
+    address: PULL_POOL_V2_ADDRESS,
+    codeHash:
+      "0x9086cc5f10b8b8ee1a775ae683f0770d151665a56e7b5f9632cc2253ec68a792",
+  },
+  {
+    label: "order_factory",
+    address: PULL_POOL_V2_FACTORY_ADDRESS,
+    codeHash:
+      "0x45ccf63419269cadbb49f4dc5b7496ddc5c2d813f71296e55a56dd522d1dab49",
+  },
+  {
+    label: "component_a",
+    address: getAddress(
+      "0xA30360eAf3c21caF9F51b63A9F6531Ea026769A8",
+    ),
+    codeHash:
+      "0x7686f7f71d828d45a06863d2b8f950164ae2dac445ce5ee313f959a84dcae4bc",
+  },
+  {
+    label: "component_b",
+    address: getAddress(
+      "0x1496d556E8C3Be67F7329dc4Ab57C392c4FD6E85",
+    ),
+    codeHash:
+      "0xd787afc15d96c719d04f3fca98a23c7e5cdb1835ae460ef363b645236fed444d",
+  },
+  {
+    label: "component_c",
+    address: getAddress(
+      "0xB7EC36cA1869e5112f87a6CdfB9bAcbAcC1c5aEc",
+    ),
+    codeHash:
+      "0xafdd5ff2a26d9cb99e37c9dd0cb4c3be16c433845b18c08997f65d9975f42404",
+  },
+  {
+    label: "component_d",
+    address: getAddress(
+      "0x5B786A97eFcb6A3a87e2B346Beee4fe469B8c9ca",
+    ),
+    codeHash:
+      "0x9d13ad70cd4d282ea6454efc6e55c0f7117faaedde660ca2e225989febbc3d28",
+  },
+  {
+    label: "config_guard",
+    address: getAddress(
+      "0xe9516162982A32cDB4619cF11b749a9e06DAa2f5",
+    ),
+    codeHash:
+      "0xe1228ec0c807b2896f5aebd1bae3225a474dcd098c05c129425ad84555515dd0",
+  },
+] as const;
 export const FWA_TOKEN_ADDRESS = getAddress(
   "0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845",
 );
