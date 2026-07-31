@@ -320,6 +320,7 @@ export interface PoolPullBatchOutcome {
   readonly targetBlock: bigint;
   readonly pool: Address;
   readonly poolVersion: KeeperConfig["poolVersion"];
+  readonly effectiveBuilderBidBps?: bigint;
   readonly plannedGrossReward?: bigint;
   readonly plannedBuilderPayment?: bigint;
   readonly plannedExpectedProfit?: bigint;
@@ -5377,6 +5378,10 @@ export async function runKeeperPass(
       }
       return [
         {
+          pool: submission.request.target,
+          poolVersion:
+            submission.request.poolVersion ??
+            context.config.poolVersion,
           hash: submission.hash,
           roundId: submission.request.roundId,
           included:
@@ -5390,43 +5395,72 @@ export async function runKeeperPass(
     poolPullAttempts.length > 0 &&
     context.observePoolPullBatch !== undefined
   ) {
-    const poolPullRequest = submitted.find(
-      ({ request }) => request.kind === "pool_pull",
-    )?.request;
-    try {
-      await context.observePoolPullBatch({
-        targetBlock: privateTargetBlock,
-        pool:
-          poolPullRequest?.target ??
-          context.config.expectedPoolAddress,
-        poolVersion:
-          poolPullRequest?.poolVersion ??
-          context.config.poolVersion,
-        ...(batchResult?.plannedGrossReward === undefined
-          ? {}
-          : {
-              plannedGrossReward:
-                batchResult.plannedGrossReward,
-            }),
-        ...(batchResult?.plannedBuilderPayment === undefined
-          ? {}
-          : {
-              plannedBuilderPayment:
-                batchResult.plannedBuilderPayment,
-            }),
-        ...(batchResult?.plannedExpectedProfit === undefined
-          ? {}
-          : {
-              plannedExpectedProfit:
-                batchResult.plannedExpectedProfit,
-            }),
-        attempts: poolPullAttempts,
+    const groups = new Map<
+      string,
+      {
+        readonly pool: Address;
+        readonly poolVersion: KeeperConfig["poolVersion"];
+        readonly attempts: Array<{
+          readonly hash: Hash;
+          readonly roundId: bigint;
+          readonly included: boolean;
+        }>;
+      }
+    >();
+    for (const attempt of poolPullAttempts) {
+      const key = `${attempt.poolVersion}:${attempt.pool.toLowerCase()}`;
+      const group = groups.get(key) ?? {
+        pool: attempt.pool,
+        poolVersion: attempt.poolVersion,
+        attempts: [],
+      };
+      group.attempts.push({
+        hash: attempt.hash,
+        roundId: attempt.roundId,
+        included: attempt.included,
       });
-    } catch (error) {
-      log("warn", "pool_pull_bid_observation_failed", {
-        targetBlock: privateTargetBlock.toString(),
-        reason: errorMessage(error),
-      });
+      groups.set(key, group);
+    }
+    for (const group of groups.values()) {
+      try {
+        await context.observePoolPullBatch({
+          targetBlock: privateTargetBlock,
+          pool: group.pool,
+          poolVersion: group.poolVersion,
+          ...(batchResult?.effectiveBuilderBidBps === undefined
+            ? {}
+            : {
+                effectiveBuilderBidBps:
+                  batchResult.effectiveBuilderBidBps,
+              }),
+          ...(batchResult?.plannedGrossReward === undefined
+            ? {}
+            : {
+                plannedGrossReward:
+                  batchResult.plannedGrossReward,
+              }),
+          ...(batchResult?.plannedBuilderPayment === undefined
+            ? {}
+            : {
+                plannedBuilderPayment:
+                  batchResult.plannedBuilderPayment,
+              }),
+          ...(batchResult?.plannedExpectedProfit === undefined
+            ? {}
+            : {
+                plannedExpectedProfit:
+                  batchResult.plannedExpectedProfit,
+              }),
+          attempts: group.attempts,
+        });
+      } catch (error) {
+        log("warn", "pool_pull_bid_observation_failed", {
+          targetBlock: privateTargetBlock.toString(),
+          poolVersion: group.poolVersion,
+          pool: group.pool,
+          reason: errorMessage(error),
+        });
+      }
     }
   }
 

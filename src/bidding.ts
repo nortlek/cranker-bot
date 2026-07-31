@@ -23,6 +23,15 @@ export interface CompetitivePrefixComponent {
   readonly gasUsed: bigint;
   readonly builderBidBps: bigint;
   readonly minimumPriorityFeePerGas: bigint;
+  /**
+   * A lane-specific floor against the aggregate reward of every prefix that
+   * contains this component. This lets a pull controller price a mixed
+   * lifecycle/pull bundle against the same total payment a builder observes
+   * without rewriting the lifecycle components' independent policies.
+   */
+  readonly minimumAggregateBuilderBidBps?: bigint;
+  /** Ignore the configured fee ceiling and retain only the profit floor. */
+  readonly profitabilityOnly?: boolean;
 }
 
 export interface CompetitivePrefixSelection {
@@ -116,10 +125,12 @@ export function aggregateBuilderBidBps(
   components: readonly {
     readonly rewardWei: bigint;
     readonly builderBidBps: bigint;
+    readonly minimumAggregateBuilderBidBps?: bigint;
   }[],
 ): bigint {
   let totalReward = 0n;
   let desiredBuilderPayment = 0n;
+  let minimumAggregateBuilderBidBps = 0n;
   for (const component of components) {
     if (component.rewardWei < 0n) {
       throw new Error("rewardWei cannot be negative");
@@ -133,12 +144,25 @@ export function aggregateBuilderBidBps(
     totalReward += component.rewardWei;
     desiredBuilderPayment +=
       (component.rewardWei * component.builderBidBps) / 10_000n;
+    const aggregateFloor =
+      component.minimumAggregateBuilderBidBps ?? 0n;
+    if (aggregateFloor < 0n || aggregateFloor > 10_000n) {
+      throw new Error(
+        "minimumAggregateBuilderBidBps must be between 0 and 10000",
+      );
+    }
+    if (aggregateFloor > minimumAggregateBuilderBidBps) {
+      minimumAggregateBuilderBidBps = aggregateFloor;
+    }
   }
   if (totalReward === 0n) return 0n;
-  return ceilDivide(
+  const weightedBidBps = ceilDivide(
     desiredBuilderPayment * 10_000n,
     totalReward,
   );
+  return weightedBidBps > minimumAggregateBuilderBidBps
+    ? weightedBidBps
+    : minimumAggregateBuilderBidBps;
 }
 
 /**
@@ -152,7 +176,7 @@ function quotePriorityFees(parameters: {
   readonly baseFeeAllowancePerGas: bigint;
   readonly minimumPriorityFeePerGas: bigint;
   readonly builderBidBps: bigint;
-  readonly maxFeePerGasCap: bigint;
+  readonly maxFeePerGasCap?: bigint;
   readonly minProfitWei: bigint;
 }): Omit<
   CompetitiveFeeQuote,
@@ -185,9 +209,12 @@ function quotePriorityFees(parameters: {
       ? -1n
       : profitBudget / parameters.simulatedGasUsed;
   const feeCappedPriorityFeePerGas =
-    parameters.maxFeePerGasCap -
-    parameters.baseFeeAllowancePerGas;
+    parameters.maxFeePerGasCap === undefined
+      ? undefined
+      : parameters.maxFeePerGasCap -
+        parameters.baseFeeAllowancePerGas;
   const maximumPriorityFeePerGas =
+    feeCappedPriorityFeePerGas === undefined ||
     profitCappedPriorityFeePerGas < feeCappedPriorityFeePerGas
       ? profitCappedPriorityFeePerGas
       : feeCappedPriorityFeePerGas;
@@ -197,6 +224,7 @@ function quotePriorityFees(parameters: {
     parameters.minimumPriorityFeePerGas
   ) {
     const cappedByFeeCap =
+      feeCappedPriorityFeePerGas !== undefined &&
       feeCappedPriorityFeePerGas < parameters.minimumPriorityFeePerGas;
     const maxPriorityFeePerGas =
       maximumPriorityFeePerGas > 0n ? maximumPriorityFeePerGas : 0n;
@@ -231,9 +259,12 @@ function quotePriorityFees(parameters: {
       : maximumPriorityFeePerGas;
   const cappedByProfit =
     maxPriorityFeePerGas < requestedPriorityFeePerGas &&
-    profitCappedPriorityFeePerGas <= feeCappedPriorityFeePerGas;
+    (feeCappedPriorityFeePerGas === undefined ||
+      profitCappedPriorityFeePerGas <=
+        feeCappedPriorityFeePerGas);
   const cappedByFeeCap =
     maxPriorityFeePerGas < requestedPriorityFeePerGas &&
+    feeCappedPriorityFeePerGas !== undefined &&
     feeCappedPriorityFeePerGas < profitCappedPriorityFeePerGas;
   const maxFeePerGas =
     parameters.baseFeeAllowancePerGas + maxPriorityFeePerGas;
@@ -290,7 +321,7 @@ export function quoteCompetitiveFees(parameters: {
   readonly baseFeeAllowancePerGas: bigint;
   readonly minimumPriorityFeePerGas: bigint;
   readonly builderBidBps: bigint;
-  readonly maxFeePerGasCap: bigint;
+  readonly maxFeePerGasCap?: bigint;
   readonly minProfitWei: bigint;
   readonly directPaymentGasUsed?: bigint;
 }): CompetitiveFeeQuote {
@@ -394,9 +425,11 @@ export function selectMostProfitablePrefix(parameters: {
   let grossReward = 0n;
   let totalGasUsed = 0n;
   let minimumPriorityFeePerGas = 0n;
+  let profitabilityOnly = false;
   const bidComponents: Array<{
     rewardWei: bigint;
     builderBidBps: bigint;
+    minimumAggregateBuilderBidBps?: bigint;
   }> = [];
   let best: CompetitivePrefixSelection | undefined;
 
@@ -419,7 +452,14 @@ export function selectMostProfitablePrefix(parameters: {
     bidComponents.push({
       rewardWei: component.rewardWei,
       builderBidBps: component.builderBidBps,
+      ...(component.minimumAggregateBuilderBidBps === undefined
+        ? {}
+        : {
+            minimumAggregateBuilderBidBps:
+              component.minimumAggregateBuilderBidBps,
+          }),
     });
+    profitabilityOnly ||= component.profitabilityOnly === true;
     if (
       component.minimumPriorityFeePerGas >
       minimumPriorityFeePerGas
@@ -438,7 +478,9 @@ export function selectMostProfitablePrefix(parameters: {
         parameters.baseFeeAllowancePerGas,
       minimumPriorityFeePerGas,
       builderBidBps,
-      maxFeePerGasCap: parameters.maxFeePerGasCap,
+      ...(profitabilityOnly
+        ? {}
+        : { maxFeePerGasCap: parameters.maxFeePerGasCap }),
       minProfitWei: parameters.minProfitWei,
       ...(parameters.directPaymentGasUsed === undefined
         ? {}

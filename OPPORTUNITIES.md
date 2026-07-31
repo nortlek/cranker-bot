@@ -1459,10 +1459,32 @@ Implementation:
   inheriting V1's 72.5% fulfilled bid; raise it only from exact V2 competition
   evidence
 
-Next action: let the deployed dual adapter observe the cutover, then audit the
-first V2 rounds, new orders, competitor payments, and any missed callbacks.
-Implement multi-request V2 pending-FWA routing only from exact live evidence;
-do not re-enable either V1 pending decoder against V2.
+The first live sample now supports a separate pull controller. Across V2 rounds
+9–21 the keeper won four pulls and competitors won nine; one competitor took
+rounds 16–21. Five of those were internally funded atomic pulls and were not
+independently actionable. The four ordinary losses required approximately
+1,732, 5,089, 5,712, and 6,242 bps against each exact planned gross reward, and
+all four counterfactuals still cleared the configured retained-profit floor.
+Their combined missed counterfactual net was approximately
+`0.001941712234 ETH`. In the same sample the keeper won all 13 observed V2
+sync/settle cycles, so pull pricing—not general lifecycle delivery—was the
+isolated defect.
+
+Implemented on 2026-07-31: V2 pulls now use a durable `v2_pool_pull` adaptive
+scope seeded from profitable exact historical evidence. A learned pull target
+becomes an aggregate payment floor for any mixed bundle, without mutating the
+lifecycle or standing-order policies. Any prefix containing the adaptively
+priced pull ignores the ordinary max-fee ceiling and is bounded only by exact
+signed-bundle profitability; the relay prefix floor includes the pull so a
+builder cannot retain the high-fee lifecycle prefix while dropping it. V1 pull
+pricing remains independent and static. V1 and V2 pull observations are also
+grouped by canonical pool before learning.
+
+Next action: validate the seeded target and first live V2 result, then use the
+new `v2_pool_pull_adaptive_bid_adjusted` history to confirm wins decay without
+chasing internally subsidized competitor calls. Implement multi-request V2
+pending-FWA routing only from exact live evidence; do not re-enable either V1
+pending decoder against V2.
 
 ### P0 — Reduce acquisition lifecycle latency
 

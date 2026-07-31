@@ -27,6 +27,19 @@ describe("aggregateBuilderBidBps", () => {
       ]),
     ).toBe(1_000n);
   });
+
+  it("applies a pull clearing-price floor to the aggregate mixed bundle", () => {
+    expect(
+      aggregateBuilderBidBps([
+        { rewardWei: 300n, builderBidBps: 9_000n },
+        {
+          rewardWei: 700n,
+          builderBidBps: 1_000n,
+          minimumAggregateBuilderBidBps: 6_243n,
+        },
+      ]),
+    ).toBe(6_243n);
+  });
 });
 
 describe("effectiveBuilderBidBps", () => {
@@ -176,6 +189,24 @@ describe("quoteCompetitiveFees", () => {
     expect(quote.cappedByFeeCap).toBe(true);
   });
 
+  it("uses only the retained-profit boundary when no fee cap is supplied", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: 1_000n,
+      simulatedGasUsed: 10n,
+      baseFeeAllowancePerGas: 10n,
+      minimumPriorityFeePerGas: 1n,
+      builderBidBps: 9_000n,
+      minProfitWei: 100n,
+    });
+
+    expect(quote.profitable).toBe(true);
+    expect(quote.maxFeePerGas).toBe(90n);
+    expect(quote.maxPriorityFeePerGas).toBe(80n);
+    expect(quote.expectedProfit).toBe(100n);
+    expect(quote.cappedByProfit).toBe(true);
+    expect(quote.cappedByFeeCap).toBe(false);
+  });
+
   it("fills a fee-capped bid with a profit-bounded direct payment", () => {
     const quote = quoteCompetitiveFees({
       crankFee: parseEther("0.0025"),
@@ -269,6 +300,36 @@ describe("selectMostProfitablePrefix", () => {
 
     expect(selected?.length).toBe(2);
     expect(selected?.quote.expectedProfit).toBe(100n);
+  });
+
+  it("prices a mixed pull prefix above the configured fee cap when exact profit remains", () => {
+    const selected = selectMostProfitablePrefix({
+      components: [
+        {
+          rewardWei: 700n,
+          gasUsed: 10n,
+          builderBidBps: 300n,
+          minimumPriorityFeePerGas: 0n,
+        },
+        {
+          rewardWei: 300n,
+          gasUsed: 10n,
+          builderBidBps: 1_000n,
+          minimumAggregateBuilderBidBps: 7_000n,
+          minimumPriorityFeePerGas: 0n,
+          profitabilityOnly: true,
+        },
+      ],
+      minimumViablePrefix: 2,
+      baseFeeAllowancePerGas: 10n,
+      maxFeePerGasCap: 20n,
+      minProfitWei: 100n,
+    });
+
+    expect(selected?.builderBidBps).toBe(7_000n);
+    expect(selected?.quote.maxFeePerGas).toBe(45n);
+    expect(selected?.quote.expectedProfit).toBe(100n);
+    expect(selected?.quote.cappedByFeeCap).toBe(false);
   });
 
   it("keeps individually negative receipts when the repriced bundle is more profitable", () => {

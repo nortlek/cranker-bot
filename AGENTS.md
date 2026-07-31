@@ -320,9 +320,11 @@ After an ordinary PoolPull miss, `pool_competitor_bid_observed` stores the
 winning transaction, round, cranker, gross pool bounty, priority payment,
 direct beneficiary payment, and a pool-reward-normalized bid upper bound.
 `pool_pull_bid_observation` distinguishes a target-block competitor win from a
-miss with no competing pull. These observations are record-only until repeated
-exact evidence supports a separate pool controller; they must not update the
-standing-order controller.
+miss with no competing pull. V1 observations remain record-only. Exact,
+counterfactually profitable V2 evidence updates the independent durable
+`v2_pool_pull` controller and must never update the standing-order controller.
+`v2_pool_pull_adaptive_bid_adjusted` records every held, increased, or decreased
+V2 target.
 
 The competitor-normalized upper bound is not directly comparable with our
 configured percentage when its realized gas reimbursement differs from our
@@ -629,6 +631,15 @@ These constraints prevent expensive or unsafe regressions:
   standing order's high bid to a thin-margin lane. LiveBid bidding is not a
   safety control: its `sweep()` can succeed with zero reward after another
   transaction empties the adapter earlier in the same block.
+- V2 pool pulls start at `POOL_PULL_BUILDER_BID_BPS` and learn exact aggregate
+  clearing prices in the durable `v2_pool_pull` scope. Only counterfactually
+  profitable competitor payments may raise the target. A V2 pull-containing
+  prefix has no fixed percentage or `MAX_FEE_PER_GAS_GWEI` ceiling: its exact
+  signed-bundle quote is clamped to the configured retained-profit floor. The
+  internal 10,000 bps target requests the whole gross reward and is therefore
+  above the economically admissible payment, not an economic cap. Because the
+  aggregate high bid is justified by the pull, the private prefix floor must
+  include that pull; never offer the same high-fee lifecycle-only prefix.
 - Standing-order targets start at `BUILDER_BID_BPS`, but durable per-target
   price discovery may bid lower after repeated wins. Its bracket must learn
   from the exact bundle-effective bid after profit and fee caps, not just the
@@ -667,7 +678,7 @@ At the last handoff, the configured policy was approximately:
 | Standing-order learned maximum in use | 94.54% |
 | Aggregate minimum retained profit | 0.000001 ETH |
 | Pending-funding standing-order backrun | 10% |
-| Pool pull | 10% |
+| Pool pull | V1 10%; V2 adaptive from 10% to profitability boundary |
 | Pool acquisition ready | 3% |
 | Pool acquisition fulfilled | 72.5% |
 | LiveBid sweep | 1% (feature default-off) |

@@ -280,9 +280,9 @@ lease does it arm pending execution and begin ordinary keeper passes. This
 keeps exactly one signer while avoiding a full initialization blackout during
 rollout. Database telemetry remains fail-open after startup, but failure to
 acquire the signer lease is deliberately fail-closed. Per-order adaptive
-builder bids are also stored in PostgreSQL when it is configured, so learned
-competition prices survive Railway's ephemeral filesystem and subsequent
-deployments.
+builder bids and the independent V2 pool-pull clearing-price state are also
+stored in PostgreSQL when it is configured, so learned competition prices
+survive Railway's ephemeral filesystem and subsequent deployments.
 
 For live execution, use a dedicated keeper EOA funded only with enough ETH for
 gas:
@@ -328,8 +328,11 @@ successful `crank` fees are sent to that keeper address.
   `processAcquisitions → sync → settle` chain. The default is `300` (3%),
   just above the incumbent's observed 2.5% direct Titan payment.
 - `POOL_PULL_BUILDER_BID_BPS`: independent builder share for `pull`. The
-  default is `1000` (10%). Exact standalone-pull traces show this clears the
-  low-bid cluster without paying into the near-zero-margin high-bid cluster.
+  default is `1000` (10%). It remains the V1 static policy and is the V2
+  controller's starting point/lower bound. V2 learns exact profitable misses
+  in the separate `v2_pool_pull` durable scope. Its learned target is applied
+  to the aggregate bundle a builder evaluates, and can rise to the exact
+  retained-profit boundary without inheriting the standing-order controller.
 - `POOL_FULFILLED_BUILDER_BID_BPS`: builder share for ordinary fulfilled
   `sync → settle` and settle-only work. The default is `7250` (72.5%), just
   above the lowest of three exact recent fulfilled-cycle clearings. This does
@@ -560,7 +563,9 @@ the bundle with the existing reward-weighted lifecycle, order, and pull bids.
   bundle or prefix; defaults to `0`. Production uses `0.000001 ETH` so a
   profit-capped quote must retain more than rounding dust.
 - `GAS_LIMIT_MULTIPLIER_BPS`: buffer applied to `eth_estimateGas`.
-- `MAX_FEE_PER_GAS_GWEI`: hard ceiling for the proposed EIP-1559 max fee.
+- `MAX_FEE_PER_GAS_GWEI`: hard ceiling for ordinary proposed EIP-1559 max
+  fees. A bundle prefix containing an adaptively priced V2 `pull` deliberately
+  bypasses this ceiling and is bounded by exact simulated profitability only.
 - `MAX_TRANSACTIONS_PER_PASS`: optional per-block transaction cap; `0` is
   unlimited.
 - `RECEIPT_TIMEOUT_MS`: how long batch receipt monitoring waits before leaving
@@ -582,11 +587,12 @@ bundleProfit =
 
 Before private submission, the bot runs an ordered signed simulation and
 re-prices the whole viable sequence. Each reward contributes its own desired
-builder payment: standing orders use their learned target, while pool
-jobs use the ready-chain, pull, or fulfilled-chain policy matching their
-competition family. The combined target is capped at the priority fee that
-still clears the bundle profit floor and
-`MAX_FEE_PER_GAS_GWEI`:
+builder payment: standing orders use their learned target, while pool jobs use
+the ready-chain, pull, or fulfilled-chain policy matching their competition
+family. V2 pull competition can add a learned floor against the aggregate
+bundle payment. Ordinary combined targets are capped by both the retained
+profit floor and `MAX_FEE_PER_GAS_GWEI`; V2 pull-containing prefixes omit the
+fee ceiling and retain only the exact profit bound:
 
 ```text
 desiredBuilderPayment =
@@ -594,7 +600,7 @@ desiredBuilderPayment =
 priorityFee = min(
   ceil(desiredBuilderPayment / totalSimulatedGasUsed),
   maximumProfitSafePriorityFee,
-  maximumFeeCapSafePriorityFee
+  maximumFeeCapSafePriorityFee # omitted for adaptive V2 pull prefixes
 )
 expectedProfit = grossBundleReward
                - totalSimulatedGasUsed

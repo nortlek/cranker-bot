@@ -25,6 +25,7 @@ import {
 import {
   aggregateBuilderBidBps,
   compareObservedBuilderPayment,
+  effectiveBuilderBidBps,
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
 } from "./bidding.js";
@@ -153,6 +154,7 @@ let discordNotifier: DiscordWebhookNotifier | undefined;
 let telemetrySink: BatchedEventSink | undefined;
 let signerLease: SignerLease | undefined;
 let adaptiveBidController: AdaptiveBidController | undefined;
+let v2PoolPullBidController: AdaptiveBidController | undefined;
 let signerLeaseFailure: Error | undefined;
 let closeHeadSubscription: (() => Promise<void>) | undefined;
 let closePendingFundingRuntime:
@@ -208,6 +210,7 @@ async function closeRuntimeResources(): Promise<void> {
       await Promise.all([
         closeHeadSubscription?.(),
         adaptiveBidController?.close(),
+        v2PoolPullBidController?.close(),
         telemetrySink?.close(),
         discordNotifier?.flush(),
         dashboardRuntime?.close(),
@@ -283,6 +286,32 @@ async function main(): Promise<void> {
             policy,
             new PostgresAdaptiveBidPersistence(
               config.databaseUrl,
+            ),
+          );
+    const v2PoolPullPolicy = {
+      minimumBidBps: config.poolPullBuilderBidBps,
+      baselineBidBps: config.poolPullBuilderBidBps,
+      // A 100% target is only a request for the full aggregate reward. The
+      // profitability-only quote below always clamps it first to the exact
+      // retained-profit boundary.
+      maximumBidBps: 10_000n,
+      lossStepBps: 1n,
+      winDecayBps: config.adaptiveBidDecayBps,
+      winsBeforeDecay: config.adaptiveBidWinStreak,
+      evidenceMaxAgeBlocks:
+        config.adaptiveBidEvidenceMaxAgeBlocks,
+    };
+    v2PoolPullBidController =
+      config.databaseUrl === undefined
+        ? await AdaptiveBidController.load(
+            v2PoolPullPolicy,
+            `${config.adaptiveBidStatePath}.v2-pool-pull`,
+          )
+        : await AdaptiveBidController.loadWithPersistence(
+            v2PoolPullPolicy,
+            new PostgresAdaptiveBidPersistence(
+              config.databaseUrl,
+              "v2_pool_pull",
             ),
           );
   }
@@ -557,7 +586,41 @@ async function main(): Promise<void> {
       const missed = outcome.attempts.filter(
         (attempt) => !attempt.included,
       );
-      if (missed.length === 0) return;
+      const v2BidController =
+        outcome.poolVersion === "v2"
+          ? v2PoolPullBidController
+          : undefined;
+      if (missed.length === 0) {
+        if (v2BidController !== undefined) {
+          const adjustment = await v2BidController.observe(
+            outcome.pool,
+            {
+              kind: "full_win",
+              blockNumber: outcome.targetBlock,
+              ...(outcome.effectiveBuilderBidBps === undefined
+                ? {}
+                : {
+                    effectiveBidBps:
+                      outcome.effectiveBuilderBidBps,
+                  }),
+            },
+          );
+          log("info", "v2_pool_pull_adaptive_bid_adjusted", {
+            pool: outcome.pool,
+            targetBlock: outcome.targetBlock.toString(),
+            outcome: "full_win",
+            action: adjustment.action,
+            previousBidBps:
+              adjustment.previousBidBps.toString(),
+            currentBidBps:
+              adjustment.currentBidBps.toString(),
+            effectiveBuilderBidBps:
+              outcome.effectiveBuilderBidBps?.toString() ?? "",
+            pricingBoundary: "exact_profitability_only",
+          });
+        }
+        return;
+      }
       try {
         const observationRead = await retryTransientRead({
           read: () =>
@@ -592,6 +655,7 @@ async function main(): Promise<void> {
             },
           );
         }
+        let observedWinningBidBps: bigint | undefined;
         for (const observation of observationRead.value) {
           const paymentComparison =
             outcome.plannedGrossReward === undefined ||
@@ -609,6 +673,21 @@ async function main(): Promise<void> {
                     outcome.plannedExpectedProfit,
                   minProfitWei: config.minProfitWei,
                 });
+          const observedBidBps =
+            outcome.plannedGrossReward === undefined
+              ? undefined
+              : effectiveBuilderBidBps(
+                  observation.totalBuilderPayment,
+                  outcome.plannedGrossReward,
+                );
+          if (
+            paymentComparison?.profitable === true &&
+            observedBidBps !== undefined &&
+            (observedWinningBidBps === undefined ||
+              observedBidBps > observedWinningBidBps)
+          ) {
+            observedWinningBidBps = observedBidBps;
+          }
           log("info", "pool_competitor_bid_observed", {
             poolVersion: outcome.poolVersion,
             pool: outcome.pool,
@@ -661,7 +740,49 @@ async function main(): Promise<void> {
                     paymentComparison.profitable,
                 }),
             action:
-              "record_only_without_contaminating_standing_order_learning",
+              v2BidController === undefined
+                ? "record_only_without_contaminating_standing_order_learning"
+                : paymentComparison?.profitable === true
+                  ? "feed_v2_pool_pull_controller"
+                  : "hold_unprofitable_competitor_evidence",
+          });
+        }
+        const adaptiveAdjustment =
+          v2BidController === undefined
+            ? undefined
+            : await v2BidController.observe(outcome.pool, {
+                kind: "miss",
+                blockNumber: outcome.targetBlock,
+                ...(outcome.effectiveBuilderBidBps === undefined
+                  ? {}
+                  : {
+                      effectiveBidBps:
+                        outcome.effectiveBuilderBidBps,
+                    }),
+                ...(observedWinningBidBps === undefined
+                  ? {}
+                  : { observedWinningBidBps }),
+              });
+        if (adaptiveAdjustment !== undefined) {
+          log("info", "v2_pool_pull_adaptive_bid_adjusted", {
+            pool: outcome.pool,
+            targetBlock: outcome.targetBlock.toString(),
+            outcome:
+              observationRead.value.length > 0
+                ? "competitor_won"
+                : "no_competitor_pull",
+            action: adaptiveAdjustment.action,
+            previousBidBps:
+              adaptiveAdjustment.previousBidBps.toString(),
+            currentBidBps:
+              adaptiveAdjustment.currentBidBps.toString(),
+            effectiveBuilderBidBps:
+              outcome.effectiveBuilderBidBps?.toString() ?? "",
+            observedWinningBidBps:
+              observedWinningBidBps?.toString() ?? "",
+            counterfactualProfitableEvidence:
+              observedWinningBidBps !== undefined,
+            pricingBoundary: "exact_profitability_only",
           });
         }
         log("info", "pool_pull_bid_observation", {
@@ -679,7 +800,9 @@ async function main(): Promise<void> {
           ),
           observedCompetitors: observationRead.value.length,
           action:
-            "hold_lane_specific_bid_pending_repeated_exact_evidence",
+            adaptiveAdjustment === undefined
+              ? "hold_lane_specific_bid"
+              : adaptiveAdjustment.action,
         });
       } catch (error) {
         log("warn", "pool_competitor_bid_measurement_failed", {
@@ -1002,6 +1125,8 @@ async function main(): Promise<void> {
           builderBidBps: bigint;
           minimumPriorityFeePerGas: bigint;
           bidPolicy: string;
+          minimumAggregateBuilderBidBps?: bigint;
+          profitabilityOnly?: boolean;
         }> = [];
         for (let index = 0; index < prefixRequests.length; index += 1) {
           const request = prefixRequests[index];
@@ -1021,6 +1146,8 @@ async function main(): Promise<void> {
           let requestBidBps: bigint;
           let requestMinimumPriorityFeePerGas = 0n;
           let requestBidPolicy: string;
+          let minimumAggregateBuilderBidBps: bigint | undefined;
+          let profitabilityOnly = false;
           if (request.order !== undefined) {
             requestBidBps =
               adaptiveBidController?.currentBidBps(request.order) ??
@@ -1031,17 +1158,36 @@ async function main(): Promise<void> {
           } else if (
             request.poolBuilderBidPolicy !== undefined
           ) {
-            requestBidBps =
-              request.configuredBuilderBidBps ??
-              (request.poolBuilderBidPolicy === "pool_pull"
-                ? config.poolPullBuilderBidBps
-                : request.poolBuilderBidPolicy === "pool_ready"
-                  ? config.poolBuilderBidBps
-                  : config.poolFulfilledBuilderBidBps);
-            requestBidPolicy =
-              request.poolVersion === undefined
+            const poolPullBidController =
+              v2PoolPullBidController;
+            const adaptiveV2PoolPull =
+              request.poolVersion === "v2" &&
+              request.poolBuilderBidPolicy === "pool_pull" &&
+              poolPullBidController !== undefined;
+            if (
+              adaptiveV2PoolPull &&
+              poolPullBidController !== undefined
+            ) {
+              requestBidBps =
+                poolPullBidController.currentBidBps(request.target);
+            } else {
+              requestBidBps =
+                request.configuredBuilderBidBps ??
+                (request.poolBuilderBidPolicy === "pool_pull"
+                  ? config.poolPullBuilderBidBps
+                  : request.poolBuilderBidPolicy === "pool_ready"
+                    ? config.poolBuilderBidBps
+                    : config.poolFulfilledBuilderBidBps);
+            }
+            requestBidPolicy = adaptiveV2PoolPull
+              ? "v2:pool_pull:adaptive_profitability_only"
+              : request.poolVersion === undefined
                 ? request.poolBuilderBidPolicy
                 : `${request.poolVersion}:${request.poolBuilderBidPolicy}`;
+            if (adaptiveV2PoolPull) {
+              minimumAggregateBuilderBidBps = requestBidBps;
+              profitabilityOnly = true;
+            }
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
           } else if (request.kind === "live_bid_sweep") {
@@ -1082,6 +1228,10 @@ async function main(): Promise<void> {
             minimumPriorityFeePerGas:
               requestMinimumPriorityFeePerGas,
             bidPolicy: requestBidPolicy,
+            ...(minimumAggregateBuilderBidBps === undefined
+              ? {}
+              : { minimumAggregateBuilderBidBps }),
+            ...(profitabilityOnly ? { profitabilityOnly: true } : {}),
           });
         }
 
@@ -1111,6 +1261,9 @@ async function main(): Promise<void> {
               request.kind === "standing_order" &&
               request.order !== undefined,
           );
+        const profitabilityOnlyPricing = pricingComponents.some(
+          (component) => component.profitabilityOnly === true,
+        );
         const fullQuote = quoteCompetitiveFees({
           crankFee: fullGrossReward,
           simulatedGasUsed: fullGasUsed,
@@ -1118,7 +1271,9 @@ async function main(): Promise<void> {
           minimumPriorityFeePerGas:
             fullMinimumPriorityFeePerGas,
           builderBidBps: fullBuilderBidBps,
-          maxFeePerGasCap: config.maxFeePerGas,
+          ...(profitabilityOnlyPricing
+            ? {}
+            : { maxFeePerGasCap: config.maxFeePerGas }),
           minProfitWei: config.minProfitWei,
           ...(directPaymentEligible
             ? {
@@ -1144,6 +1299,10 @@ async function main(): Promise<void> {
           prefixSelection?.length ?? pricingComponents.length;
         const selectedPricingComponents =
           pricingComponents.slice(0, selectedLength);
+        const selectedProfitabilityOnlyPricing =
+          selectedPricingComponents.some(
+            (component) => component.profitabilityOnly === true,
+          );
         const competitivelySelectedRequests =
           prefixRequests.slice(0, selectedLength);
         const grossReward =
@@ -1237,6 +1396,9 @@ async function main(): Promise<void> {
           requiredProfit: eth(quote.requiredProfit),
           cappedByProfit: quote.cappedByProfit,
           cappedByFeeCap: quote.cappedByFeeCap,
+          pricingBoundary: selectedProfitabilityOnlyPricing
+            ? "exact_profitability_only"
+            : "configured_fee_and_profitability",
           accepted: quote.profitable,
           reason: quote.reason ?? "",
         });
@@ -1332,7 +1494,22 @@ async function main(): Promise<void> {
           competitivePrefixLength,
         );
         const profitFloor = requiredProfit(config.minProfitWei);
-        let minimumEconomicPrefix = minimumViablePrefix;
+        let lastAdaptiveV2PullIndex = -1;
+        for (const [index, request] of selectedRequests.entries()) {
+          if (
+            request.poolVersion === "v2" &&
+            request.poolBuilderBidPolicy === "pool_pull"
+          ) {
+            lastAdaptiveV2PullIndex = index;
+          }
+        }
+        // The aggregate high bid is justified by the pull. Never offer a
+        // same-fee lifecycle-only prefix that lets a builder collect that bid
+        // while discarding the competitively priced pull.
+        let minimumEconomicPrefix = Math.max(
+          minimumViablePrefix,
+          lastAdaptiveV2PullIndex + 1,
+        );
         if (quote.directBuilderPayment > 0n) {
           const finalSimulation =
             competitivePrefixSimulation.simulation;
@@ -3049,6 +3226,19 @@ async function main(): Promise<void> {
       config.poolBuilderBidBps.toString(),
     configuredPoolPullBuilderBidBps:
       config.poolPullBuilderBidBps.toString(),
+    activeV2PoolPullBuilderBidBps:
+      v2Config === undefined
+        ? ""
+        : (v2PoolPullBidController?.currentBidBps(
+            v2Config.expectedPoolAddress,
+          ) ?? config.poolPullBuilderBidBps
+          ).toString(),
+    v2PoolPullAdaptiveBidding:
+      v2PoolPullBidController !== undefined,
+    v2PoolPullPricingBoundary:
+      v2PoolPullBidController === undefined
+        ? "configured_fee_and_profitability"
+        : "exact_profitability_only",
     configuredPoolFulfilledBuilderBidBps:
       config.poolFulfilledBuilderBidBps.toString(),
     configuredLiveBidSweepBuilderBidBps:

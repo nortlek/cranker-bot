@@ -6,8 +6,6 @@ import type {
   AdaptiveBidState,
 } from "./adaptive-bidding.js";
 
-const BID_SCOPE = "standing_order";
-
 function maximum(left: bigint, right: bigint): bigint {
   return left > right ? left : right;
 }
@@ -44,12 +42,20 @@ export class PostgresAdaptiveBidPersistence
   implements AdaptiveBidPersistence
 {
   readonly #pool: Pool;
+  readonly #scope: string;
   #closePromise: Promise<void> | undefined;
 
-  constructor(connectionString: string) {
+  constructor(
+    connectionString: string,
+    scope = "standing_order",
+  ) {
+    if (!/^[a-z0-9_:.-]+$/.test(scope)) {
+      throw new Error("adaptive bid persistence scope is invalid");
+    }
+    this.#scope = scope;
     this.#pool = new Pool({
       connectionString,
-      application_name: "pull-pool-keeper:adaptive-bids",
+      application_name: `pull-pool-keeper:adaptive-bids:${scope}`,
       max: 1,
       allowExitOnIdle: true,
       connectionTimeoutMillis: 1_000,
@@ -79,7 +85,7 @@ export class PostgresAdaptiveBidPersistence
         FROM adaptive_bid_state
         WHERE scope = $1
       `,
-      [BID_SCOPE],
+      [this.#scope],
     );
     return new Map(
       result.rows.map((row) => [
@@ -202,7 +208,7 @@ export class PostgresAdaptiveBidPersistence
               updated_at = now()
           `,
           [
-            BID_SCOPE,
+            this.#scope,
             targetAddress.toLowerCase(),
             Number(state.currentBidBps),
             state.consecutiveFullWins,
