@@ -159,7 +159,7 @@ describe("adjustAdaptiveBid", () => {
     expect(recovery.currentBidBps).toBe(6_851n);
   });
 
-  it("returns to the starting bid after an unmeasured low-bid miss", () => {
+  it("holds an active probe after an unmeasured miss", () => {
     const adjustment = adjustAdaptiveBid(
       {
         currentBidBps: 4_000n,
@@ -173,11 +173,15 @@ describe("adjustAdaptiveBid", () => {
       },
     );
 
-    expect(adjustment.action).toBe("increased");
-    expect(adjustment.currentBidBps).toBe(8_100n);
+    expect(adjustment.action).toBe("held");
+    expect(adjustment.reason).toBe(
+      "probe_miss_without_higher_price",
+    );
+    expect(adjustment.currentBidBps).toBe(4_000n);
+    expect(adjustment.state.activeProbeBidBps).toBe(4_000n);
   });
 
-  it("returns to the starting bid after a non-price probe miss", () => {
+  it("holds an active probe when the measured winner bid less", () => {
     const adjustment = adjustAdaptiveBid(
       {
         currentBidBps: 4_000n,
@@ -192,8 +196,12 @@ describe("adjustAdaptiveBid", () => {
       },
     );
 
-    expect(adjustment.action).toBe("increased");
-    expect(adjustment.currentBidBps).toBe(8_100n);
+    expect(adjustment.action).toBe("held");
+    expect(adjustment.reason).toBe(
+      "probe_miss_without_higher_price",
+    );
+    expect(adjustment.currentBidBps).toBe(4_000n);
+    expect(adjustment.state.activeProbeBidBps).toBe(4_000n);
   });
 
   it("retires contradicted competitor evidence after repeated cheaper wins", () => {
@@ -332,6 +340,7 @@ describe("adjustAdaptiveBid", () => {
         kind: "miss",
         blockNumber: 52n,
         effectiveBidBps: 4_000n,
+        observedWinningBidBps: 5_000n,
       },
     );
 
@@ -389,6 +398,7 @@ describe("adjustAdaptiveBid", () => {
         kind: "miss",
         blockNumber: 57n,
         effectiveBidBps: 8_500n,
+        observedWinningBidBps: 8_500n,
       },
     );
 
@@ -411,6 +421,7 @@ describe("adjustAdaptiveBid", () => {
         kind: "miss",
         blockNumber: 7_202n,
         effectiveBidBps: 3_000n,
+        observedWinningBidBps: 3_000n,
       },
     );
 
@@ -581,6 +592,7 @@ describe("adjustAdaptiveBid", () => {
           kind: "miss",
           blockNumber: 61n,
           effectiveBidBps: 5_012n,
+          observedWinningBidBps: 5_012n,
         },
       );
       expect(recovery.currentBidBps).toBe(6_000n);

@@ -1496,8 +1496,20 @@ make the same controller reusable for future lanes without copying the state
 machine. Exact lane-specific normalization is still required before a new
 lane may feed competitor evidence.
 
-Next action: observe the first V2 6,851-bps win streak and verify a downward
-probe plus recovery behavior in production. Implement multi-request V2
+The first production probe exposed a second feedback distinction. After three
+wins at a 6,901-bps target, the controller probed 6,877 bps. It missed round 46
+despite offering an effective 6,878 bps; the winning transaction required only
+5,775 bps against our planned gross. All four relays accepted the bundle, so
+this was not evidence that the probe price was too low. The controller still
+recovered to 6,902 bps because every probe miss was previously treated as a
+price loss. The reusable state machine now recovers only when a measured
+competitor paid at least our effective bid. Unmeasured misses and cheaper
+winners hold the active probe for another observation instead of overpaying to
+solve a delivery, timing, or state-conflict loss.
+
+Next action: observe the current V2 6,902-bps win streak and verify that its
+next downward probe holds through a non-price miss and recovers only from a
+genuinely higher winner. Implement multi-request V2
 pending-FWA routing only from exact live evidence; do not re-enable either V1
 pending decoder against V2.
 

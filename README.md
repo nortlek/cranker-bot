@@ -635,15 +635,17 @@ sizes can face materially different clearing percentages.
   bid—is recorded in each participating order's bracket and compared with the
   competitor's aggregate transaction bid.
 - An explicit persisted probe marker separates exploration from a proven
-  below-starting-bid ceiling. A price-losing or unmeasured failed probe returns
-  immediately to its known winning ceiling, or to `BUILDER_BID_BPS` when no
-  ceiling exists, while retaining the failed lower bound so it does not repeat
-  the same price probe.
+  below-starting-bid ceiling. A probe recovers immediately to its known winning
+  ceiling only when a measured competitor paid at least its effective bid.
+  A miss with no competitor or a cheaper winner holds the probe because more
+  payment cannot fix delivery, timing, or state conflict. Price-losing probes
+  retain the failed lower bound so they do not repeat the same price.
 - Measured competitors remain recovery evidence for
-  `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`. A failed downward probe immediately
-  returns above fresh measured competition, while an uninterrupted configured
-  streak of cheaper wins retires contradicted evidence. Losing-probe evidence
-  remains the active lower bracket until it expires or a lower bid wins.
+  `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`. A price-losing downward probe
+  immediately returns above fresh measured competition, while an uninterrupted
+  configured streak of cheaper wins retires contradicted evidence.
+  Losing-probe evidence remains the active lower bracket until it expires or a
+  lower bid wins.
 - A loss at or above the starting bid still holds rather than blindly
   escalating unless a measured higher winner supplies direct price evidence.
 - Partial-prefix inclusion updates each order independently: included orders

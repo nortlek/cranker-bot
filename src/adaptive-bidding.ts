@@ -57,6 +57,7 @@ export interface AdaptiveBidAdjustment {
   readonly reason:
     | "observed_competitor_price"
     | "probe_miss_recovery"
+    | "probe_miss_without_higher_price"
     | "miss_without_higher_price"
     | "sustained_wins_probe"
     | "win_streak_accumulating";
@@ -241,9 +242,9 @@ export function adjustAdaptiveBid(
       state.activeProbeBidBps !== undefined &&
       state.activeProbeBidBps === previousBidBps;
     const priceMiss =
-      outcome.observedWinningBidBps === undefined
-        ? wasProbe
-        : outcome.observedWinningBidBps >= effectiveBidBps;
+      outcome.observedWinningBidBps !== undefined &&
+      outcome.observedWinningBidBps >= effectiveBidBps;
+    const recoverProbe = wasProbe && priceMiss;
     const freshHighestLosingBidBps =
       state.highestLosingBidBps !== undefined &&
       evidenceIsFresh(
@@ -294,7 +295,7 @@ export function adjustAdaptiveBid(
     const recoveryBid =
       lowestWinningBidBps ?? policy.baselineBidBps;
     const currentBidBps = clampToPolicy(
-      wasProbe
+      recoverProbe
         ? maximum(recoveryBid, lowerBound)
         : observedTarget !== undefined
         ? maximum(previousBidBps, observedTarget)
@@ -332,11 +333,16 @@ export function adjustAdaptiveBid(
               outcome.observedWinningBidBps,
             lastObservedWinningBlock: outcome.blockNumber,
           }),
+      ...(wasProbe && !priceMiss
+        ? { activeProbeBidBps: previousBidBps }
+        : {}),
     };
     return {
       action: bidAction(previousBidBps, currentBidBps),
-      reason: wasProbe
+      reason: recoverProbe
         ? "probe_miss_recovery"
+        : wasProbe
+          ? "probe_miss_without_higher_price"
         : observedTarget !== undefined &&
             observedTarget > previousBidBps
           ? "observed_competitor_price"

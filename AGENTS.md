@@ -644,8 +644,10 @@ These constraints prevent expensive or unsafe regressions:
   safe lane-specific outcome normalization instead of copying its feedback
   loop. A measured, profitable higher competitor raises the target. Sustained
   full wins eventually probe below old competitor evidence, while retaining
-  that evidence as the immediate recovery boundary for a failed probe. Never
-  feed ambiguous wrapper economics into the controller.
+  that evidence as the immediate recovery boundary for a price-losing probe.
+  A probe miss with no competitor or a cheaper measured winner must hold the
+  probe; raising payment cannot repair builder reach, timing, or state conflict.
+  Never feed ambiguous wrapper economics into the controller.
 - Standing-order targets start at `BUILDER_BID_BPS`, but durable per-target
   price discovery may bid lower after repeated wins. Its bracket must learn
   from the exact bundle-effective bid after profit and fee caps, not just the
