@@ -1934,6 +1934,19 @@ async function main(): Promise<void> {
                   totalCrankFees: eth(
                     observation.totalCrankFees,
                   ),
+                  gasUsed: observation.gasUsed.toString(),
+                  baseFeePerGas: gwei(
+                    observation.baseFeePerGas,
+                  ),
+                  effectiveGasPrice: gwei(
+                    observation.effectiveGasPrice,
+                  ),
+                  baseGasCost: eth(
+                    observation.baseGasCost,
+                  ),
+                  totalTransactionGasCost: eth(
+                    observation.totalTransactionGasCost,
+                  ),
                   priorityPayment: eth(
                     observation.priorityPayment,
                   ),
@@ -1942,6 +1955,9 @@ async function main(): Promise<void> {
                   ),
                   totalBuilderPayment: eth(
                     observation.totalBuilderPayment,
+                  ),
+                  retainedFromKnownCrankFees: eth(
+                    observation.retainedFromKnownCrankFees,
                   ),
                   winningBidBps:
                     observation.winningBidBps.toString(),

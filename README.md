@@ -624,7 +624,11 @@ sizes can face materially different clearing percentages.
 - On an order loss, the keeper finds the successful `Cranked` event in the
   target block, sums that transaction's priority payment and direct payment to
   the block beneficiary, divides by all crank fees earned by that transaction,
-  and targets the result plus `ADAPTIVE_BID_STEP_BPS`.
+  and targets the result plus `ADAPTIVE_BID_STEP_BPS`. The same observation
+  records receipt gas, base gas cost, and the remainder after full transaction
+  gas plus direct beneficiary payment. That remainder is explicitly measured
+  only against known crank fees, so it can reveal a subsidized clearing bid
+  without falsely claiming the competitor's complete wallet P&L.
 - A measured winner below the keeper's current bid does not cause an increase;
   that miss is more likely delivery, timing, or a state conflict.
 - An unmeasured loss holds the current bid instead of blindly escalating.

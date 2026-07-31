@@ -44,9 +44,21 @@ export interface WinningBidObservation {
   readonly orderCount: number;
   readonly relevantOrders: readonly Address[];
   readonly totalCrankFees: bigint;
+  readonly gasUsed: bigint;
+  readonly baseFeePerGas: bigint;
+  readonly effectiveGasPrice: bigint;
+  readonly baseGasCost: bigint;
+  readonly totalTransactionGasCost: bigint;
   readonly priorityPayment: bigint;
   readonly directBeneficiaryPayment: bigint;
   readonly totalBuilderPayment: bigint;
+  /**
+   * Crank fees minus the receipt's full gas cost and direct beneficiary
+   * payment. This deliberately does not claim to be the competitor's wallet
+   * P&L because an otherwise eligible transaction could still have an
+   * unobserved source of value outside the known Cranked events.
+   */
+  readonly retainedFromKnownCrankFees: bigint;
   readonly winningBidBps: bigint;
   readonly adaptiveBidEligible: boolean;
 }
@@ -347,8 +359,11 @@ export function calculateWinningBidBps(parameters: {
   readonly baseFeePerGas: bigint;
   readonly directBeneficiaryPayment: bigint;
 }): {
+  readonly baseGasCost: bigint;
+  readonly totalTransactionGasCost: bigint;
   readonly priorityPayment: bigint;
   readonly totalBuilderPayment: bigint;
+  readonly retainedFromKnownCrankFees: bigint;
   readonly winningBidBps: bigint;
 } {
   if (parameters.totalCrankFees <= 0n) {
@@ -358,12 +373,21 @@ export function calculateWinningBidBps(parameters: {
     parameters.effectiveGasPrice > parameters.baseFeePerGas
       ? parameters.effectiveGasPrice - parameters.baseFeePerGas
       : 0n;
+  const baseGasCost = parameters.baseFeePerGas * parameters.gasUsed;
+  const totalTransactionGasCost =
+    parameters.effectiveGasPrice * parameters.gasUsed;
   const priorityPayment = effectivePriorityFee * parameters.gasUsed;
   const totalBuilderPayment =
     priorityPayment + parameters.directBeneficiaryPayment;
   return {
+    baseGasCost,
+    totalTransactionGasCost,
     priorityPayment,
     totalBuilderPayment,
+    retainedFromKnownCrankFees:
+      parameters.totalCrankFees -
+      totalTransactionGasCost -
+      parameters.directBeneficiaryPayment,
     winningBidBps: ceilDivide(
       totalBuilderPayment * BPS,
       parameters.totalCrankFees,
@@ -566,9 +590,17 @@ export async function observeWinningCrankBids(
         orderCount: aggregate.orderCount,
         relevantOrders,
         totalCrankFees: aggregate.totalCrankFees,
+        gasUsed: receipt.gasUsed,
+        baseFeePerGas,
+        effectiveGasPrice: receipt.effectiveGasPrice,
+        baseGasCost: calculated.baseGasCost,
+        totalTransactionGasCost:
+          calculated.totalTransactionGasCost,
         priorityPayment: calculated.priorityPayment,
         directBeneficiaryPayment: directPayment,
         totalBuilderPayment: calculated.totalBuilderPayment,
+        retainedFromKnownCrankFees:
+          calculated.retainedFromKnownCrankFees,
         winningBidBps: calculated.winningBidBps,
         adaptiveBidEligible: !receiptHasPoolCrankBounty(
           receipt.logs,

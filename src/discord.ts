@@ -387,6 +387,12 @@ export function buildDiscordEmbed(
         field("Winning bid", `${compact(entry.winningBidBps)} bps`),
         field("Crank fees", entry.totalCrankFees),
         field("Builder payment", entry.totalBuilderPayment),
+        field("Gas used", entry.gasUsed),
+        field("Base gas cost", entry.baseGasCost),
+        field(
+          "Known-fee remainder",
+          entry.retainedFromKnownCrankFees,
+        ),
         field("Transaction", entry.transactionHash, false),
       ],
     });

@@ -117,7 +117,14 @@ describe("calculateWinningBidBps", () => {
       directBeneficiaryPayment: 257_883_747_012_408n,
     });
 
+    expect(result.baseGasCost).toBe(32_083_125_576_106n);
+    expect(result.totalTransactionGasCost).toBe(
+      32_083_125_576_106n,
+    );
     expect(result.priorityPayment).toBe(0n);
+    expect(result.retainedFromKnownCrankFees).toBe(
+      10_033_127_411_486n,
+    );
     expect(result.winningBidBps).toBe(8_597n);
   });
 
@@ -130,8 +137,11 @@ describe("calculateWinningBidBps", () => {
       directBeneficiaryPayment: 500n,
     });
 
+    expect(result.baseGasCost).toBe(100n);
+    expect(result.totalTransactionGasCost).toBe(120n);
     expect(result.priorityPayment).toBe(20n);
     expect(result.totalBuilderPayment).toBe(520n);
+    expect(result.retainedFromKnownCrankFees).toBe(380n);
     expect(result.winningBidBps).toBe(5_200n);
   });
 });
