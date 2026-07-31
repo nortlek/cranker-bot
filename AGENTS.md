@@ -640,6 +640,12 @@ These constraints prevent expensive or unsafe regressions:
   above the economically admissible payment, not an economic cap. Because the
   aggregate high bid is justified by the pull, the private prefix floor must
   include that pull; never offer the same high-fee lifecycle-only prefix.
+- Competitive lanes share `AdaptiveBidController`; add a durable scope and
+  safe lane-specific outcome normalization instead of copying its feedback
+  loop. A measured, profitable higher competitor raises the target. Sustained
+  full wins eventually probe below old competitor evidence, while retaining
+  that evidence as the immediate recovery boundary for a failed probe. Never
+  feed ambiguous wrapper economics into the controller.
 - Standing-order targets start at `BUILDER_BID_BPS`, but durable per-target
   price discovery may bid lower after repeated wins. Its bracket must learn
   from the exact bundle-effective bid after profit and fee caps, not just the

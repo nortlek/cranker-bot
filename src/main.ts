@@ -14,7 +14,10 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 
-import { AdaptiveBidController } from "./adaptive-bidding.js";
+import {
+  AdaptiveBidController,
+  adaptiveBidAdjustmentFields,
+} from "./adaptive-bidding.js";
 import {
   factoryAbi,
   fwaAbi,
@@ -609,11 +612,7 @@ async function main(): Promise<void> {
             pool: outcome.pool,
             targetBlock: outcome.targetBlock.toString(),
             outcome: "full_win",
-            action: adjustment.action,
-            previousBidBps:
-              adjustment.previousBidBps.toString(),
-            currentBidBps:
-              adjustment.currentBidBps.toString(),
+            ...adaptiveBidAdjustmentFields(adjustment),
             effectiveBuilderBidBps:
               outcome.effectiveBuilderBidBps?.toString() ?? "",
             pricingBoundary: "exact_profitability_only",
@@ -771,11 +770,7 @@ async function main(): Promise<void> {
               observationRead.value.length > 0
                 ? "competitor_won"
                 : "no_competitor_pull",
-            action: adaptiveAdjustment.action,
-            previousBidBps:
-              adaptiveAdjustment.previousBidBps.toString(),
-            currentBidBps:
-              adaptiveAdjustment.currentBidBps.toString(),
+            ...adaptiveBidAdjustmentFields(adaptiveAdjustment),
             effectiveBuilderBidBps:
               outcome.effectiveBuilderBidBps?.toString() ?? "",
             observedWinningBidBps:
@@ -1967,9 +1962,9 @@ async function main(): Promise<void> {
                     const observedWinningBidBps =
                       observedBidsByOrder.get(
                         attempt.order.toLowerCase(),
-                      );
+                    );
                     return {
-                      order: attempt.order,
+                      target: attempt.order,
                       outcome: attempt.included
                         ? {
                             kind: "full_win" as const,
@@ -2022,42 +2017,19 @@ async function main(): Promise<void> {
             const attempt = outcome.attempts.find(
               (candidate) =>
                 candidate.order.toLowerCase() ===
-                adjustment.order.toLowerCase(),
+                adjustment.target.toLowerCase(),
             );
             log("info", "adaptive_builder_bid_updated", {
               targetBlock: outcome.targetBlock.toString(),
-              order: adjustment.order,
+              order: adjustment.target,
               outcome: attempt?.included ? "win" : "loss",
               observedWinningBidBps:
                 observedBidsByOrder
-                  .get(adjustment.order.toLowerCase())
+                  .get(adjustment.target.toLowerCase())
                   ?.toString() ?? "",
               effectiveBidBps:
                 attempt?.effectiveBidBps?.toString() ?? "",
-              action: adjustment.action,
-              previousBidBps:
-                adjustment.previousBidBps.toString(),
-              currentBidBps:
-                adjustment.currentBidBps.toString(),
-              consecutiveFullWins:
-                adjustment.state.consecutiveFullWins,
-              consecutiveContradictingWins:
-                adjustment.state.consecutiveContradictingWins ?? 0,
-              lowestWinningBidBps:
-                adjustment.state.lowestWinningBidBps?.toString() ??
-                "",
-              highestLosingBidBps:
-                adjustment.state.highestLosingBidBps?.toString() ??
-                "",
-              activeProbeBidBps:
-                adjustment.state.activeProbeBidBps?.toString() ??
-                "",
-              lastObservedWinningBlock:
-                adjustment.state.lastObservedWinningBlock?.toString() ??
-                "",
-              highestLosingBidBlock:
-                adjustment.state.highestLosingBidBlock?.toString() ??
-                "",
+              ...adaptiveBidAdjustmentFields(adjustment),
             });
           }
           if (outcome.bidScope !== "pending_funding_backrun") {

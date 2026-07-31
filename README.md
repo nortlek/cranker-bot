@@ -279,10 +279,10 @@ previous instance to release the lease. Only after acquiring and verifying the
 lease does it arm pending execution and begin ordinary keeper passes. This
 keeps exactly one signer while avoiding a full initialization blackout during
 rollout. Database telemetry remains fail-open after startup, but failure to
-acquire the signer lease is deliberately fail-closed. Per-order adaptive
-builder bids and the independent V2 pool-pull clearing-price state are also
-stored in PostgreSQL when it is configured, so learned competition prices
-survive Railway's ephemeral filesystem and subsequent deployments.
+acquire the signer lease is deliberately fail-closed. The reusable adaptive
+bid controller stores independent scope-and-target state in PostgreSQL, so
+standing-order and V2 pool-pull clearing-price history survives Railway's
+ephemeral filesystem and subsequent deployments without mixing lanes.
 
 For live execution, use a dedicated keeper EOA funded only with enough ETH for
 gas:
@@ -612,8 +612,10 @@ higher configured absolute profit floor.
 
 ### Adaptive bid feedback
 
-Bid state is maintained per order because orders with `0.0002`, `0.0003`, and
-`0.0005 ETH` crank fees can face materially different clearing percentages.
+`AdaptiveBidController` is lane-agnostic. Each lane supplies its own policy,
+durable scope, target key, effective bid, and safely normalized competitor
+price. State is maintained per target because different contracts and reward
+sizes can face materially different clearing percentages.
 
 - On an order loss, the keeper finds the successful `Cranked` event in the
   target block, sums that transaction's priority payment and direct payment to
@@ -622,12 +624,13 @@ Bid state is maintained per order because orders with `0.0002`, `0.0003`, and
 - A measured winner below the keeper's current bid does not cause an increase;
   that miss is more likely delivery, timing, or a state conflict.
 - An unmeasured loss holds the current bid instead of blindly escalating.
-- Each included order records a win. The keeper holds its bid until
-  `ADAPTIVE_BID_WIN_STREAK` consecutive wins, then bisects the durable bracket
-  between the lowest effective bid that has won and the greater of
-  `ADAPTIVE_BID_MIN_BPS`, the highest effective bid that has lost, and its
-  last uncontradicted measured winner plus `ADAPTIVE_BID_STEP_BPS`.
-  `ADAPTIVE_BID_DECAY_BPS` remains the minimum reduction for a probe.
+- Each included target records a win. The keeper holds its bid until
+  `ADAPTIVE_BID_WIN_STREAK` consecutive wins, then probes halfway between the
+  lowest effective bid that has won and the greater of the policy minimum or
+  highest fresh effective bid that has lost. A past measured competitor is
+  retained as recovery evidence, but it cannot permanently prevent a lower
+  probe after sustained wins. `ADAPTIVE_BID_DECAY_BPS` remains the minimum
+  reduction for a probe.
 - The bundle-effective bid after profit and fee caps—not merely the requested
   bid—is recorded in each participating order's bracket and compared with the
   competitor's aggregate transaction bid.
@@ -636,13 +639,11 @@ Bid state is maintained per order because orders with `0.0002`, `0.0003`, and
   immediately to its known winning ceiling, or to `BUILDER_BID_BPS` when no
   ceiling exists, while retaining the failed lower bound so it does not repeat
   the same price probe.
-- Measured competitors and losing probes remain lower-bound evidence for
-  `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`. One cheaper win cannot erase fresh
-  competitor evidence, but an uninterrupted configured win streak with every
-  effective bid no higher than that observation retires the contradicted
-  measurement.
-  Losing-probe evidence remains authoritative until it expires or a lower bid
-  actually wins.
+- Measured competitors remain recovery evidence for
+  `ADAPTIVE_BID_EVIDENCE_MAX_AGE_BLOCKS`. A failed downward probe immediately
+  returns above fresh measured competition, while an uninterrupted configured
+  streak of cheaper wins retires contradicted evidence. Losing-probe evidence
+  remains the active lower bracket until it expires or a lower bid wins.
 - A loss at or above the starting bid still holds rather than blindly
   escalating unless a measured higher winner supplies direct price evidence.
 - Partial-prefix inclusion updates each order independently: included orders
@@ -653,9 +654,10 @@ orders. A missed pull scans the target block's `Pulled` event; a missed sync or
 settlement aggregates the winning transaction's `CrankBountyPaid` events for
 that round. Both paths record the winning transaction, cranker, gross pool
 reward, priority payment, direct beneficiary payment, and a
-pool-reward-normalized bid upper bound. They are record-only and never
-contaminate standing-order adaptive state because a single wrapper transaction
-may earn unrelated rewards.
+pool-reward-normalized bid upper bound. Exact, counterfactually profitable V2
+pull observations update their own adaptive scope. V1 pull and lifecycle
+observations remain record-only because a wrapper transaction may earn
+unrelated rewards; none contaminate standing-order state.
 
 Direct beneficiary transfers are read from the
 [Routescan internal-operations API](https://routescan.io/docs/api/transactions).

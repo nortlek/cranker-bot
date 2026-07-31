@@ -54,9 +54,42 @@ export type AdaptiveBidOutcome =
 
 export interface AdaptiveBidAdjustment {
   readonly action: "increased" | "decreased" | "held";
+  readonly reason:
+    | "observed_competitor_price"
+    | "probe_miss_recovery"
+    | "miss_without_higher_price"
+    | "sustained_wins_probe"
+    | "win_streak_accumulating";
   readonly previousBidBps: bigint;
   readonly currentBidBps: bigint;
   readonly state: AdaptiveBidState;
+}
+
+export function adaptiveBidAdjustmentFields(
+  adjustment: AdaptiveBidAdjustment,
+): Readonly<Record<string, string | number>> {
+  return {
+    action: adjustment.action,
+    decisionReason: adjustment.reason,
+    previousBidBps: adjustment.previousBidBps.toString(),
+    currentBidBps: adjustment.currentBidBps.toString(),
+    consecutiveFullWins:
+      adjustment.state.consecutiveFullWins,
+    consecutiveContradictingWins:
+      adjustment.state.consecutiveContradictingWins ?? 0,
+    lastObservedWinningBidBps:
+      adjustment.state.lastObservedWinningBidBps?.toString() ?? "",
+    lastObservedWinningBlock:
+      adjustment.state.lastObservedWinningBlock?.toString() ?? "",
+    lowestWinningBidBps:
+      adjustment.state.lowestWinningBidBps?.toString() ?? "",
+    highestLosingBidBps:
+      adjustment.state.highestLosingBidBps?.toString() ?? "",
+    highestLosingBidBlock:
+      adjustment.state.highestLosingBidBlock?.toString() ?? "",
+    activeProbeBidBps:
+      adjustment.state.activeProbeBidBps?.toString() ?? "",
+  };
 }
 
 function maximum(left: bigint, right: bigint): bigint {
@@ -302,6 +335,12 @@ export function adjustAdaptiveBid(
     };
     return {
       action: bidAction(previousBidBps, currentBidBps),
+      reason: wasProbe
+        ? "probe_miss_recovery"
+        : observedTarget !== undefined &&
+            observedTarget > previousBidBps
+          ? "observed_competitor_price"
+          : "miss_without_higher_price",
       previousBidBps,
       currentBidBps,
       state: nextState,
@@ -368,7 +407,7 @@ export function adjustAdaptiveBid(
     boundedState,
     policy,
     outcome.blockNumber,
-    !observedWinningEvidenceContradicted,
+    false,
   );
   const shouldDecay =
     consecutiveFullWins >= policy.winsBeforeDecay &&
@@ -417,6 +456,9 @@ export function adjustAdaptiveBid(
   };
   return {
     action: bidAction(previousBidBps, currentBidBps),
+    reason: shouldDecay
+      ? "sustained_wins_probe"
+      : "win_streak_accumulating",
     previousBidBps,
     currentBidBps,
     state: nextState,
@@ -684,9 +726,9 @@ export class AdaptiveBidController {
     );
   }
 
-  currentBidBps(order: string): bigint {
+  currentBidBps(target: string): bigint {
     return (
-      this.#states.get(order.toLowerCase()) ??
+      this.#states.get(target.toLowerCase()) ??
       initialAdaptiveBidState(this.#policy)
     ).currentBidBps;
   }
@@ -701,14 +743,14 @@ export class AdaptiveBidController {
 
   async observeBatch(
     outcomes: readonly {
-      readonly order: string;
+      readonly target: string;
       readonly outcome: AdaptiveBidOutcome;
     }[],
   ): Promise<
-    readonly (AdaptiveBidAdjustment & { readonly order: string })[]
+    readonly (AdaptiveBidAdjustment & { readonly target: string })[]
   > {
-    const adjustments = outcomes.map(({ order, outcome }) => {
-      const key = order.toLowerCase();
+    const adjustments = outcomes.map(({ target, outcome }) => {
+      const key = target.toLowerCase();
       const state =
         this.#states.get(key) ??
         initialAdaptiveBidState(this.#policy);
@@ -718,18 +760,18 @@ export class AdaptiveBidController {
         outcome,
       );
       this.#states.set(key, adjustment.state);
-      return { ...adjustment, order };
+      return { ...adjustment, target };
     });
     await this.#persistence.save(this.#states);
     return adjustments;
   }
 
   async observe(
-    order: string,
+    target: string,
     outcome: AdaptiveBidOutcome,
   ): Promise<AdaptiveBidAdjustment> {
     const [adjustment] = await this.observeBatch([
-      { order, outcome },
+      { target, outcome },
     ]);
     if (adjustment === undefined) {
       throw new Error("adaptive bid adjustment was not produced");

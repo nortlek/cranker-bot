@@ -90,12 +90,13 @@ describe("adjustAdaptiveBid", () => {
     expect(third.state.consecutiveFullWins).toBe(0);
   });
 
-  it("never probes below the measured winner plus margin", () => {
+  it("probes below old competitor evidence after sustained wins", () => {
     const adjustment = adjustAdaptiveBid(
       {
         currentBidBps: 8_100n,
         consecutiveFullWins: 2,
         lastObservedWinningBidBps: 4_000n,
+        lastObservedWinningBlock: 40n,
       },
       policy,
       {
@@ -105,8 +106,57 @@ describe("adjustAdaptiveBid", () => {
     );
 
     expect(adjustment.action).toBe("decreased");
-    expect(adjustment.currentBidBps).toBe(6_062n);
-    expect(adjustment.currentBidBps).toBeGreaterThan(4_000n);
+    expect(adjustment.reason).toBe("sustained_wins_probe");
+    expect(adjustment.currentBidBps).toBe(4_550n);
+    expect(adjustment.state.lastObservedWinningBidBps).toBe(4_000n);
+    expect(adjustment.state.activeProbeBidBps).toBe(4_550n);
+  });
+
+  it("recovers above retained competitor evidence after a failed downward probe", () => {
+    const poolPolicy: AdaptiveBidPolicy = {
+      minimumBidBps: 1_000n,
+      baselineBidBps: 1_000n,
+      maximumBidBps: 10_000n,
+      lossStepBps: 1n,
+      winDecayBps: 10n,
+      winsBeforeDecay: 3,
+      evidenceMaxAgeBlocks: 7_200n,
+    };
+    const probe = adjustAdaptiveBid(
+      {
+        currentBidBps: 6_851n,
+        consecutiveFullWins: 2,
+        lastObservedWinningBidBps: 6_850n,
+        lastObservedWinningBlock: 100n,
+        lowestWinningBidBps: 6_851n,
+        highestLosingBidBps: 6_244n,
+        highestLosingBidBlock: 100n,
+      },
+      poolPolicy,
+      {
+        kind: "full_win",
+        blockNumber: 103n,
+        effectiveBidBps: 6_851n,
+      },
+    );
+
+    expect(probe.currentBidBps).toBe(6_548n);
+    expect(probe.state.lastObservedWinningBidBps).toBe(6_850n);
+
+    const recovery = adjustAdaptiveBid(
+      probe.state,
+      poolPolicy,
+      {
+        kind: "miss",
+        blockNumber: 104n,
+        effectiveBidBps: 6_548n,
+        observedWinningBidBps: 6_850n,
+      },
+    );
+
+    expect(recovery.action).toBe("increased");
+    expect(recovery.reason).toBe("probe_miss_recovery");
+    expect(recovery.currentBidBps).toBe(6_851n);
   });
 
   it("returns to the starting bid after an unmeasured low-bid miss", () => {
@@ -247,7 +297,7 @@ describe("adjustAdaptiveBid", () => {
       ).state;
     }
 
-    expect(state.currentBidBps).toBe(8_644n);
+    expect(state.currentBidBps).toBe(3_738n);
     expect(state.lastObservedWinningBidBps).toBe(3_850n);
     expect(state.consecutiveContradictingWins).toBe(2);
 
@@ -395,7 +445,7 @@ describe("adjustAdaptiveBid", () => {
       );
       await controller.observeBatch([
         {
-          order: "0x0000000000000000000000000000000000000001",
+          target: "0x0000000000000000000000000000000000000001",
           outcome: {
             kind: "miss",
             blockNumber: 48n,
@@ -403,7 +453,7 @@ describe("adjustAdaptiveBid", () => {
           },
         },
         {
-          order: "0x0000000000000000000000000000000000000002",
+          target: "0x0000000000000000000000000000000000000002",
           outcome: {
             kind: "miss",
             blockNumber: 48n,

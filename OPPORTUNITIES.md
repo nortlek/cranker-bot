@@ -1480,9 +1480,24 @@ builder cannot retain the high-fee lifecycle prefix while dropping it. V1 pull
 pricing remains independent and static. V1 and V2 pull observations are also
 grouped by canonical pool before learning.
 
-Next action: validate the seeded target and first live V2 result, then use the
-new `v2_pool_pull_adaptive_bid_adjusted` history to confirm wins decay without
-chasing internally subsidized competitor calls. Implement multi-request V2
+Live validation through round 37 found five confirmed-head pull wins and one
+exact ordinary loss. The round-37 target paid an effective 6,244 bps and lost
+to a counterfactually profitable 6,850-bps competitor payment; the durable
+controller immediately raised its target from 6,243 to 6,851 bps. The shared
+controller previously treated that measured winner as a hard lower bound,
+which could block downward discovery indefinitely even after repeated wins.
+
+Implemented on 2026-07-31: the lane-agnostic controller now treats measured
+competitor prices as recovery evidence rather than permanent probe floors.
+After the configured full-win streak, every integrated lane bisects its fresh
+win/loss bracket downward; a failed probe immediately recovers above retained
+competitor evidence. Generic target naming and common adjustment telemetry
+make the same controller reusable for future lanes without copying the state
+machine. Exact lane-specific normalization is still required before a new
+lane may feed competitor evidence.
+
+Next action: observe the first V2 6,851-bps win streak and verify a downward
+probe plus recovery behavior in production. Implement multi-request V2
 pending-FWA routing only from exact live evidence; do not re-enable either V1
 pending decoder against V2.
 
