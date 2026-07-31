@@ -48,6 +48,7 @@ export interface WinningBidObservation {
   readonly directBeneficiaryPayment: bigint;
   readonly totalBuilderPayment: bigint;
   readonly winningBidBps: bigint;
+  readonly adaptiveBidEligible: boolean;
 }
 
 export interface WinningPoolPullBidObservation {
@@ -89,8 +90,9 @@ export interface CompetitionTraceConfig {
 }
 
 export interface CompetitionRegistryConfig {
-  readonly factoryAddress: Address;
+  readonly factoryAddresses: readonly Address[];
   readonly vaultFactoryAddress: Address | undefined;
+  readonly poolAddresses: readonly Address[];
 }
 
 /**
@@ -190,6 +192,32 @@ export function aggregatePoolCrankBounties(
     }
   }
   return total;
+}
+
+export function receiptHasPoolCrankBounty(
+  logs: readonly {
+    readonly address: Address;
+    readonly data: Hex;
+    readonly topics: readonly Hex[];
+  }[],
+  poolAddresses: readonly Address[],
+): boolean {
+  const pools = new Set(
+    poolAddresses.map((address) => address.toLowerCase()),
+  );
+  return logs.some((entry) => {
+    if (!pools.has(entry.address.toLowerCase())) return false;
+    try {
+      const decoded = decodeEventLog({
+        abi: poolAbi,
+        data: entry.data,
+        topics: entry.topics as [] | [Hex, ...Hex[]],
+      });
+      return decoded.eventName === "CrankBountyPaid";
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function filterRelevantPoolPulls(
@@ -431,35 +459,47 @@ export async function observeWinningCrankBids(
     outcome.targetBlock,
   );
 
-  const [block, logsByOrder, orders, vaults] = await Promise.all([
-    publicClient.getBlock({ blockNumber: outcome.targetBlock }),
-    Promise.all(
-      [...lostOrderAddresses.values()].map((address) =>
-        publicClient.getLogs({
-          address,
-          event: crankedEvent,
-          fromBlock: outcome.targetBlock,
-          toBlock: outcome.targetBlock,
-          strict: true,
-        }),
+  const [block, logsByOrder, ordersByFactory, vaults] =
+    await Promise.all([
+      publicClient.getBlock({ blockNumber: outcome.targetBlock }),
+      Promise.all(
+        [...lostOrderAddresses.values()].map((address) =>
+          publicClient.getLogs({
+            address,
+            event: crankedEvent,
+            fromBlock: outcome.targetBlock,
+            toBlock: outcome.targetBlock,
+            strict: true,
+          }),
+        ),
       ),
-    ),
-    publicClient.readContract({
-      address: registryConfig.factoryAddress,
-      abi: factoryAbi,
-      functionName: "allOrders",
-      blockNumber: registryBlock,
-    }),
-    registryConfig.vaultFactoryAddress === undefined
-      ? Promise.resolve([])
-      : publicClient.readContract({
-          address: registryConfig.vaultFactoryAddress,
-          abi: vaultFactoryAbi,
-          functionName: "allVaults",
-          blockNumber: registryBlock,
-        }),
-  ]);
-  const knownOrders = [...orders, ...vaults];
+      Promise.all(
+        registryConfig.factoryAddresses.map((factoryAddress) =>
+          publicClient.readContract({
+            address: factoryAddress,
+            abi: factoryAbi,
+            functionName: "allOrders",
+            blockNumber: registryBlock,
+          }),
+        ),
+      ),
+      registryConfig.vaultFactoryAddress === undefined
+        ? Promise.resolve([])
+        : publicClient.readContract({
+            address: registryConfig.vaultFactoryAddress,
+            abi: vaultFactoryAbi,
+            functionName: "allVaults",
+            blockNumber: registryBlock,
+          }),
+    ]);
+  const knownOrders = [
+    ...new Map(
+      [...ordersByFactory.flat(), ...vaults].map((address) => [
+        address.toLowerCase(),
+        address,
+      ]),
+    ).values(),
+  ];
   const logs = logsByOrder.flat();
   const ourHashes = new Set(
     outcome.attempts.map((attempt) => attempt.hash.toLowerCase()),
@@ -530,6 +570,10 @@ export async function observeWinningCrankBids(
         directBeneficiaryPayment: directPayment,
         totalBuilderPayment: calculated.totalBuilderPayment,
         winningBidBps: calculated.winningBidBps,
+        adaptiveBidEligible: !receiptHasPoolCrankBounty(
+          receipt.logs,
+          registryConfig.poolAddresses,
+        ),
       };
     }),
   );

@@ -7,6 +7,15 @@ export const factoryAbi = parseAbi([
   "event OrderCreated(address indexed order, address indexed owner, uint32 ticketsPerRound, uint96 crankFee)",
 ]);
 
+export const successorFactoryAbi = parseAbi([
+  "function LEGACY() view returns (address)",
+  "function SUCCESSOR() view returns (address)",
+  "function pool() view returns (address)",
+  "function allOrders() view returns (address[])",
+  "function orderCount() view returns (uint256)",
+  "event OrderCreated(address indexed order, address indexed owner, address recipient, address referrer, uint32 ticketsPerRound, uint96 crankFee, uint64 minSecondsBetweenBuys)",
+]);
+
 export const vaultFactoryAbi = parseAbi([
   "function POOL() view returns (address)",
   "function allVaults() view returns (address[])",
@@ -42,6 +51,7 @@ export const standingOrderV2Abi = parseAbi([
   "function crankFee() view returns (uint96)",
   "function ticketsPerRound() view returns (uint32)",
   "function lastRoundBought() view returns (uint256)",
+  "function lastPool() view returns (address)",
   "function minSecondsBetweenBuys() view returns (uint64)",
   "function lastBuyAt() view returns (uint64)",
   "function crank()",

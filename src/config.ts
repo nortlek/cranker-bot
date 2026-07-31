@@ -60,6 +60,7 @@ export interface KeeperConfig {
   readonly telemetryMaxQueue: number;
   readonly poolVersion: PullPoolVersion;
   readonly factoryAddress: Address;
+  readonly orderFactoryAddresses: readonly Address[];
   readonly vaultFactoryAddress: Address;
   readonly expectedPoolAddress: Address;
   readonly expectedFwaTokenAddress: Address;
@@ -451,6 +452,9 @@ export function loadConfig(): KeeperConfig {
     10_000,
     { min: telemetryBatchSize, max: 1_000_000 },
   );
+  const factoryAddress = getAddress(
+    process.env.FACTORY_ADDRESS || FACTORY_ADDRESS,
+  );
 
   return {
     rpcUrl,
@@ -540,9 +544,8 @@ export function loadConfig(): KeeperConfig {
     ),
     telemetryMaxQueue,
     poolVersion: "v1",
-    factoryAddress: getAddress(
-      process.env.FACTORY_ADDRESS || FACTORY_ADDRESS,
-    ),
+    factoryAddress,
+    orderFactoryAddresses: [factoryAddress],
     vaultFactoryAddress: getAddress(
       process.env.VAULT_FACTORY_ADDRESS ||
         VAULT_FACTORY_ADDRESS,

@@ -28,6 +28,7 @@ import {
   orderHasMinimumBalance,
   planningHeadIsStale,
   privateNextBlockFeeQuote,
+  readOrderFactoryOrders,
   readPublishedTransactionReceipt,
   resolvePlanningFeeQuote,
   resolvePlanningHead,
@@ -35,6 +36,47 @@ import {
 
 const POOL =
   "0x1111111111111111111111111111111111111111" as const;
+
+describe("readOrderFactoryOrders", () => {
+  it("merges every configured registry and deduplicates addresses", async () => {
+    const factoryA = getAddress(
+      "0x1000000000000000000000000000000000000001",
+    );
+    const factoryB = getAddress(
+      "0x2000000000000000000000000000000000000002",
+    );
+    const orderA = getAddress(
+      "0xa000000000000000000000000000000000000001",
+    );
+    const shared = getAddress(
+      "0xa000000000000000000000000000000000000002",
+    );
+    const orderB = getAddress(
+      "0xa000000000000000000000000000000000000003",
+    );
+    const readContract = vi.fn(async ({ address }) =>
+      address === factoryA
+        ? [orderA, shared]
+        : [shared, orderB],
+    );
+
+    await expect(
+      readOrderFactoryOrders(
+        { readContract } as never,
+        [factoryA, factoryB],
+        25_655_294n,
+      ),
+    ).resolves.toEqual([orderA, shared, orderB]);
+    expect(readContract).toHaveBeenCalledTimes(2);
+    expect(readContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: factoryB,
+        blockNumber: 25_655_294n,
+        functionName: "allOrders",
+      }),
+    );
+  });
+});
 
 describe("configured Convex kick candidates", () => {
   it("normalizes every address without Array.map callback arguments", () => {
@@ -571,6 +613,33 @@ describe("orderAlreadyBought", () => {
   it("filters an order bought in the current open round", () => {
     expect(orderAlreadyBought(256n, 257n)).toBe(false);
     expect(orderAlreadyBought(257n, 257n)).toBe(true);
+  });
+
+  it("scopes successor order rounds to the pool that issued them", () => {
+    const v1 = getAddress(
+      "0x1000000000000000000000000000000000000001",
+    );
+    const v2 = getAddress(
+      "0x2000000000000000000000000000000000000002",
+    );
+    expect(
+      orderAlreadyBought(366n, 57n, {
+        lastPool: v1,
+        activePool: v2,
+      }),
+    ).toBe(false);
+    expect(
+      orderAlreadyBought(57n, 57n, {
+        lastPool: v2,
+        activePool: v2,
+      }),
+    ).toBe(true);
+    expect(
+      orderAlreadyBought(58n, 57n, {
+        lastPool: v2,
+        activePool: v2,
+      }),
+    ).toBe(false);
   });
 
   it("rejects invalid negative round identifiers", () => {

@@ -526,10 +526,12 @@ These constraints prevent expensive or unsafe regressions:
   checks.
 - Before exact order simulation, authoritative exact-block Multicall3 reads may
   reject only impossible candidates: standing-order native balances below one
-  open-round ticket plus the caller fee, or a compatible candidate with
-  `lastRoundBought >= roundCount`. Never native-balance-filter a vault. A
-  failed prefilter read must fall through to exact simulation rather than
-  reject the candidate.
+  open-round ticket plus the caller fee, or a compatible V1 candidate with
+  `lastRoundBought >= roundCount`. A successor-aware V2 order may be rejected
+  as already bought only when `lastPool` is the active pool and
+  `lastRoundBought` equals the selected round; V1 round identifiers must not
+  suppress V2 work. Never native-balance-filter a vault. A failed prefilter
+  read must fall through to exact simulation rather than reject the candidate.
 - `roundCount` identifies the funding round. `ethPendingRound` is the
   authoritative acquisition lifecycle pointer. Never collapse the two.
 - A ready acquisition is built as
@@ -793,23 +795,26 @@ npm run inspect:pull-pool-v2
 ```
 
 The inspector pins the canonical deployer's creation transactions, all known
-component bytecode hashes, the V2 order-factory relationship, immutable FWA
-relationships, exact-match verified source metadata, its 36-component round
-layout, event-indexed active rounds, and launch state. Production keeps V1
-enabled and adds V2 to the same signer pass only after an unpause or first
-round and successful verification of all seven runtime hashes and
-relationships. Independent V1/V2 order work shares one nonce plan; when both
-have lifecycle work, only the stronger lifecycle alternative is eligible for
-that target block.
+component bytecode hashes, the original V2-only factory and successor-aware
+factory relationships, immutable FWA relationships, verified source metadata,
+its 36-component round layout, event-indexed active rounds, and launch state.
+Production keeps V1 enabled and adds V2 to the same signer pass only after an
+unpause or first round and successful verification of all eight runtime hashes
+and relationships. Independent V1/V2 order work shares one nonce plan; when
+both have lifecycle work, only the stronger lifecycle alternative is eligible
+for that target block.
 
 The V2 adapter reconstructs concurrent active rounds from `RoundOpened`,
 `RoundSettled`, and `RoundVoided`, exact-reads every retained round at the
-subscribed parent, decodes mutable order pool/recipient/referrer/pacing state,
-and keeps ordinary exact simulation, private submission, and profit gates.
-V1-only vault and pending-event decoders stay scoped to V1, while shared
-non-pool planners execute only once. Remove V1 only after it is paused or
-deprecated, has no active lifecycle, and its immutable orders no longer offer
-viable keeper work.
+subscribed parent, and counts both pulling and claimable rounds when validating
+`pendingPullCount`. It merges and deduplicates orders from both pinned V2
+registries, decodes mutable order pool/recipient/referrer/pacing state plus the
+pool-scoped last purchase, and keeps ordinary exact simulation, private
+submission, and profit gates. V1-only vault, final-ticket, and pending-FWA
+decoders stay scoped to V1; the validated pending ETH-funding lane includes
+the registered successor orders. Shared non-pool planners execute only once.
+Remove V1 only after it is paused or deprecated, has no active lifecycle, and
+its immutable orders no longer offer viable keeper work.
 
 Third-party CLIs may echo environment-derived URLs, including embedded API
 keys. Inspect their source or filter/suppress output before running them. Do not

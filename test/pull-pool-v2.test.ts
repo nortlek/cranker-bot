@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { KeeperConfig } from "../src/config.js";
 import {
+  PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
   PULL_POOL_V2_ADDRESS,
   PULL_POOL_V2_FACTORY_ADDRESS,
+  PULL_POOL_V2_ORDER_FACTORY_ADDRESSES,
 } from "../src/constants.js";
 import { ROUND_STATE } from "../src/lifecycle.js";
 import {
@@ -86,6 +88,12 @@ describe("temporary PullPool V2 selection", () => {
     expect(selected.factoryAddress).toBe(
       PULL_POOL_V2_FACTORY_ADDRESS,
     );
+    expect(selected.orderFactoryAddresses).toEqual(
+      PULL_POOL_V2_ORDER_FACTORY_ADDRESSES,
+    );
+    expect(selected.orderFactoryAddresses).toContain(
+      PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
+    );
     expect(selected.enableVaults).toBe(false);
     expect(selected.enablePendingFundingBackruns).toBe(false);
     expect(
@@ -159,5 +167,51 @@ describe("PullPool V2 active-round index", () => {
     expect(
       routing.lifecycleRounds.map((round) => round.roundId),
     ).toEqual([3n]);
+  });
+
+  it("counts a claimable round as pending until settlement", async () => {
+    const getLogs = async () => [
+      { eventName: "RoundOpened", args: { roundId: 1n } },
+      { eventName: "RoundOpened", args: { roundId: 2n } },
+    ];
+    const readContract = async (request: {
+      readonly functionName: string;
+      readonly args?: readonly bigint[];
+    }) => {
+      if (request.functionName === "currentOpenRound") return 2n;
+      if (request.functionName === "pendingPullCount") return 1n;
+      const roundId = request.args?.[0];
+      if (request.functionName === "ticketsNeeded") {
+        return roundId === 2n ? 4n : 0n;
+      }
+      if (request.functionName === "getRound") {
+        return {
+          ticketPrice: 5_000_000_000_000_000n,
+          crankBountyCap: 1_500_000_000_000_000n,
+          bountyTipWei: 2_000_000_000n,
+          fwaRequestId: roundId === 1n ? 100n : 0n,
+          state:
+            roundId === 1n
+              ? ROUND_STATE.claimable
+              : ROUND_STATE.open,
+        };
+      }
+      throw new Error(`unexpected read ${request.functionName}`);
+    };
+
+    const routing = await readPullPoolV2Routing(
+      { getLogs, readContract } as never,
+      25_639_999n,
+    );
+
+    expect(routing.pendingPullCount).toBe(1n);
+    expect(
+      routing.lifecycleRounds.map((round) => ({
+        roundId: round.roundId,
+        state: round.state,
+      })),
+    ).toEqual([
+      { roundId: 1n, state: ROUND_STATE.claimable },
+    ]);
   });
 });

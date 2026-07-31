@@ -21,6 +21,12 @@ const V2_POOL = getAddress(
 const V2_FACTORY = getAddress(
   "0xC62ceF28ccDBabE147ECD3baf4492119acf4C657",
 );
+const SUCCESSOR_FACTORY = getAddress(
+  "0xFba041453dabbFE8B34409Cf88417913Cc483D1E",
+);
+const LEGACY_POOL = getAddress(
+  "0xB2D80254af189854Bf90D2C338d87236d67D2bF3",
+);
 const EXPECTED_FWA = getAddress(
   "0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c",
 );
@@ -34,10 +40,14 @@ const V2_POOL_CREATION_TRANSACTION =
   "0x369e1819e8477df92540e26919a168d9bfd99d2b73907657b6fb0d9ca258f64c";
 const V2_FACTORY_CREATION_TRANSACTION =
   "0x2a2ccc02b072fbd8e7133b4e8cc405a28b355d63d7f0eda17b24e7a334b55e1a";
+const SUCCESSOR_FACTORY_CREATION_TRANSACTION =
+  "0xdee71a3169b40b15be2abb1cbf518f9994c751755ae61ad53c6015bc013beb1c";
 const V2_POOL_VERIFIED_SOURCE =
   "https://etherscan.io/address/0x03C45c9C594b19ca5Fde54f38C7e6b6A5f2329d7#code";
 const V2_FACTORY_VERIFIED_SOURCE =
   "https://etherscan.io/address/0xc62cEF28ccDbaBE147eCD3Baf4492119aCf4c657#code";
+const SUCCESSOR_FACTORY_VERIFIED_SOURCE =
+  "https://repo.sourcify.dev/1/0xFba041453dabbFE8B34409Cf88417913Cc483D1E";
 
 const ROUND_STATE_NAMES = [
   "none",
@@ -67,6 +77,12 @@ const COMPONENTS = [
     address: V2_FACTORY,
     codeHash:
       "0x45ccf63419269cadbb49f4dc5b7496ddc5c2d813f71296e55a56dd522d1dab49",
+  },
+  {
+    label: "successor_order_factory",
+    address: SUCCESSOR_FACTORY,
+    codeHash:
+      "0x52b7619ed66be42d34b84d32d4dafd9ead511fe74b024706de2ebf1c61280735",
   },
   {
     label: "component_a",
@@ -132,6 +148,14 @@ const poolAbi = parseAbi([
 
 const factoryAbi = parseAbi([
   "function POOL() pure returns(address)",
+  "function orderCount() view returns(uint256)",
+  "function allOrders() view returns(address[])",
+]);
+
+const successorFactoryAbi = parseAbi([
+  "function LEGACY() view returns(address)",
+  "function SUCCESSOR() view returns(address)",
+  "function pool() view returns(address)",
   "function orderCount() view returns(uint256)",
   "function allOrders() view returns(address[])",
 ]);
@@ -259,6 +283,8 @@ async function main(): Promise<void> {
     poolCreationReceipt,
     factoryCreation,
     factoryCreationReceipt,
+    successorFactoryCreation,
+    successorFactoryCreationReceipt,
     owner,
     paused,
     deprecated,
@@ -277,6 +303,11 @@ async function main(): Promise<void> {
     factoryPool,
     orderCount,
     orders,
+    successorLegacy,
+    successorPool,
+    successorCurrentPool,
+    successorOrderCount,
+    successorOrders,
   ] = await Promise.all([
     Promise.all(
       COMPONENTS.map((component) =>
@@ -297,6 +328,12 @@ async function main(): Promise<void> {
     }),
     client.getTransactionReceipt({
       hash: V2_FACTORY_CREATION_TRANSACTION,
+    }),
+    client.getTransaction({
+      hash: SUCCESSOR_FACTORY_CREATION_TRANSACTION,
+    }),
+    client.getTransactionReceipt({
+      hash: SUCCESSOR_FACTORY_CREATION_TRANSACTION,
     }),
     client.readContract({
       address: V2_POOL,
@@ -406,6 +443,36 @@ async function main(): Promise<void> {
       functionName: "allOrders",
       blockNumber,
     }),
+    client.readContract({
+      address: SUCCESSOR_FACTORY,
+      abi: successorFactoryAbi,
+      functionName: "LEGACY",
+      blockNumber,
+    }),
+    client.readContract({
+      address: SUCCESSOR_FACTORY,
+      abi: successorFactoryAbi,
+      functionName: "SUCCESSOR",
+      blockNumber,
+    }),
+    client.readContract({
+      address: SUCCESSOR_FACTORY,
+      abi: successorFactoryAbi,
+      functionName: "pool",
+      blockNumber,
+    }),
+    client.readContract({
+      address: SUCCESSOR_FACTORY,
+      abi: successorFactoryAbi,
+      functionName: "orderCount",
+      blockNumber,
+    }),
+    client.readContract({
+      address: SUCCESSOR_FACTORY,
+      abi: successorFactoryAbi,
+      functionName: "allOrders",
+      blockNumber,
+    }),
   ]);
 
   const components = COMPONENTS.map((component, index) => {
@@ -423,17 +490,27 @@ async function main(): Promise<void> {
   const poolCreatedAddress = poolCreationReceipt.contractAddress;
   const factoryCreatedAddress =
     factoryCreationReceipt.contractAddress;
+  const successorFactoryCreatedAddress =
+    successorFactoryCreationReceipt.contractAddress;
   const relationshipsValid =
     getAddress(owner) === DEPLOYER &&
     getAddress(poolCreation.from) === DEPLOYER &&
     getAddress(factoryCreation.from) === DEPLOYER &&
+    getAddress(successorFactoryCreation.from) === DEPLOYER &&
     poolCreatedAddress !== null &&
     poolCreatedAddress !== undefined &&
     getAddress(poolCreatedAddress) === V2_POOL &&
     factoryCreatedAddress !== null &&
     factoryCreatedAddress !== undefined &&
     getAddress(factoryCreatedAddress) === V2_FACTORY &&
+    successorFactoryCreatedAddress !== null &&
+    successorFactoryCreatedAddress !== undefined &&
+    getAddress(successorFactoryCreatedAddress) ===
+      SUCCESSOR_FACTORY &&
     getAddress(factoryPool) === V2_POOL &&
+    getAddress(successorLegacy) === LEGACY_POOL &&
+    getAddress(successorPool) === V2_POOL &&
+    getAddress(successorCurrentPool) === V2_POOL &&
     getAddress(fwa) === EXPECTED_FWA &&
     getAddress(fwaRewards) === EXPECTED_FWA_REWARDS &&
     getAddress(fwaToken) === EXPECTED_FWA_TOKEN;
@@ -505,10 +582,17 @@ async function main(): Promise<void> {
         factoryCreationTransaction: V2_FACTORY_CREATION_TRANSACTION,
         factoryCreationBlock:
           factoryCreationReceipt.blockNumber.toString(),
+        successorFactory: SUCCESSOR_FACTORY,
+        successorFactoryCreationTransaction:
+          SUCCESSOR_FACTORY_CREATION_TRANSACTION,
+        successorFactoryCreationBlock:
+          successorFactoryCreationReceipt.blockNumber.toString(),
         verifiedSource: {
           pool: V2_POOL_VERIFIED_SOURCE,
           factory: V2_FACTORY_VERIFIED_SOURCE,
-          match: "exact",
+          successorFactory:
+            SUCCESSOR_FACTORY_VERIFIED_SOURCE,
+          match: "verified-creation-bytecode",
           compiler: "0.8.28",
           evmVersion: "cancun",
         },
@@ -534,6 +618,9 @@ async function main(): Promise<void> {
         fwaRewards,
         fwaToken,
         factoryPool,
+        successorLegacy,
+        successorPool,
+        successorCurrentPool,
       },
       config: {
         ticketPriceEth: formatEther(poolConfig[0]),
@@ -549,10 +636,22 @@ async function main(): Promise<void> {
         maxConcurrentPulls: poolConfig[10].toString(),
         referralBps: poolConfig[11].toString(),
       },
-      factory: {
-        orderCount: orderCount.toString(),
-        orders: orders.map((address: Address) => getAddress(address)),
-      },
+      factories: [
+        {
+          address: V2_FACTORY,
+          orderCount: orderCount.toString(),
+          orders: orders.map((address: Address) =>
+            getAddress(address),
+          ),
+        },
+        {
+          address: SUCCESSOR_FACTORY,
+          orderCount: successorOrderCount.toString(),
+          orders: successorOrders.map((address: Address) =>
+            getAddress(address),
+          ),
+        },
+      ],
       activeRounds,
       launchReady:
         bytecodeValid &&
@@ -564,7 +663,7 @@ async function main(): Promise<void> {
         ? "wait_for_unpause"
         : roundCount === 0n
           ? "wait_for_first_round"
-          : "build_versioned_adapter_and_dry_run_before_live_enablement",
+          : "monitor_live_v2_and_both_order_factories",
     }),
   );
 }

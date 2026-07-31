@@ -344,6 +344,8 @@ export async function executePendingFundingBackrun(parameters: {
   readonly observePrivateBatch:
     | ((outcome: PrivateBatchOutcome) => Promise<void>)
     | undefined;
+  readonly competitionFactoryAddresses?: readonly Address[];
+  readonly competitionPoolAddresses?: readonly Address[];
   readonly signal?: AbortSignal;
 }): Promise<PendingFundingBackrunResult> {
   if (parameters.config.dryRun) {
@@ -692,6 +694,18 @@ export async function executePendingFundingBackrun(parameters: {
           await parameters.observePrivateBatch({
             targetBlock,
             bidScope: "pending_funding_backrun",
+            ...(parameters.competitionFactoryAddresses === undefined
+              ? {}
+              : {
+                  factoryAddresses:
+                    parameters.competitionFactoryAddresses,
+                }),
+            ...(parameters.competitionPoolAddresses === undefined
+              ? {}
+              : {
+                  poolAddresses:
+                    parameters.competitionPoolAddresses,
+                }),
             attempts: [
               {
                 order,
@@ -780,6 +794,18 @@ export async function executePendingFundingBackrun(parameters: {
         await parameters.observePrivateBatch({
           targetBlock,
           bidScope: "pending_funding_backrun",
+          ...(parameters.competitionFactoryAddresses === undefined
+            ? {}
+            : {
+                factoryAddresses:
+                  parameters.competitionFactoryAddresses,
+              }),
+          ...(parameters.competitionPoolAddresses === undefined
+            ? {}
+            : {
+                poolAddresses:
+                  parameters.competitionPoolAddresses,
+              }),
           attempts: [
             {
               order,

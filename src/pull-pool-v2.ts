@@ -11,15 +11,19 @@ import {
   factoryAbi,
   poolV2Abi,
   poolV2LifecycleAbi,
+  successorFactoryAbi,
 } from "./abi.js";
 import type { KeeperConfig } from "./config.js";
 import {
   FWA_TOKEN_ADDRESS,
+  POOL_ADDRESS,
   PULL_POOL_FWA_ADDRESS,
+  PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
   PULL_POOL_V2_ADDRESS,
   PULL_POOL_V2_COMPONENTS,
   PULL_POOL_V2_DEPLOYMENT_BLOCK,
   PULL_POOL_V2_FACTORY_ADDRESS,
+  PULL_POOL_V2_ORDER_FACTORY_ADDRESSES,
 } from "./constants.js";
 import { ROUND_STATE } from "./lifecycle.js";
 
@@ -152,9 +156,12 @@ export function configurePullPoolV2(
     ...config,
     poolVersion: "v2",
     factoryAddress: PULL_POOL_V2_FACTORY_ADDRESS,
+    orderFactoryAddresses:
+      PULL_POOL_V2_ORDER_FACTORY_ADDRESSES,
     expectedPoolAddress: PULL_POOL_V2_ADDRESS,
-    // The V1 vault registry and both pending-event decoders are version
-    // specific. Confirmed-head V2 lifecycle and order calls remain enabled.
+    // The V1 vault, final-ticket, and pending-FWA decoders are version
+    // specific. The primary pending-funding supervisor separately includes
+    // these registered V2 orders.
     enableVaults: false,
     enablePendingFundingBackruns: false,
     enablePendingFwaFulfillmentBackruns: false,
@@ -188,6 +195,9 @@ export async function readPullPoolV2LaunchState(
     deprecated,
     roundCount,
     factoryPool,
+    successorLegacy,
+    successorPool,
+    successorCurrentPool,
     fwa,
     fwaToken,
   ] = await Promise.all([
@@ -224,6 +234,24 @@ export async function readPullPoolV2LaunchState(
       ...atBlock,
     }),
     client.readContract({
+      address: PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
+      abi: successorFactoryAbi,
+      functionName: "LEGACY",
+      ...atBlock,
+    }),
+    client.readContract({
+      address: PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
+      abi: successorFactoryAbi,
+      functionName: "SUCCESSOR",
+      ...atBlock,
+    }),
+    client.readContract({
+      address: PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
+      abi: successorFactoryAbi,
+      functionName: "pool",
+      ...atBlock,
+    }),
+    client.readContract({
       address: PULL_POOL_V2_ADDRESS,
       abi: poolV2Abi,
       functionName: "FWA",
@@ -248,6 +276,9 @@ export async function readPullPoolV2LaunchState(
   );
   const relationshipsValid =
     getAddress(factoryPool) === PULL_POOL_V2_ADDRESS &&
+    getAddress(successorLegacy) === POOL_ADDRESS &&
+    getAddress(successorPool) === PULL_POOL_V2_ADDRESS &&
+    getAddress(successorCurrentPool) === PULL_POOL_V2_ADDRESS &&
     getAddress(fwa) === PULL_POOL_FWA_ADDRESS &&
     getAddress(fwaToken) === FWA_TOKEN_ADDRESS;
   return {
@@ -380,12 +411,14 @@ export async function readPullPoolV2Routing(
       } satisfies PullPoolV2RoundSnapshot;
     }),
   );
-  const pullingCount = rounds.filter(
-    (round) => round.state === ROUND_STATE.pulling,
+  const pendingLifecycleCount = rounds.filter(
+    (round) =>
+      round.state === ROUND_STATE.pulling ||
+      round.state === ROUND_STATE.claimable,
   ).length;
-  if (BigInt(pullingCount) !== pendingPullCount) {
+  if (BigInt(pendingLifecycleCount) !== pendingPullCount) {
     throw new Error(
-      `PullPool V2 event index found ${pullingCount} pulling rounds but pendingPullCount is ${pendingPullCount}`,
+      `PullPool V2 event index found ${pendingLifecycleCount} pending lifecycle rounds but pendingPullCount is ${pendingPullCount}`,
     );
   }
   if (

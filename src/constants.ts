@@ -13,6 +13,13 @@ export const PULL_POOL_V2_ADDRESS = getAddress(
 export const PULL_POOL_V2_FACTORY_ADDRESS = getAddress(
   "0xc62cEF28ccDbaBE147eCD3Baf4492119aCf4c657",
 );
+export const PULL_POOL_SUCCESSOR_FACTORY_ADDRESS = getAddress(
+  "0xFba041453dabbFE8B34409Cf88417913Cc483D1E",
+);
+export const PULL_POOL_V2_ORDER_FACTORY_ADDRESSES = [
+  PULL_POOL_V2_FACTORY_ADDRESS,
+  PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
+] as const;
 export const PULL_POOL_FWA_ADDRESS = getAddress(
   "0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c",
 );
@@ -29,6 +36,12 @@ export const PULL_POOL_V2_COMPONENTS = [
     address: PULL_POOL_V2_FACTORY_ADDRESS,
     codeHash:
       "0x45ccf63419269cadbb49f4dc5b7496ddc5c2d813f71296e55a56dd522d1dab49",
+  },
+  {
+    label: "successor_order_factory",
+    address: PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
+    codeHash:
+      "0x52b7619ed66be42d34b84d32d4dafd9ead511fe74b024706de2ebf1c61280735",
   },
   {
     label: "component_a",

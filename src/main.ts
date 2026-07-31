@@ -119,6 +119,7 @@ import {
 import {
   estimatedJobReward,
   isFreshBlockReadUnavailable,
+  readOrderFactoryOrders,
   runKeeperPass,
   scheduleColdPlannerRefresh,
   type KeeperTransactionRequest,
@@ -1880,15 +1881,22 @@ async function main(): Promise<void> {
                         config.competitorTraceRetryDelayMs,
                     },
                     {
-                      factoryAddress:
-                        outcome.factoryAddress ??
-                        config.factoryAddress,
+                      factoryAddresses:
+                        outcome.factoryAddresses ??
+                        (outcome.factoryAddress === undefined
+                          ? config.orderFactoryAddresses
+                          : [outcome.factoryAddress]),
                       vaultFactoryAddress:
+                        outcome.factoryAddresses === undefined &&
                         outcome.factoryAddress === undefined
                           ? config.enableVaults
                             ? config.vaultFactoryAddress
                             : undefined
                           : outcome.vaultFactoryAddress,
+                      poolAddresses:
+                        outcome.poolAddresses ?? [
+                          config.expectedPoolAddress,
+                        ],
                     },
                   ),
                 shouldRetry: (error) =>
@@ -1937,8 +1945,16 @@ async function main(): Promise<void> {
                   ),
                   winningBidBps:
                     observation.winningBidBps.toString(),
+                  adaptiveBidEligible:
+                    observation.adaptiveBidEligible,
+                  adaptiveBidExclusionReason:
+                    observation.adaptiveBidEligible
+                      ? ""
+                      : "competitor_transaction_earned_pool_bounty",
                 });
-                for (const order of observation.relevantOrders) {
+                for (const order of observation.adaptiveBidEligible
+                  ? observation.relevantOrders
+                  : []) {
                   const key = order.toLowerCase();
                   const existing = observedBidsByOrder.get(key);
                   if (
@@ -2057,12 +2073,22 @@ async function main(): Promise<void> {
         };
       }
       if (pendingFundingExecutionEnabled(config)) {
-        const [orders, vaults] = await Promise.all([
-          publicClient.readContract({
-            address: config.factoryAddress,
-            abi: factoryAbi,
-            functionName: "allOrders",
-          }),
+        const pendingOrderConfigs = [
+          config,
+          ...(v2Config === undefined ? [] : [v2Config]),
+        ];
+        const pendingRegistryBlock =
+          await publicClient.getBlockNumber();
+        const [ordersByConfig, vaults] = await Promise.all([
+          Promise.all(
+            pendingOrderConfigs.map((poolConfig) =>
+              readOrderFactoryOrders(
+                publicClient,
+                poolConfig.orderFactoryAddresses,
+                pendingRegistryBlock,
+              ),
+            ),
+          ),
           config.enableVaults
             ? publicClient.readContract({
                 address: config.vaultFactoryAddress,
@@ -2071,6 +2097,23 @@ async function main(): Promise<void> {
               })
             : Promise.resolve([]),
         ]);
+        const orderCompetitionByTarget = new Map<
+          string,
+          {
+            readonly factoryAddresses: readonly Address[];
+            readonly poolAddresses: readonly Address[];
+          }
+        >();
+        for (let index = 0; index < pendingOrderConfigs.length; index += 1) {
+          const poolConfig = pendingOrderConfigs[index]!;
+          for (const order of ordersByConfig[index] ?? []) {
+            orderCompetitionByTarget.set(order.toLowerCase(), {
+              factoryAddresses: poolConfig.orderFactoryAddresses,
+              poolAddresses: [poolConfig.expectedPoolAddress],
+            });
+          }
+        }
+        const orders = ordersByConfig.flat();
         const canonicalTargets = [
           ...new Set(
             [
@@ -2103,6 +2146,10 @@ async function main(): Promise<void> {
           queuedCandidate = undefined;
           const execution = executionController.start(
             async (signal) => {
+              const orderCompetition =
+                orderCompetitionByTarget.get(
+                  prerequisite.target.toLowerCase(),
+                );
               try {
                 const result =
                   prerequisite.action ===
@@ -2184,6 +2231,14 @@ async function main(): Promise<void> {
                           );
                         },
                         observePrivateBatch,
+                        ...(orderCompetition === undefined
+                          ? {}
+                          : {
+                              competitionFactoryAddresses:
+                                orderCompetition.factoryAddresses,
+                              competitionPoolAddresses:
+                                orderCompetition.poolAddresses,
+                            }),
                         signal,
                       });
                 const transactionHash =
@@ -3183,6 +3238,9 @@ async function main(): Promise<void> {
     v2Enabled: v2Config !== undefined,
     v2Pool: v2Config?.expectedPoolAddress ?? "",
     v2Factory: v2Config?.factoryAddress ?? "",
+    v2OrderFactories: JSON.stringify(
+      v2Config?.orderFactoryAddresses ?? [],
+    ),
     factory: config.factoryAddress,
     vaultFactory: config.vaultFactoryAddress,
     pool: poolAddress,

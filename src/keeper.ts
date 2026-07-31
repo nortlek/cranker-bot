@@ -76,7 +76,9 @@ export interface PrivateBatchOutcome {
   readonly bidScope?: "standing_order" | "pending_funding_backrun";
   readonly poolVersion?: KeeperConfig["poolVersion"];
   readonly factoryAddress?: Address;
+  readonly factoryAddresses?: readonly Address[];
   readonly vaultFactoryAddress?: Address;
+  readonly poolAddresses?: readonly Address[];
   readonly attempts: readonly {
     readonly order: Address;
     readonly crankFee: bigint;
@@ -139,13 +141,24 @@ function revertedErrorName(error: unknown): string | undefined {
 
 async function getCandidates(
   client: PublicClient<Transport, Chain>,
-  factoryAddress: Address,
+  factoryAddresses: readonly Address[],
 ): Promise<OrderCandidate[]> {
-  const orders = await client.readContract({
-    address: factoryAddress,
-    abi: factoryAbi,
-    functionName: "allOrders",
-  });
+  const registryOrders = await Promise.all(
+    factoryAddresses.map((factoryAddress) =>
+      client.readContract({
+        address: factoryAddress,
+        abi: factoryAbi,
+        functionName: "allOrders",
+      }),
+    ),
+  );
+  const orders = [
+    ...new Map(
+      registryOrders
+        .flat()
+        .map((address) => [address.toLowerCase(), address]),
+    ).values(),
+  ];
   const feeResults = await client.multicall({
     allowFailure: true,
     contracts: orders.map((address) => ({
@@ -202,7 +215,7 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
   } = context;
   const candidates = await getCandidates(
     publicClient,
-    config.factoryAddress,
+    config.orderFactoryAddresses,
   );
   const feeQuote = await publicClient.estimateFeesPerGas({ type: "eip1559" });
   const maxPriorityFeePerGas =

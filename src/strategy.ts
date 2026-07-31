@@ -405,6 +405,7 @@ interface OrderCandidate {
   readonly ticketsPerRound: bigint;
   readonly requiresNativeBalance: boolean;
   readonly configuredPool?: Address;
+  readonly lastPool?: Address;
   readonly recipient?: Address;
   readonly referrer?: Address;
   readonly minSecondsBetweenBuys?: bigint;
@@ -432,6 +433,35 @@ const cachedOrderCandidatesByFactory = new Map<
 >();
 const LIFECYCLE_FUNDING_CANDIDATE_LIMIT = 12;
 const LIFECYCLE_FUNDING_WAIT_MS = 75;
+
+function orderRegistryCacheKey(config: KeeperConfig): string {
+  return config.orderFactoryAddresses
+    .map((address) => address.toLowerCase())
+    .sort()
+    .join(":");
+}
+
+export async function readOrderFactoryOrders(
+  client: PublicClient<Transport, Chain>,
+  factoryAddresses: readonly Address[],
+  blockNumber: bigint,
+): Promise<readonly Address[]> {
+  const ordersByFactory = await Promise.all(
+    factoryAddresses.map((factoryAddress) =>
+      client.readContract({
+        address: factoryAddress,
+        abi: factoryAbi,
+        functionName: "allOrders",
+        blockNumber,
+      }),
+    ),
+  );
+  const unique = new Map<string, Address>();
+  for (const address of ordersByFactory.flat()) {
+    unique.set(address.toLowerCase(), address);
+  }
+  return [...unique.values()];
+}
 
 interface SubmittedJob {
   readonly request: KeeperTransactionRequest;
@@ -1068,17 +1098,15 @@ async function getOrderCandidates(
   config: KeeperConfig,
   blockNumber: bigint,
 ): Promise<OrderCandidate[]> {
-  const factoryAddress = config.factoryAddress;
   const vaultFactoryAddress = config.enableVaults
     ? config.vaultFactoryAddress
     : undefined;
   const [orders, vaults] = await Promise.all([
-    client.readContract({
-      address: factoryAddress,
-      abi: factoryAbi,
-      functionName: "allOrders",
+    readOrderFactoryOrders(
+      client,
+      config.orderFactoryAddresses,
       blockNumber,
-    }),
+    ),
     vaultFactoryAddress === undefined
       ? Promise.resolve([])
       : client.readContract({
@@ -1100,6 +1128,7 @@ async function getOrderCandidates(
     referrerResults,
     intervalResults,
     lastBuyAtResults,
+    lastPoolResults,
   ] = await Promise.all([
     client.multicall({
       allowFailure: true,
@@ -1174,6 +1203,17 @@ async function getOrderCandidates(
           })),
         })
       : Promise.resolve([]),
+    config.poolVersion === "v2"
+      ? client.multicall({
+          allowFailure: true,
+          blockNumber,
+          contracts: subscriptions.map((address) => ({
+            address,
+            abi: standingOrderV2Abi,
+            functionName: "lastPool" as const,
+          })),
+        })
+      : Promise.resolve([]),
   ]);
 
   const candidates: OrderCandidate[] = [];
@@ -1186,6 +1226,7 @@ async function getOrderCandidates(
     const referrer = referrerResults[index];
     const interval = intervalResults[index];
     const lastBuyAt = lastBuyAtResults[index];
+    const lastPool = lastPoolResults[index];
     if (
       address === undefined ||
       fee?.status !== "success" ||
@@ -1212,7 +1253,8 @@ async function getOrderCandidates(
       recipient?.status === "success" &&
       referrer?.status === "success" &&
       interval?.status === "success" &&
-      lastBuyAt?.status === "success"
+      lastBuyAt?.status === "success" &&
+      lastPool?.status === "success"
     ) {
       candidates.push({
         ...base,
@@ -1221,6 +1263,7 @@ async function getOrderCandidates(
         referrer: getAddress(referrer.result),
         minSecondsBetweenBuys: interval.result,
         lastBuyAt: lastBuyAt.result,
+        lastPool: getAddress(lastPool.result),
       });
     }
   }
@@ -1231,7 +1274,7 @@ async function getOrderCandidates(
     return a.crankFee > b.crankFee ? -1 : 1;
   });
   cachedOrderCandidatesByFactory.set(
-    config.factoryAddress.toLowerCase(),
+    orderRegistryCacheKey(config),
     sorted,
   );
   return sorted;
@@ -1244,41 +1287,54 @@ async function refreshCachedOrderCandidates(parameters: {
   readonly blockNumber: bigint;
 }): Promise<readonly OrderCandidate[]> {
   if (parameters.candidates.length === 0) return [];
-  const [feeResults, ticketResults, poolResults] = await Promise.all([
-    parameters.client.multicall({
-      allowFailure: true,
-      blockNumber: parameters.blockNumber,
-      contracts: parameters.candidates.map((candidate) => ({
-        address: candidate.address,
-        abi: standingOrderAbi,
-        functionName: "crankFee" as const,
-      })),
-    }),
-    parameters.client.multicall({
-      allowFailure: true,
-      blockNumber: parameters.blockNumber,
-      contracts: parameters.candidates.map((candidate) => ({
-        address: candidate.address,
-        abi: standingOrderAbi,
-        functionName: "ticketsPerRound" as const,
-      })),
-    }),
-    parameters.config.poolVersion === "v2"
-      ? parameters.client.multicall({
-          allowFailure: true,
-          blockNumber: parameters.blockNumber,
-          contracts: parameters.candidates.map((candidate) => ({
-            address: candidate.address,
-            abi: standingOrderV2Abi,
-            functionName: "pool" as const,
-          })),
-        })
-      : Promise.resolve([]),
-  ]);
+  const [feeResults, ticketResults, poolResults, lastPoolResults] =
+    await Promise.all([
+      parameters.client.multicall({
+        allowFailure: true,
+        blockNumber: parameters.blockNumber,
+        contracts: parameters.candidates.map((candidate) => ({
+          address: candidate.address,
+          abi: standingOrderAbi,
+          functionName: "crankFee" as const,
+        })),
+      }),
+      parameters.client.multicall({
+        allowFailure: true,
+        blockNumber: parameters.blockNumber,
+        contracts: parameters.candidates.map((candidate) => ({
+          address: candidate.address,
+          abi: standingOrderAbi,
+          functionName: "ticketsPerRound" as const,
+        })),
+      }),
+      parameters.config.poolVersion === "v2"
+        ? parameters.client.multicall({
+            allowFailure: true,
+            blockNumber: parameters.blockNumber,
+            contracts: parameters.candidates.map((candidate) => ({
+              address: candidate.address,
+              abi: standingOrderV2Abi,
+              functionName: "pool" as const,
+            })),
+          })
+        : Promise.resolve([]),
+      parameters.config.poolVersion === "v2"
+        ? parameters.client.multicall({
+            allowFailure: true,
+            blockNumber: parameters.blockNumber,
+            contracts: parameters.candidates.map((candidate) => ({
+              address: candidate.address,
+              abi: standingOrderV2Abi,
+              functionName: "lastPool" as const,
+            })),
+          })
+        : Promise.resolve([]),
+    ]);
   return parameters.candidates.flatMap((candidate, index) => {
     const fee = feeResults[index];
     const tickets = ticketResults[index];
     const configuredPool = poolResults[index];
+    const lastPool = lastPoolResults[index];
     if (
       fee?.status !== "success" ||
       tickets?.status !== "success"
@@ -1288,6 +1344,7 @@ async function refreshCachedOrderCandidates(parameters: {
     if (parameters.config.poolVersion === "v2") {
       if (
         configuredPool?.status !== "success" ||
+        lastPool?.status !== "success" ||
         getAddress(configuredPool.result) !==
           parameters.config.expectedPoolAddress
       ) {
@@ -1299,6 +1356,7 @@ async function refreshCachedOrderCandidates(parameters: {
           crankFee: fee.result,
           ticketsPerRound: BigInt(tickets.result),
           configuredPool: getAddress(configuredPool.result),
+          lastPool: getAddress(lastPool.result),
         },
       ];
     }
@@ -1368,7 +1426,18 @@ async function getEligibleOrders(parameters: {
     if (
       lastRound?.status === "success" &&
       parameters.roundId !== undefined &&
-      orderAlreadyBought(lastRound.result, parameters.roundId)
+      orderAlreadyBought(
+        lastRound.result,
+        parameters.roundId,
+        parameters.config.poolVersion === "v2" &&
+          candidate.lastPool !== undefined &&
+          candidate.configuredPool !== undefined
+          ? {
+              lastPool: candidate.lastPool,
+              activePool: candidate.configuredPool,
+            }
+          : undefined,
+      )
     ) {
       incrementReason(parameters.skipped, "AlreadyBought");
       return false;
@@ -1445,9 +1514,19 @@ export function orderHasMinimumBalance(
 export function orderAlreadyBought(
   lastRoundBought: bigint,
   roundId: bigint,
+  poolScope?: {
+    readonly lastPool: Address;
+    readonly activePool: Address;
+  },
 ): boolean {
   if (lastRoundBought < 0n || roundId < 0n) {
     throw new Error("order round identifiers cannot be negative");
+  }
+  if (poolScope !== undefined) {
+    return (
+      isAddressEqual(poolScope.lastPool, poolScope.activePool) &&
+      lastRoundBought === roundId
+    );
   }
   return lastRoundBought >= roundId;
 }
@@ -3571,7 +3650,7 @@ async function planLifecycleFundingSuffix(parameters: {
   }
   const cached = (
     cachedOrderCandidatesByFactory.get(
-      parameters.config.factoryAddress.toLowerCase(),
+      orderRegistryCacheKey(parameters.config),
     ) ?? []
   ).slice(0, LIFECYCLE_FUNDING_CANDIDATE_LIMIT);
   const candidates = await refreshCachedOrderCandidates({
@@ -3848,7 +3927,7 @@ async function planJobsForPool(parameters: {
           enriched.minimumViablePrefix,
         orders:
           lastKnownOrderCountByFactory.get(
-            parameters.config.factoryAddress.toLowerCase(),
+            orderRegistryCacheKey(parameters.config),
           ) ?? 0,
         skipped,
       };
@@ -4018,7 +4097,7 @@ async function planJobsForPool(parameters: {
     ...plannerDurations,
   });
   lastKnownOrderCountByFactory.set(
-    parameters.config.factoryAddress.toLowerCase(),
+    orderRegistryCacheKey(parameters.config),
     candidates.length,
   );
 
@@ -5345,6 +5424,9 @@ export async function runKeeperPass(
           targetBlock: privateTargetBlock,
           poolVersion,
           factoryAddress: poolConfig.factoryAddress,
+          factoryAddresses:
+            poolConfig.orderFactoryAddresses,
+          poolAddresses: [poolConfig.expectedPoolAddress],
           ...(poolConfig.enableVaults
             ? {
                 vaultFactoryAddress:

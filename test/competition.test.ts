@@ -19,6 +19,7 @@ import {
   filterRelevantPoolPulls,
   groupRelevantPoolLifecycleBounties,
   isTransientCompetitionObservationError,
+  receiptHasPoolCrankBounty,
 } from "../src/competition.js";
 
 const ORDER_A = getAddress(
@@ -267,6 +268,36 @@ describe("aggregatePoolCrankBounties", () => {
         302n,
       ),
     ).toBe(1_200n);
+  });
+});
+
+describe("receiptHasPoolCrankBounty", () => {
+  it("excludes cross-lane order and pool wrappers from order bid learning", () => {
+    const bounty = {
+      address: POOL,
+      topics: encodeEventTopics({
+        abi: poolAbi,
+        eventName: "CrankBountyPaid",
+        args: { roundId: 54n, cranker: CALLER },
+      }) as [Hex, ...Hex[]],
+      data: encodeAbiParameters(
+        parseAbiParameters("uint256"),
+        [797_389_655_792_695n],
+      ),
+    };
+
+    expect(
+      receiptHasPoolCrankBounty(
+        [crankLog(ORDER_A, 100_000_000_000_000n), bounty],
+        [POOL],
+      ),
+    ).toBe(true);
+    expect(
+      receiptHasPoolCrankBounty(
+        [crankLog(ORDER_A, 100_000_000_000_000n)],
+        [POOL],
+      ),
+    ).toBe(false);
   });
 });
 

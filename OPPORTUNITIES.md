@@ -1449,23 +1449,25 @@ decoder and pacing gate; V1's `lastRoundBought`-only prefilter is insufficient.
 
 At block `25640704`, the pool was paused, not deprecated, and had
 `roundCount == 0`, `currentOpenRound == 0`, `pendingPullCount == 0`, and zero
-accounted ETH. The new factory had zero orders. `npm run
-inspect:pull-pool-v2` pins and verifies all seven deployed component hashes,
-both creation transactions, deployer ownership, the factory relationship,
-immutable FWA relationships, configuration, launch state, and event-indexed
-active rounds decoded against the verified 36-component tuple. It fails closed
-on a relationship, bytecode, or lifecycle-index mismatch.
+accounted ETH. The earlier V2-only factory had zero orders. `npm run
+inspect:pull-pool-v2` originally pinned those seven deployed components; it now
+also pins the later successor-aware factory, both factory relationships, all
+three creation transactions, deployer ownership, immutable FWA relationships,
+configuration, launch state, and event-indexed active rounds decoded against
+the verified 36-component tuple. It fails closed on a relationship, bytecode,
+or lifecycle-index mismatch.
 
 A fresh inspection at block `25648898` again matched all seven pinned runtime
 hashes, every relationship, and the newly verified ABI. V2 remained paused and
 not deprecated, with
 `roundCount == 0`, `firstOpenRound == 1`, `currentOpenRound == 0`,
-`pendingPullCount == 0`, zero accounted ETH, and zero factory orders. No V2
-execution path is justified yet.
+`pendingPullCount == 0`, zero accounted ETH, and zero orders in the earlier
+V2-only factory. No V2 execution path was justified at that snapshot; the
+successor-aware factory was deployed later.
 
 Implementation:
 
-- startup verifies all seven V2 runtime hashes, the factory/pool link, and
+- startup verifies all eight V2 runtime hashes, both factory/pool links, and
   immutable FWA relationships; every planning head reads the activation signal
   alongside V1 planning and awaits it before submission
 - activation adds V2 to the existing pass without another process, signer,
@@ -1478,9 +1480,10 @@ Implementation:
   `currentOpenRound` plus `pendingPullCount`
 - every concurrent pulling/claimable round is considered independently and
   the lowest covered/open funding round is routed separately
-- the V2 order decoder requires its mutable `pool()` to remain canonical and
-  reads recipient, immutable referrer, buy interval, and last-buy time before
-  exact `crank()` estimation
+- the V2 order decoder merges both pinned registries, requires each mutable
+  `pool()` to remain canonical, and reads recipient, immutable referrer, buy
+  interval, last-buy time, and pool-scoped last purchase before exact `crank()`
+  estimation
 - V1 vaults, final-ticket pending backruns, and single-pending-round FWA
   backruns stay live for V1 but are never reused with the V2 ABI
 - shared non-pool lanes are owned by the V1 primary adapter so dual planning
@@ -1490,6 +1493,34 @@ Implementation:
 - V2 fulfilled lifecycle starts at the low ready-cycle bid instead of
   inheriting V1's 72.5% fulfilled bid; raise it only from exact V2 competition
   evidence
+
+Implemented on 2026-07-31 after investigating transaction
+`0x21e10ce6223a3823b518391d9cca9d3bfb3f284f20acda6afe0c6d515ef8b00a`:
+the active successor-aware order factory is
+`0xFba041453dabbFE8B34409Cf88417913Cc483D1E`, not the earlier empty V2-only
+factory. It was deployed by the canonical pool deployer in block `25643539`,
+pins the canonical V1 and V2 pools as `LEGACY` and `SUCCESSOR`, currently
+routes `pool()` to V2, and held 68 registered orders when discovered. Historic
+activity contained 932 cranks and `0.1062 ETH` of gross caller fees; that is an
+opportunity-size measure, not missed net profit. Production now pins the
+factory's runtime hash and relationships, merges and deduplicates both V2
+registries for confirmed-head planning, competition attribution, and pending
+ETH-funding subscriptions, and exact-simulates every retained order.
+
+The successor order source also proves that replay protection is the pair
+`(lastPool, lastRoundBought)` and uses equality. The prefilter now reads
+`lastPool` at the exact parent so a historical V1 round cannot suppress a V2
+candidate after round IDs restart. Pool lifecycle competition found in the
+same receipt as an order crank is retained as telemetry but excluded from the
+standing-order adaptive controller because its aggregate builder payment is
+not lane-normalized.
+
+The same incident exposed a lifecycle-index invariant bug at blocks
+`25655323`–`25655326`: round 55 became claimable after sync while
+`pendingPullCount` correctly remained one until settlement, but the adapter
+counted only pulling rounds and repeatedly aborted. The invariant now counts
+both pulling and claimable rounds, with a regression covering the sync-to-
+settle interval. The two expired private bundles spent no gas.
 
 The first live sample now supports a separate pull controller. Across V2 rounds
 9–21 the keeper won four pulls and competitors won nine; one competitor took

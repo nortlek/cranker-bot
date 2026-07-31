@@ -86,12 +86,14 @@ alongside V1 planning and is mandatory before submission.
 V2 reconstructs every active round from `RoundOpened`, `RoundSettled`, and
 `RoundVoided`, exact-reads those rounds at the subscribed parent, and routes
 concurrent funding and acquisition work independently. Its standing-order
-decoder also binds the mutable pool, recipient, referrer, and pacing fields.
-The V1 vault registry and V1-only pending funding/FWA decoders remain scoped to
-V1 and are never reused for V2. Shared Liquity, Convex, Stake DAO, FiRM,
-buyback, and LiveBid planners run only once through the primary adapter.
-Confirmed-head V2 orders and lifecycle calls remain private, exact-simulated,
-and profit-gated.
+decoder binds the mutable pool, recipient, referrer, pacing fields, and the
+pool-scoped last purchase. It reads both the original V2-only factory and the
+successor-aware factory that migrated orders from V1 to V2. The V1 vault,
+final-ticket, and pending-FWA decoders remain scoped to V1; the validated
+pending ETH-funding lane covers registered V1 and V2 orders. Shared Liquity,
+Convex, Stake DAO, FiRM, buyback, and LiveBid planners run only once through
+the primary adapter. Confirmed-head V2 orders and lifecycle calls remain
+private, exact-simulated, and profit-gated.
 
 Each new block, the keeper:
 
@@ -197,12 +199,13 @@ and races arrival of the target head. A slow or lagging state read therefore
 causes the bundle to be skipped, never submitted to an already-built block.
 `bundle_stage_timing` reports this gate as `final_submission_gate`.
 
-`lastRoundBought` and the pool's state remain the authoritative replay
-protection. A new batch starts only when the keeper account has no existing
-pending nonce gap; after a restart, this prevents the bot from duplicating
-transactions that are still in flight. Competitive bid tuning is persisted
-separately in `.keeper-bid-state.json`; deleting it resets every order to
-`BUILDER_BID_BPS`.
+V1 uses `lastRoundBought` with the pool's state as replay protection. V2 scopes
+that round to `lastPool`, because round identifiers restart on a successor,
+and exact simulation remains authoritative. A new batch starts only when the
+keeper account has no existing pending nonce gap; after a restart, this
+prevents the bot from duplicating transactions that are still in flight.
+Competitive bid tuning is persisted separately in `.keeper-bid-state.json`;
+deleting it resets every order to `BUILDER_BID_BPS`.
 
 ## Setup
 
@@ -719,8 +722,8 @@ Use a supervised process, a dedicated RPC, and keeper-wallet balance alerts.
   simulation and inclusion cannot be made atomic by this bot.
 - **Mutable funding:** the owner can withdraw the order balance at any time.
 - **Registry scope:** the bot deliberately executes only orders returned by
-  this factory. Set both factory and expected pool addresses when targeting a
-  different deployment.
+  the configured registries. Each registry and its expected pool relationship
+  must be pinned before targeting another deployment.
 - **Eligibility timing:** the loop reacts to confirmed heads. It can compete
   immediately once a call is eligible and can create its own atomic
   order-to-pull transition. Separate exact pending lanes cover a final public
