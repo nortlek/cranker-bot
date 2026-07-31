@@ -574,6 +574,28 @@ another contradiction before discarding older evidence. This supports
 continued target-specific learning; it does not justify a global floor or
 starting-bid change.
 
+The first live attempt for previously unmeasured order `9e957...` separated
+price from delivery more cleanly. Target block `25655044` missed despite all
+four relay paths accepting within `56–235 ms` and retaining `10.7 s` before
+the block arrived. The block contained no competing crank or transaction to
+the order, used only `7.24M / 60M` gas, and exposed no builder marker. The
+controller correctly classified `miss_without_higher_price` and held rather
+than increasing. The same nonce landed one block later in a BuilderNet block.
+Exact simulation predicted the receipt's `144,432` gas exactly; the
+profitability boundary converted the `8,644 bps` requested target into an
+`8,584 bps` effective priority payment and retained
+`0.000001000000119504 ETH`.
+
+This is builder/proposer reach evidence, not a clearing-price observation. It
+also shows the cost of seeding every new target from the aggressive global
+prior: the successful retry paid almost the entire economically admissible
+reward without proving that BuilderNet required it. Do not lower the global
+starting bid from this single inclusion. First add durable block-delivery
+classification and collect comparable outcomes grouped by reward size,
+simulated gas, builder identity, and target history. A hierarchical cohort
+prior may initialize unseen targets only after exact same-lane samples show it
+improves expected retained profit without materially reducing eventual wins.
+
 ### P0 — Make the live signer lease continuously fail-closed
 
 Status: implemented and validated; deploy after the nonce/lifecycle gate.

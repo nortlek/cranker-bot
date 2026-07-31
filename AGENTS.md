@@ -201,6 +201,13 @@ railway logs \
   --json
 ```
 
+Run Railway CLI commands serially. Concurrent CLI processes can race the local
+OAuth refresh/config rewrite: on 2026-07-31 two simultaneous read-only commands
+briefly reported a missing refresh token and regenerated `~/.railway/config.json`.
+The next serialized `railway status` recovered without production impact.
+Parallelize RPC inspection and local analysis instead, but do not invoke two
+Railway CLI commands at once.
+
 Important: application fields are at the root of each JSON object. `.message`
 is often blank. Filter on `.event`, not `.message`.
 
