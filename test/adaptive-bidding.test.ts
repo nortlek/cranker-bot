@@ -192,7 +192,7 @@ describe("adjustAdaptiveBid", () => {
       {
         kind: "miss",
         blockNumber: 47n,
-        observedWinningBidBps: 2_000n,
+        observedWinningBidBps: 3_999n,
       },
     );
 

@@ -297,7 +297,7 @@ export function adjustAdaptiveBid(
     const currentBidBps = clampToPolicy(
       recoverProbe
         ? maximum(recoveryBid, lowerBound)
-        : observedTarget !== undefined
+        : observedTarget !== undefined && priceMiss
         ? maximum(previousBidBps, observedTarget)
         : previousBidBps,
       policy,
@@ -343,7 +343,8 @@ export function adjustAdaptiveBid(
         ? "probe_miss_recovery"
         : wasProbe
           ? "probe_miss_without_higher_price"
-        : observedTarget !== undefined &&
+        : priceMiss &&
+            observedTarget !== undefined &&
             observedTarget > previousBidBps
           ? "observed_competitor_price"
           : "miss_without_higher_price",
