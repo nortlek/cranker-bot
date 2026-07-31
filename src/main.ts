@@ -45,6 +45,7 @@ import {
   loadConfig,
   pendingFwaFulfillmentExecutionEnabled,
   pendingFundingExecutionEnabled,
+  type KeeperConfig,
 } from "./config.js";
 import { DiscordWebhookNotifier } from "./discord.js";
 import {
@@ -178,13 +179,6 @@ class HeadSubscriptionStaleError extends Error {
   }
 }
 
-class PullPoolVersionTransitionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PullPoolVersionTransitionError";
-  }
-}
-
 async function assertSignerLeaseHeld(): Promise<void> {
   if (signerLeaseFailure !== undefined) {
     throw signerLeaseFailure;
@@ -226,7 +220,7 @@ async function closeRuntimeResources(): Promise<void> {
 
 async function main(): Promise<void> {
   const startupStartedAt = performance.now();
-  let config = loadConfig();
+  const config = loadConfig();
   const sourceRevision =
     process.env.DEPLOY_GIT_SHA ??
     process.env.RAILWAY_GIT_COMMIT_SHA ??
@@ -455,22 +449,21 @@ async function main(): Promise<void> {
       "PullPool V2 activated without matching pinned bytecode and relationships",
     );
   }
-  if (
-    v2LaunchState.deprecated &&
-    v2LaunchState.roundCount > 0n
-  ) {
-    throw new Error(
-      "PullPool V2 was launched and is now deprecated; automatic fallback is disabled",
-    );
-  }
-  if (v2LaunchState.selected) {
-    config = configurePullPoolV2(config);
-  }
+  let v2Config: KeeperConfig | undefined =
+    v2LaunchState.selected
+      ? configurePullPoolV2(config)
+      : undefined;
+  let v2Enabled = v2Config !== undefined;
+  let v2RuntimeVerified =
+    v2LaunchState.bytecodeValid &&
+    v2LaunchState.relationshipsValid;
   log(
     v2LaunchState.selected ? "info" : "debug",
-    "pull_pool_version_selected",
+    "pull_pool_adapters_selected",
     {
-      poolVersion: config.poolVersion,
+      poolVersions: JSON.stringify(
+        v2Config === undefined ? ["v1"] : ["v1", "v2"],
+      ),
       v2Paused: v2LaunchState.paused,
       v2Deprecated: v2LaunchState.deprecated,
       v2RoundCount: v2LaunchState.roundCount.toString(),
@@ -570,7 +563,7 @@ async function main(): Promise<void> {
           read: () =>
             observeWinningPoolPullBids(publicClient, {
               targetBlock: outcome.targetBlock,
-              pool: config.expectedPoolAddress,
+              pool: outcome.pool,
               ourTransactionHashes: outcome.attempts.map(
                 (attempt) => attempt.hash,
               ),
@@ -617,6 +610,8 @@ async function main(): Promise<void> {
                   minProfitWei: config.minProfitWei,
                 });
           log("info", "pool_competitor_bid_observed", {
+            poolVersion: outcome.poolVersion,
+            pool: outcome.pool,
             targetBlock: outcome.targetBlock.toString(),
             transactionHash: observation.transactionHash,
             round: observation.roundId.toString(),
@@ -670,6 +665,8 @@ async function main(): Promise<void> {
           });
         }
         log("info", "pool_pull_bid_observation", {
+          poolVersion: outcome.poolVersion,
+          pool: outcome.pool,
           targetBlock: outcome.targetBlock.toString(),
           outcome:
             observationRead.value.length > 0
@@ -717,7 +714,7 @@ async function main(): Promise<void> {
           read: () =>
             observeWinningPoolLifecycleBids(publicClient, {
               targetBlock: outcome.targetBlock,
-              pool: config.expectedPoolAddress,
+              pool: outcome.pool,
               lostRoundIds,
               ourTransactionHashes: outcome.attempts.map(
                 (attempt) => attempt.hash,
@@ -741,6 +738,8 @@ async function main(): Promise<void> {
             "info",
             "pool_lifecycle_competitor_state_availability_waited",
             {
+              poolVersion: outcome.poolVersion,
+              pool: outcome.pool,
               targetBlock: outcome.targetBlock.toString(),
               rounds: JSON.stringify(
                 lostRoundIds.map(String),
@@ -825,6 +824,8 @@ async function main(): Promise<void> {
           );
         }
         log("info", "pool_lifecycle_bid_observation", {
+          poolVersion: outcome.poolVersion,
+          pool: outcome.pool,
           targetBlock: outcome.targetBlock.toString(),
           outcome:
             observationRead.value.length > 0
@@ -1030,21 +1031,17 @@ async function main(): Promise<void> {
           } else if (
             request.poolBuilderBidPolicy !== undefined
           ) {
-            switch (request.poolBuilderBidPolicy) {
-              case "pool_pull":
-                requestBidBps = config.poolPullBuilderBidBps;
-                requestBidPolicy = "pool_pull";
-                break;
-              case "pool_ready":
-                requestBidBps = config.poolBuilderBidBps;
-                requestBidPolicy = "pool_ready";
-                break;
-              case "pool_fulfilled":
-                requestBidBps =
-                  config.poolFulfilledBuilderBidBps;
-                requestBidPolicy = "pool_fulfilled";
-                break;
-            }
+            requestBidBps =
+              request.configuredBuilderBidBps ??
+              (request.poolBuilderBidPolicy === "pool_pull"
+                ? config.poolPullBuilderBidBps
+                : request.poolBuilderBidPolicy === "pool_ready"
+                  ? config.poolBuilderBidBps
+                  : config.poolFulfilledBuilderBidBps);
+            requestBidPolicy =
+              request.poolVersion === undefined
+                ? request.poolBuilderBidPolicy
+                : `${request.poolVersion}:${request.poolBuilderBidPolicy}`;
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
           } else if (request.kind === "live_bid_sweep") {
@@ -1189,6 +1186,15 @@ async function main(): Promise<void> {
               (request) => request.kind,
             ),
           ),
+          poolVersions: JSON.stringify([
+            ...new Set(
+              competitivelySelectedRequests.flatMap((request) =>
+                request.poolVersion === undefined
+                  ? []
+                  : [request.poolVersion],
+              ),
+            ),
+          ]),
           firstNonce: firstRequest.nonce,
           grossReward: eth(grossReward),
           simulatedGasUsed: totalGasUsed.toString(),
@@ -1693,10 +1699,15 @@ async function main(): Promise<void> {
                         config.competitorTraceRetryDelayMs,
                     },
                     {
-                      factoryAddress: config.factoryAddress,
-                      vaultFactoryAddress: config.enableVaults
-                        ? config.vaultFactoryAddress
-                        : undefined,
+                      factoryAddress:
+                        outcome.factoryAddress ??
+                        config.factoryAddress,
+                      vaultFactoryAddress:
+                        outcome.factoryAddress === undefined
+                          ? config.enableVaults
+                            ? config.vaultFactoryAddress
+                            : undefined
+                          : outcome.vaultFactoryAddress,
                     },
                   ),
                 shouldRetry: (error) =>
@@ -1721,6 +1732,8 @@ async function main(): Promise<void> {
               const observations = observationRead.value;
               for (const observation of observations) {
                 log("info", "competitor_bid_observed", {
+                  poolVersion:
+                    outcome.poolVersion ?? config.poolVersion,
                   targetBlock: outcome.targetBlock.toString(),
                   bidScope:
                     outcome.bidScope ?? "standing_order",
@@ -3006,6 +3019,12 @@ async function main(): Promise<void> {
   log("info", "keeper_started", {
     chainId,
     poolVersion: config.poolVersion,
+    poolVersions: JSON.stringify(
+      v2Config === undefined ? ["v1"] : ["v1", "v2"],
+    ),
+    v2Enabled: v2Config !== undefined,
+    v2Pool: v2Config?.expectedPoolAddress ?? "",
+    v2Factory: v2Config?.factoryAddress ?? "",
     factory: config.factoryAddress,
     vaultFactory: config.vaultFactoryAddress,
     pool: poolAddress,
@@ -3152,59 +3171,60 @@ async function main(): Promise<void> {
           },
           async () => {
             log("debug", "new_block", { block: block.toString() });
-            const versionCheck =
-              config.poolVersion !== "v1"
-                ? Promise.resolve<
-                    | { readonly roundCount: bigint }
-                    | { readonly error: unknown }
-                    | undefined
-                  >(undefined)
-                : (async () => {
-                    const activation =
-                      await readPullPoolV2ActivationSignal(
-                        exactStateClient,
-                        block,
-                      );
-                    if (!activation.activated) return undefined;
-                    const verified =
-                      await readPullPoolV2LaunchState(
-                        exactStateClient,
-                        block,
-                      );
-                    if (!verified.selected) {
-                      throw new Error(
-                        "PullPool V2 activation failed pinned runtime verification",
-                      );
-                    }
-                    return {
-                      roundCount: activation.roundCount,
-                    };
-                  })().catch((error: unknown) => ({ error }));
-            let transitionLogged = false;
-            const assertPoolVersionCurrent =
-              async (): Promise<void> => {
-                const transition = await versionCheck;
-                if (transition === undefined) return;
-                if ("error" in transition) {
-                  throw transition.error;
-                }
-                if (!transitionLogged) {
-                  transitionLogged = true;
-                  log(
-                    "warn",
-                    "pull_pool_v2_transition_detected",
-                    {
-                      block: block.toString(),
-                      roundCount:
-                        transition.roundCount.toString(),
-                      action:
-                        "supervised_restart_into_verified_v2_adapter",
-                    },
+            const additionalPoolConfigs = (async () => {
+              const activation =
+                await readPullPoolV2ActivationSignal(
+                  exactStateClient,
+                  block,
+                );
+              const shouldEnable =
+                activation.activated &&
+                !activation.deprecated;
+              if (shouldEnable && !v2RuntimeVerified) {
+                const verified =
+                  await readPullPoolV2LaunchState(
+                    exactStateClient,
+                    block,
+                  );
+                if (!verified.selected) {
+                  throw new Error(
+                    "PullPool V2 activation failed pinned runtime verification",
                   );
                 }
-                throw new PullPoolVersionTransitionError(
-                  `PullPool V2 activated at block ${block}`,
+                v2RuntimeVerified = true;
+              }
+              if (shouldEnable && v2Config === undefined) {
+                v2Config = configurePullPoolV2(config);
+              }
+              if (shouldEnable !== v2Enabled) {
+                v2Enabled = shouldEnable;
+                log(
+                  shouldEnable ? "info" : "warn",
+                  "pull_pool_adapter_state_changed",
+                  {
+                    block: block.toString(),
+                    poolVersion: "v2",
+                    enabled: shouldEnable,
+                    paused: activation.paused,
+                    deprecated: activation.deprecated,
+                    roundCount:
+                      activation.roundCount.toString(),
+                    activeVersions: JSON.stringify(
+                      shouldEnable ? ["v1", "v2"] : ["v1"],
+                    ),
+                    action: shouldEnable
+                      ? "merge_into_single_signer_pass"
+                      : "retain_v1_and_disarm_v2",
+                  },
                 );
+              }
+              return shouldEnable && v2Config !== undefined
+                ? [v2Config]
+                : [];
+            })();
+            const assertPoolAdaptersCurrent =
+              async (): Promise<void> => {
+                await additionalPoolConfigs;
               };
             if (!config.dryRun) {
               await assertSignerLeaseHeld();
@@ -3219,15 +3239,16 @@ async function main(): Promise<void> {
                 : { observedHead }),
               account,
               config,
+              additionalPoolConfigs,
               sendTransaction,
               sendBatch,
               waitForTargetBlock,
               observePrivateBatch,
               observePoolPullBatch,
               observePoolLifecycleBatch,
-              preSubmissionGate: assertPoolVersionCurrent,
+              preSubmissionGate: assertPoolAdaptersCurrent,
             });
-            await assertPoolVersionCurrent();
+            await assertPoolAdaptersCurrent();
             if (passResult.sent === 0) {
               scheduleColdPlannerRefresh({
                 discoveryClient,
@@ -3260,13 +3281,6 @@ async function main(): Promise<void> {
         log("error", "head_subscription_stale", {
           reason: error.message,
           ...errorFingerprint(error),
-          action: "restarting_worker",
-        });
-        throw error;
-      }
-      if (error instanceof PullPoolVersionTransitionError) {
-        log("warn", "pull_pool_version_restart_requested", {
-          reason: error.message,
           action: "restarting_worker",
         });
         throw error;

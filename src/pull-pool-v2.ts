@@ -158,6 +158,17 @@ export function configurePullPoolV2(
     enableVaults: false,
     enablePendingFundingBackruns: false,
     enablePendingFwaFulfillmentBackruns: false,
+    // Shared non-pool lanes remain owned by the primary V1 adapter. Running
+    // them here would duplicate discovery and could create two same-nonce
+    // alternatives. V2 contributes only its own orders and pool lifecycle to
+    // the merged pass.
+    enableBuyback: false,
+    enableLiveBidSweep: false,
+    enableLiquityLiquidations: false,
+    enableConvexEarmarks: false,
+    enableConvexKicks: false,
+    enableStakeDaoCurveHarvests: false,
+    enableFirmReplenishments: false,
     // V1's high fulfilled-state bid is learned from V1 competition. Start
     // the new pool at the independently configured low ready-cycle bid until
     // V2 receipts provide evidence for a separate controller.

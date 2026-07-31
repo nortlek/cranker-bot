@@ -75,22 +75,23 @@ cost.
 
 ## Keeper behavior
 
-At startup the worker verifies the pinned V2 suite and selects V2 only after
-the canonical pool has been unpaused or has opened its first round. Until then
-it remains on V1. While V1 is selected, a V2 activation check runs alongside
-ordinary planning and becomes a mandatory pre-submission gate. Activation
-requests a supervised restart; the replacement re-verifies all seven V2
-runtime hashes and immutable relationships before selecting the V2
-pool/factory. A launched V2 is never silently replaced by V1 if it is later
-paused, deprecated, or fails verification.
+At startup the worker verifies the pinned V2 suite. V1 remains enabled because
+its standing orders are permanently bound to the V1 pool. Once canonical V2 is
+unpaused or has opened its first round, the verified V2 adapter joins the same
+keeper pass without starting another signer. Both adapters plan from the same
+subscribed parent, merge independent order work into one nonce plan, and allow
+only one lifecycle chain per target block. A per-head V2 state check begins
+alongside V1 planning and is mandatory before submission.
 
 V2 reconstructs every active round from `RoundOpened`, `RoundSettled`, and
 `RoundVoided`, exact-reads those rounds at the subscribed parent, and routes
 concurrent funding and acquisition work independently. Its standing-order
 decoder also binds the mutable pool, recipient, referrer, and pacing fields.
-The V1 vault registry and V1-only pending funding/FWA decoders are disarmed
-under V2; confirmed-head V2 orders and lifecycle calls remain private,
-exact-simulated, and profit-gated.
+The V1 vault registry and V1-only pending funding/FWA decoders remain scoped to
+V1 and are never reused for V2. Shared Liquity, Convex, Stake DAO, FiRM,
+buyback, and LiveBid planners run only once through the primary adapter.
+Confirmed-head V2 orders and lifecycle calls remain private, exact-simulated,
+and profit-gated.
 
 Each new block, the keeper:
 

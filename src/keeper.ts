@@ -74,6 +74,9 @@ export interface CrankBatchResult {
 export interface PrivateBatchOutcome {
   readonly targetBlock: bigint;
   readonly bidScope?: "standing_order" | "pending_funding_backrun";
+  readonly poolVersion?: KeeperConfig["poolVersion"];
+  readonly factoryAddress?: Address;
+  readonly vaultFactoryAddress?: Address;
   readonly attempts: readonly {
     readonly order: Address;
     readonly crankFee: bigint;

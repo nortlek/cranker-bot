@@ -23,6 +23,7 @@ import {
   isTransactionReceiptTemporarilyUnavailable,
   estimatedJobReward,
   maximumFundableGasEnvelope,
+  mergeConcurrentPoolPlans,
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
@@ -593,5 +594,98 @@ describe("planningHeadIsStale", () => {
     expect(() => planningHeadIsStale(-1n, 0n)).toThrow(
       "block numbers cannot be negative",
     );
+  });
+});
+
+describe("mergeConcurrentPoolPlans", () => {
+  const job = (
+    kind: "standing_order" | "pool_sync" | "pool_settle",
+    poolVersion: "v1" | "v2",
+    reward: bigint,
+  ) =>
+    ({
+      kind,
+      label: `${poolVersion}:${kind}`,
+      target: POOL,
+      data: "0x",
+      gas: 1n,
+      reward: { kind: "fixed", amountWei: reward },
+      poolVersion,
+    }) as const;
+
+  it("keeps independently planned V1 and V2 order work in one nonce plan", () => {
+    const merged = mergeConcurrentPoolPlans({
+      maxJobs: 5,
+      plans: [
+        {
+          poolVersion: "v1",
+          estimatedProfit: 10n,
+          plan: {
+            jobs: [job("standing_order", "v1", 10n)],
+            minimumViablePrefix: 1,
+            orders: 72,
+            skipped: new Map(),
+          },
+        },
+        {
+          poolVersion: "v2",
+          estimatedProfit: 20n,
+          plan: {
+            jobs: [job("standing_order", "v2", 20n)],
+            minimumViablePrefix: 1,
+            orders: 2,
+            skipped: new Map(),
+          },
+        },
+      ],
+    });
+
+    expect(
+      merged.jobs.map((candidate) => candidate.poolVersion),
+    ).toEqual(["v2", "v1"]);
+    expect(merged.orders).toBe(74);
+    expect(merged.minimumViablePrefix).toBe(1);
+  });
+
+  it("selects only one lifecycle chain while still planning both", () => {
+    const merged = mergeConcurrentPoolPlans({
+      maxJobs: 6,
+      plans: [
+        {
+          poolVersion: "v1",
+          estimatedProfit: 10n,
+          plan: {
+            jobs: [
+              job("pool_sync", "v1", 0n),
+              job("pool_settle", "v1", 10n),
+            ],
+            minimumViablePrefix: 1,
+            orders: 72,
+            skipped: new Map(),
+          },
+        },
+        {
+          poolVersion: "v2",
+          estimatedProfit: 20n,
+          plan: {
+            jobs: [
+              job("pool_sync", "v2", 0n),
+              job("pool_settle", "v2", 20n),
+            ],
+            minimumViablePrefix: 1,
+            orders: 1,
+            skipped: new Map(),
+          },
+        },
+      ],
+    });
+
+    expect(
+      new Set(
+        merged.jobs.map(
+          (candidate) => candidate.poolVersion,
+        ),
+      ),
+    ).toEqual(new Set(["v2"]));
   });
 });

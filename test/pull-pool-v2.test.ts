@@ -68,6 +68,13 @@ describe("temporary PullPool V2 selection", () => {
       enableVaults: true,
       enablePendingFundingBackruns: true,
       enablePendingFwaFulfillmentBackruns: true,
+      enableBuyback: true,
+      enableLiveBidSweep: true,
+      enableLiquityLiquidations: true,
+      enableConvexEarmarks: true,
+      enableConvexKicks: true,
+      enableStakeDaoCurveHarvests: true,
+      enableFirmReplenishments: true,
       poolBuilderBidBps: 300n,
       poolFulfilledBuilderBidBps: 7_250n,
     } as KeeperConfig);
@@ -85,6 +92,13 @@ describe("temporary PullPool V2 selection", () => {
       selected.enablePendingFwaFulfillmentBackruns,
     ).toBe(false);
     expect(selected.poolFulfilledBuilderBidBps).toBe(300n);
+    expect(selected.enableBuyback).toBe(false);
+    expect(selected.enableLiveBidSweep).toBe(false);
+    expect(selected.enableLiquityLiquidations).toBe(false);
+    expect(selected.enableConvexEarmarks).toBe(false);
+    expect(selected.enableConvexKicks).toBe(false);
+    expect(selected.enableStakeDaoCurveHarvests).toBe(false);
+    expect(selected.enableFirmReplenishments).toBe(false);
   });
 });
 

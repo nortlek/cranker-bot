@@ -148,6 +148,8 @@ export interface KeeperJob {
   readonly data: Hex;
   readonly gas: bigint;
   readonly reward: JobReward;
+  readonly poolVersion?: KeeperConfig["poolVersion"];
+  readonly configuredBuilderBidBps?: bigint;
   readonly poolBuilderBidPolicy?: PoolBuilderBidPolicy;
   readonly requiresBundleSimulation?: boolean;
   readonly order?: Address;
@@ -316,6 +318,8 @@ export async function resolvePlanningFeeQuote(parameters: {
 
 export interface PoolPullBatchOutcome {
   readonly targetBlock: bigint;
+  readonly pool: Address;
+  readonly poolVersion: KeeperConfig["poolVersion"];
   readonly plannedGrossReward?: bigint;
   readonly plannedBuilderPayment?: bigint;
   readonly plannedExpectedProfit?: bigint;
@@ -328,6 +332,8 @@ export interface PoolPullBatchOutcome {
 
 export interface PoolLifecycleBatchOutcome {
   readonly targetBlock: bigint;
+  readonly pool: Address;
+  readonly poolVersion: KeeperConfig["poolVersion"];
   readonly plannedGrossReward?: bigint;
   readonly plannedBuilderPayment?: bigint;
   readonly plannedExpectedProfit?: bigint;
@@ -350,6 +356,14 @@ export interface StrategyContext {
   readonly observedHead?: KeeperObservedHead;
   readonly account: Account | Address;
   readonly config: KeeperConfig;
+  /**
+   * Additional verified pool adapters are planned inside the same pass. The
+   * promise may begin resolving before the primary planner so activation
+   * monitoring does not add a serial read to the hot path.
+   */
+  readonly additionalPoolConfigs?:
+    | readonly KeeperConfig[]
+    | Promise<readonly KeeperConfig[]>;
   readonly sendTransaction:
     | ((request: KeeperTransactionRequest) => Promise<Hash>)
     | undefined;
@@ -410,8 +424,11 @@ interface PlannedJobs {
   readonly skipped: Map<string, number>;
 }
 
-let lastKnownOrderCount = 0;
-let cachedOrderCandidates: readonly OrderCandidate[] = [];
+const lastKnownOrderCountByFactory = new Map<string, number>();
+const cachedOrderCandidatesByFactory = new Map<
+  string,
+  readonly OrderCandidate[]
+>();
 const LIFECYCLE_FUNDING_CANDIDATE_LIMIT = 12;
 const LIFECYCLE_FUNDING_WAIT_MS = 75;
 
@@ -1212,7 +1229,10 @@ async function getOrderCandidates(
     }
     return a.crankFee > b.crankFee ? -1 : 1;
   });
-  cachedOrderCandidates = sorted;
+  cachedOrderCandidatesByFactory.set(
+    config.factoryAddress.toLowerCase(),
+    sorted,
+  );
   return sorted;
 }
 
@@ -1441,7 +1461,10 @@ export function planningHeadIsStale(
   return observedBlock > plannedBlock;
 }
 
-function orderJob(order: EligibleOrder): KeeperJob {
+function orderJob(
+  order: EligibleOrder,
+  config: KeeperConfig,
+): KeeperJob {
   return {
     kind: "standing_order",
     label: `standing_order:${order.address}`,
@@ -1453,6 +1476,7 @@ function orderJob(order: EligibleOrder): KeeperJob {
     gas: order.gasLimit,
     reward: { kind: "fixed", amountWei: order.crankFee },
     order: order.address,
+    poolVersion: config.poolVersion,
   };
 }
 
@@ -1467,6 +1491,7 @@ function poolJob(parameters: {
   readonly gas: bigint;
   readonly terms: PoolBountyTerms;
   readonly bidPolicy: PoolBuilderBidPolicy;
+  readonly config: KeeperConfig;
   readonly requiresBundleSimulation?: boolean;
 }): KeeperJob {
   const functionName = {
@@ -1493,6 +1518,13 @@ function poolJob(parameters: {
       kind: "pool_bounty",
       terms: parameters.terms,
     },
+    poolVersion: parameters.config.poolVersion,
+    configuredBuilderBidBps:
+      parameters.bidPolicy === "pool_pull"
+        ? parameters.config.poolPullBuilderBidBps
+        : parameters.bidPolicy === "pool_ready"
+          ? parameters.config.poolBuilderBidBps
+          : parameters.config.poolFulfilledBuilderBidBps,
     poolBuilderBidPolicy: parameters.bidPolicy,
     ...(parameters.requiresBundleSimulation === undefined
       ? {}
@@ -1508,6 +1540,7 @@ export function fwaProcessJob(parameters: {
   readonly fwa: Address;
   readonly gas: bigint;
   readonly count: bigint;
+  readonly config?: KeeperConfig;
 }): KeeperJob {
   return {
     kind: "fwa_process",
@@ -1520,6 +1553,13 @@ export function fwaProcessJob(parameters: {
     }),
     gas: parameters.gas,
     reward: { kind: "fixed", amountWei: 0n },
+    ...(parameters.config === undefined
+      ? {}
+      : {
+          poolVersion: parameters.config.poolVersion,
+          configuredBuilderBidBps:
+            parameters.config.poolBuilderBidBps,
+        }),
     poolBuilderBidPolicy: "pool_ready",
     requiresBundleSimulation: true,
   };
@@ -1722,6 +1762,7 @@ async function planPrimaryJobs(parameters: {
             fwa,
             gas: config.fwaProcessGasLimit,
             count: processCount,
+            config,
           }),
           poolJob({
             kind: "pool_sync",
@@ -1730,6 +1771,7 @@ async function planPrimaryJobs(parameters: {
             gas: config.poolSyncGasLimit,
             terms,
             bidPolicy: "pool_ready",
+            config,
           }),
         ];
         if (jobs.length < limit) {
@@ -1741,6 +1783,7 @@ async function planPrimaryJobs(parameters: {
               gas: config.poolSettleGasLimit,
               terms,
               bidPolicy: "pool_ready",
+              config,
             }),
           );
         }
@@ -1781,6 +1824,7 @@ async function planPrimaryJobs(parameters: {
           gas: syncGas,
           terms,
           bidPolicy: "pool_fulfilled",
+          config,
         }),
       ];
       if (
@@ -1795,6 +1839,7 @@ async function planPrimaryJobs(parameters: {
             gas: config.poolSettleGasLimit,
             terms,
             bidPolicy: "pool_fulfilled",
+            config,
           }),
         );
       }
@@ -1839,6 +1884,7 @@ async function planPrimaryJobs(parameters: {
               gas,
               terms,
               bidPolicy: "pool_fulfilled",
+              config,
             }),
           ],
           minimumViablePrefix: 1,
@@ -1888,6 +1934,7 @@ async function planPrimaryJobs(parameters: {
               gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
               terms,
               bidPolicy: "pool_pull",
+              config,
               requiresBundleSimulation: true,
             }),
           ],
@@ -1915,6 +1962,7 @@ async function planPrimaryJobs(parameters: {
               gas,
               terms,
               bidPolicy: "pool_pull",
+              config,
             }),
           ],
           minimumViablePrefix: 1,
@@ -1959,7 +2007,9 @@ async function planPrimaryJobs(parameters: {
         const selectedOrders = eligible.filter((order) =>
           selectedAddresses.has(order.address.toLowerCase()),
         );
-        const jobs = selectedOrders.map(orderJob);
+        const jobs = selectedOrders.map((order) =>
+          orderJob(order, config),
+        );
         jobs.push(
           poolJob({
             kind: "pool_pull",
@@ -1968,6 +2018,7 @@ async function planPrimaryJobs(parameters: {
             gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
             terms,
             bidPolicy: "pool_pull",
+            config,
             requiresBundleSimulation: true,
           }),
         );
@@ -2019,7 +2070,7 @@ async function planPrimaryJobs(parameters: {
       jobs: eligible
         .filter((order) => order.independentlyProfitable)
         .slice(0, limit)
-        .map(orderJob),
+        .map((order) => orderJob(order, config)),
       minimumViablePrefix: 1,
     };
   }
@@ -2039,7 +2090,7 @@ async function planPrimaryJobs(parameters: {
     jobs: eligible
       .filter((order) => order.independentlyProfitable)
       .slice(0, limit)
-      .map(orderJob),
+      .map((order) => orderJob(order, config)),
     minimumViablePrefix: 1,
   };
 }
@@ -3517,10 +3568,11 @@ async function planLifecycleFundingSuffix(parameters: {
   ) {
     return undefined;
   }
-  const cached = cachedOrderCandidates.slice(
-    0,
-    LIFECYCLE_FUNDING_CANDIDATE_LIMIT,
-  );
+  const cached = (
+    cachedOrderCandidatesByFactory.get(
+      parameters.config.factoryAddress.toLowerCase(),
+    ) ?? []
+  ).slice(0, LIFECYCLE_FUNDING_CANDIDATE_LIMIT);
   const candidates = await refreshCachedOrderCandidates({
     client: parameters.client,
     config: parameters.config,
@@ -3552,7 +3604,7 @@ async function planLifecycleFundingSuffix(parameters: {
   };
 }
 
-async function planJobs(parameters: {
+async function planJobsForPool(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly discoveryClient: PublicClient<Transport, Chain>;
   readonly account: Account | Address;
@@ -3793,7 +3845,10 @@ async function planJobs(parameters: {
         jobs: enriched.jobs,
         minimumViablePrefix:
           enriched.minimumViablePrefix,
-        orders: lastKnownOrderCount,
+        orders:
+          lastKnownOrderCountByFactory.get(
+            parameters.config.factoryAddress.toLowerCase(),
+          ) ?? 0,
         skipped,
       };
     }
@@ -3961,7 +4016,10 @@ async function planJobs(parameters: {
     planningBlock: parameters.headBlockNumber.toString(),
     ...plannerDurations,
   });
-  lastKnownOrderCount = candidates.length;
+  lastKnownOrderCountByFactory.set(
+    parameters.config.factoryAddress.toLowerCase(),
+    candidates.length,
+  );
 
   const alternatives: Array<{
     readonly jobs: readonly KeeperJob[];
@@ -4026,6 +4084,191 @@ async function planJobs(parameters: {
     orders: candidates.length,
     skipped,
   };
+}
+
+function planContainsLifecycle(plan: PlannedJobs): boolean {
+  return plan.jobs.some(
+    (job) =>
+      job.kind === "fwa_process" ||
+      job.kind === "pool_pull" ||
+      job.kind === "pool_sync" ||
+      job.kind === "pool_settle" ||
+      job.kind === "pool_settle_forced_eth",
+  );
+}
+
+function mergeSkippedReasons(
+  plans: readonly PlannedJobs[],
+): Map<string, number> {
+  const merged = new Map<string, number>();
+  for (const plan of plans) {
+    for (const [reason, count] of plan.skipped) {
+      merged.set(reason, (merged.get(reason) ?? 0) + count);
+    }
+  }
+  return merged;
+}
+
+export function mergeConcurrentPoolPlans(parameters: {
+  readonly plans: readonly {
+    readonly poolVersion: KeeperConfig["poolVersion"];
+    readonly plan: PlannedJobs;
+    readonly estimatedProfit: bigint;
+  }[];
+  readonly maxJobs: number;
+}): PlannedJobs {
+  const populated = parameters.plans.filter(
+    ({ plan }) => plan.jobs.length > 0,
+  );
+  if (populated.length === 0) {
+    return {
+      jobs: [],
+      minimumViablePrefix: 0,
+      orders: parameters.plans.reduce(
+        (total, { plan }) => total + plan.orders,
+        0,
+      ),
+      skipped: mergeSkippedReasons(
+        parameters.plans.map(({ plan }) => plan),
+      ),
+    };
+  }
+  populated.sort((left, right) => {
+    const leftLifecycle = planContainsLifecycle(left.plan);
+    const rightLifecycle = planContainsLifecycle(right.plan);
+    if (leftLifecycle !== rightLifecycle) {
+      return leftLifecycle ? -1 : 1;
+    }
+    if (left.estimatedProfit !== right.estimatedProfit) {
+      return left.estimatedProfit > right.estimatedProfit ? -1 : 1;
+    }
+    return left.poolVersion.localeCompare(right.poolVersion);
+  });
+
+  // Two lifecycle chains cannot safely share a generic prefix ladder: a
+  // reverted second chain could otherwise leave a processor/sync fragment
+  // after the first settled chain. Plan both, but retain only the stronger
+  // lifecycle alternative for this target block. Independent order-only work
+  // from the other adapter can still follow the selected lifecycle atomically.
+  let lifecycleSelected = false;
+  const selected = populated.filter(({ plan }) => {
+    if (!planContainsLifecycle(plan)) return true;
+    if (lifecycleSelected) return false;
+    lifecycleSelected = true;
+    return true;
+  });
+  const jobs = selected
+    .flatMap(({ plan }) => plan.jobs)
+    .slice(0, parameters.maxJobs);
+  const first = selected[0]?.plan;
+  const minimumViablePrefix =
+    first === undefined || jobs.length < first.minimumViablePrefix
+      ? 0
+      : first.minimumViablePrefix;
+  return {
+    jobs:
+      minimumViablePrefix === 0
+        ? []
+        : jobs,
+    minimumViablePrefix,
+    orders: parameters.plans.reduce(
+      (total, { plan }) => total + plan.orders,
+      0,
+    ),
+    skipped: mergeSkippedReasons(
+      parameters.plans.map(({ plan }) => plan),
+    ),
+  };
+}
+
+async function planJobs(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly discoveryClient: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly config: KeeperConfig;
+  readonly additionalPoolConfigs?:
+    | readonly KeeperConfig[]
+    | Promise<readonly KeeperConfig[]>;
+  readonly maxFeePerGas: bigint;
+  readonly convexMaxFeePerGas: bigint;
+  readonly stakeDaoMaxFeePerGas: bigint;
+  readonly firmMaxFeePerGas: bigint;
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly bountyBaseFeePerGas: bigint;
+  readonly headBlockNumber: bigint;
+  readonly headTimestamp: bigint;
+}): Promise<PlannedJobs> {
+  const {
+    additionalPoolConfigs: additionalPoolConfigsInput,
+    ...singlePoolParameters
+  } = parameters;
+  const primaryPromise =
+    planJobsForPool(singlePoolParameters);
+  const additionalConfigs = await Promise.resolve(
+    additionalPoolConfigsInput ?? [],
+  );
+  const poolPlans = await Promise.all([
+    primaryPromise,
+    ...additionalConfigs.map((config) =>
+      planJobsForPool({
+        ...singlePoolParameters,
+        config,
+      }),
+    ),
+  ]);
+  const configs = [parameters.config, ...additionalConfigs];
+  const plans = poolPlans.map((plan, index) => {
+    const config = configs[index]!;
+    const estimatedProfit = plan.jobs.reduce(
+      (total, job) =>
+        total +
+        estimatedJobReward({
+          job,
+          gasUsed: job.gas,
+          baseFeePerGas: parameters.bountyBaseFeePerGas,
+          poolBountyEstimateBps:
+            config.poolBountyEstimateBps,
+          poolPullBountyEstimateBps:
+            config.poolPullBountyEstimateBps,
+        }) -
+        job.gas * parameters.maxFeePerGas,
+      0n,
+    );
+    return {
+      poolVersion: config.poolVersion,
+      plan,
+      estimatedProfit,
+    };
+  });
+  const merged = mergeConcurrentPoolPlans({
+    plans,
+    maxJobs: maxJobs(parameters.config),
+  });
+  log("info", "pull_pool_adapter_plans_merged", {
+    enabledVersions: JSON.stringify(
+      configs.map((config) => config.poolVersion),
+    ),
+    plannedVersions: JSON.stringify(
+      plans
+        .filter(({ plan }) => plan.jobs.length > 0)
+        .map(({ poolVersion }) => poolVersion),
+    ),
+    selectedVersions: JSON.stringify([
+      ...new Set(
+        merged.jobs.flatMap((job) =>
+          job.poolVersion === undefined
+            ? []
+            : [job.poolVersion],
+        ),
+      ),
+    ]),
+    plannedJobs: plans.reduce(
+      (total, { plan }) => total + plan.jobs.length,
+      0,
+    ),
+    selectedJobs: merged.jobs.length,
+  });
+  return merged;
 }
 
 export function estimatedJobReward(parameters: {
@@ -4293,6 +4536,12 @@ export async function runKeeperPass(
           context.discoveryClient ?? context.publicClient,
         account: context.account,
         config: context.config,
+        ...(context.additionalPoolConfigs === undefined
+          ? {}
+          : {
+              additionalPoolConfigs:
+                context.additionalPoolConfigs,
+            }),
         maxFeePerGas,
         convexMaxFeePerGas:
           context.config.submissionMode === "flashbots"
@@ -4423,6 +4672,7 @@ export async function runKeeperPass(
       kind: job.kind,
       label: job.label,
       target: job.target,
+      poolVersion: job.poolVersion ?? "",
       gasLimit: job.gas.toString(),
       estimatedReward:
         reward === undefined ? "" : eth(reward),
@@ -4667,6 +4917,7 @@ export async function runKeeperPass(
     log("info", "keeper_transaction_sent", {
       kind: submission.request.kind,
       label: submission.request.label,
+      poolVersion: submission.request.poolVersion ?? "",
       hash: submission.hash,
       nonce: submission.request.nonce,
       mode:
@@ -5016,6 +5267,15 @@ export async function runKeeperPass(
         kinds: JSON.stringify(
           submitted.map(({ request }) => request.kind),
         ),
+        poolVersions: JSON.stringify([
+          ...new Set(
+            submitted.flatMap(({ request }) =>
+              request.poolVersion === undefined
+                ? []
+                : [request.poolVersion],
+            ),
+          ),
+        ]),
         transactionCount: submitted.length,
         confirmedTransactions,
         revertedTransactions,
@@ -5046,6 +5306,9 @@ export async function runKeeperPass(
     return [
       {
         order,
+        poolVersion:
+          submission.request.poolVersion ??
+          context.config.poolVersion,
         crankFee: reward.amountWei,
         hash: submission.hash,
         included: receiptResults[index]?.successful ?? false,
@@ -5060,16 +5323,47 @@ export async function runKeeperPass(
     orderAttempts.length > 0 &&
     context.observePrivateBatch !== undefined
   ) {
-    try {
-      await context.observePrivateBatch({
-        targetBlock: privateTargetBlock,
-        attempts: orderAttempts,
-      });
-    } catch (error) {
-      log("warn", "adaptive_bid_observation_failed", {
-        targetBlock: privateTargetBlock.toString(),
-        reason: errorMessage(error),
-      });
+    const allPoolConfigs = [
+      context.config,
+      ...await Promise.resolve(
+        context.additionalPoolConfigs ?? [],
+      ),
+    ];
+    for (const poolVersion of [
+      ...new Set(
+        orderAttempts.map((attempt) => attempt.poolVersion),
+      ),
+    ]) {
+      const poolConfig = allPoolConfigs.find(
+        (candidate) =>
+          candidate.poolVersion === poolVersion,
+      );
+      if (poolConfig === undefined) continue;
+      try {
+        await context.observePrivateBatch({
+          targetBlock: privateTargetBlock,
+          poolVersion,
+          factoryAddress: poolConfig.factoryAddress,
+          ...(poolConfig.enableVaults
+            ? {
+                vaultFactoryAddress:
+                  poolConfig.vaultFactoryAddress,
+              }
+            : {}),
+          attempts: orderAttempts
+            .filter(
+              (attempt) =>
+                attempt.poolVersion === poolVersion,
+            )
+            .map(({ poolVersion: _, ...attempt }) => attempt),
+        });
+      } catch (error) {
+        log("warn", "adaptive_bid_observation_failed", {
+          targetBlock: privateTargetBlock.toString(),
+          poolVersion,
+          reason: errorMessage(error),
+        });
+      }
     }
   }
 
@@ -5096,9 +5390,18 @@ export async function runKeeperPass(
     poolPullAttempts.length > 0 &&
     context.observePoolPullBatch !== undefined
   ) {
+    const poolPullRequest = submitted.find(
+      ({ request }) => request.kind === "pool_pull",
+    )?.request;
     try {
       await context.observePoolPullBatch({
         targetBlock: privateTargetBlock,
+        pool:
+          poolPullRequest?.target ??
+          context.config.expectedPoolAddress,
+        poolVersion:
+          poolPullRequest?.poolVersion ??
+          context.config.poolVersion,
         ...(batchResult?.plannedGrossReward === undefined
           ? {}
           : {
@@ -5154,9 +5457,21 @@ export async function runKeeperPass(
     poolLifecycleAttempts.length > 0 &&
     context.observePoolLifecycleBatch !== undefined
   ) {
+    const lifecycleRequest = submitted.find(
+      ({ request }) =>
+        request.kind === "pool_sync" ||
+        request.kind === "pool_settle" ||
+        request.kind === "pool_settle_forced_eth",
+    )?.request;
     try {
       await context.observePoolLifecycleBatch({
         targetBlock: privateTargetBlock,
+        pool:
+          lifecycleRequest?.target ??
+          context.config.expectedPoolAddress,
+        poolVersion:
+          lifecycleRequest?.poolVersion ??
+          context.config.poolVersion,
         ...(batchResult?.plannedGrossReward === undefined
           ? {}
           : {
