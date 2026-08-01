@@ -133,6 +133,8 @@ describe("standing-order batch executor integration", () => {
       blockNumber: 100n,
       executionGasPrice: parseGwei("0.05"),
       gasLimitMultiplierBps: 12_000n,
+      minimumPriorityFeePerGas: parseGwei("1"),
+      maxFeePerGasCap: parseGwei("2"),
       minProfitWei: 1n,
       bidBps: (order) =>
         order === ORDER_A ? 9_000n : 2_000n,
@@ -156,7 +158,7 @@ describe("standing-order batch executor integration", () => {
   it("uses and exactly gas-estimates a pinned deployed executor", async () => {
     const deployment =
       standingOrderBatchExecutorDeployment(OWNER);
-    const estimateGas = vi.fn(async () => 500_000n);
+    const estimateGas = vi.fn(async () => 400_000n);
     const planned = await planStandingOrderBatch({
       client: {
         getCode: vi.fn(async () => deployment.expectedRuntimeCode),
@@ -166,6 +168,8 @@ describe("standing-order batch executor integration", () => {
       blockNumber: 101n,
       executionGasPrice: parseGwei("0.05"),
       gasLimitMultiplierBps: 12_000n,
+      minimumPriorityFeePerGas: 0n,
+      maxFeePerGasCap: parseGwei("2"),
       minProfitWei: 1n,
       bidBps: (order) =>
         order === ORDER_A ? 9_000n : 2_000n,
@@ -181,9 +185,37 @@ describe("standing-order batch executor integration", () => {
     expect(planned?.jobs[0]).toMatchObject({
       kind: "standing_order_batch",
       target: deployment.address,
-      gas: 600_000n,
+      gas: 480_000n,
     });
     expect(estimateGas).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the more profitable direct plan instead of deploying", async () => {
+    const deployment =
+      standingOrderBatchExecutorDeployment(OWNER);
+    const planned = await planStandingOrderBatch({
+      client: {
+        getCode: vi.fn(
+          async ({ address }: { address: string }) =>
+            address.toLowerCase() ===
+            deployment.address.toLowerCase()
+              ? "0x"
+              : SINGLETON_FACTORY_RUNTIME_CODE,
+        ),
+      } as never,
+      account: OWNER,
+      blockNumber: 102n,
+      executionGasPrice: parseGwei("0.05"),
+      gasLimitMultiplierBps: 12_000n,
+      minimumPriorityFeePerGas: 0n,
+      maxFeePerGasCap: parseGwei("2"),
+      minProfitWei: 1n,
+      bidBps: (order) =>
+        order === ORDER_A ? 9_000n : 2_000n,
+      plan: directPlan(),
+    });
+
+    expect(planned).toBeUndefined();
   });
 
   it("rejects receipt accounting unless member logs and the batch event agree", () => {

@@ -679,7 +679,10 @@ These constraints prevent expensive or unsafe regressions:
   actual reward. Verify the deterministic executor's exact owner-patched
   runtime hash before use. If it is absent, deploy it only through the pinned
   EIP-2470 singleton factory as the inseparable `[deploy, execute]` prefix and
-  require the full signing envelopes to be profitable. Both forms require an
+  require the full signing envelopes to be profitable. Select either form only
+  when its conservative retained profit strictly exceeds the best
+  dependency-safe direct prefix under the same bids, base fee, minimum
+  priority fee, fee ceiling, and profit floor. Both forms require an
   exact final bundle simulation whose aggregate `coinbaseDiff` and executor
   transaction `ethSentToCoinbase` exactly equal the modeled payments. Account
   realized reward as the owner's returned ETH, validate every `Cranked` log

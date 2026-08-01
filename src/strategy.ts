@@ -47,6 +47,7 @@ import { nextBlockBaseFeePerGas } from "./base-fee.js";
 import {
   effectiveBuilderBidBps,
   quoteCompetitiveFees,
+  selectMostProfitablePrefix,
 } from "./bidding.js";
 import { mapConcurrent } from "./concurrency.js";
 import {
@@ -462,6 +463,9 @@ export interface StandingOrderBatchPlan extends PlannedJobs {
   readonly grossReward: bigint;
   readonly builderPayment: bigint;
   readonly ownerReturn: bigint;
+  readonly directExpectedProfit: bigint;
+  readonly batchExpectedProfit: bigint;
+  readonly expectedProfitAdvantage: bigint;
 }
 
 export async function planStandingOrderBatch(parameters: {
@@ -470,6 +474,8 @@ export async function planStandingOrderBatch(parameters: {
   readonly blockNumber: bigint;
   readonly executionGasPrice: bigint;
   readonly gasLimitMultiplierBps: bigint;
+  readonly minimumPriorityFeePerGas: bigint;
+  readonly maxFeePerGasCap: bigint;
   readonly minProfitWei: bigint;
   readonly bidBps: (order: Address) => bigint;
   readonly plan: PlannedJobs;
@@ -498,6 +504,22 @@ export async function planStandingOrderBatch(parameters: {
   const economics = standingOrderBatchEconomics(members);
   const profitFloor = requiredProfit(parameters.minProfitWei);
   if (economics.ownerReturn <= profitFloor) return undefined;
+  const directSelection = selectMostProfitablePrefix({
+    components: parameters.plan.jobs.map((job, index) => ({
+      rewardWei:
+        job.reward.kind === "fixed" ? job.reward.amountWei : 0n,
+      gasUsed: job.gas,
+      builderBidBps: members[index]!.builderBidBps,
+      minimumPriorityFeePerGas:
+        parameters.minimumPriorityFeePerGas,
+    })),
+    minimumViablePrefix: parameters.plan.minimumViablePrefix,
+    baseFeeAllowancePerGas: parameters.executionGasPrice,
+    maxFeePerGasCap: parameters.maxFeePerGasCap,
+    minProfitWei: parameters.minProfitWei,
+  });
+  const directExpectedProfit =
+    directSelection?.quote.expectedProfit ?? 0n;
 
   const accountAddress =
     typeof parameters.account === "string"
@@ -568,6 +590,11 @@ export async function planStandingOrderBatch(parameters: {
         minimumOwnerReturn,
       );
     }
+    const batchExpectedProfit =
+      economics.ownerReturn - gas * parameters.executionGasPrice;
+    if (batchExpectedProfit <= directExpectedProfit) {
+      return undefined;
+    }
     return {
       jobs: [
         {
@@ -588,6 +615,10 @@ export async function planStandingOrderBatch(parameters: {
       skipped: parameters.plan.skipped,
       executor: deployment.address,
       deploymentIncluded: false,
+      directExpectedProfit,
+      batchExpectedProfit,
+      expectedProfitAdvantage:
+        batchExpectedProfit - directExpectedProfit,
       ...economics,
     };
   }
@@ -620,6 +651,13 @@ export async function planStandingOrderBatch(parameters: {
       parameters.executionGasPrice +
     profitFloor;
   if (economics.ownerReturn < minimumOwnerReturn) {
+    return undefined;
+  }
+  const batchExpectedProfit =
+    economics.ownerReturn -
+    (STANDING_ORDER_BATCH_DEPLOY_GAS_LIMIT + executionGas) *
+      parameters.executionGasPrice;
+  if (batchExpectedProfit <= directExpectedProfit) {
     return undefined;
   }
   return {
@@ -655,6 +693,10 @@ export async function planStandingOrderBatch(parameters: {
     skipped: parameters.plan.skipped,
     executor: deployment.address,
     deploymentIncluded: true,
+    directExpectedProfit,
+    batchExpectedProfit,
+    expectedProfitAdvantage:
+      batchExpectedProfit - directExpectedProfit,
     ...economics,
   };
 }
@@ -5031,6 +5073,9 @@ export async function runKeeperPass(
           executionGasPrice: baseFeeAllowancePerGas,
           gasLimitMultiplierBps:
             context.config.gasLimitMultiplierBps,
+          minimumPriorityFeePerGas:
+            context.config.minPriorityFeePerGas,
+          maxFeePerGasCap: context.config.maxFeePerGas,
           minProfitWei: context.config.minProfitWei,
           bidBps: context.standingOrderBidBps!,
           plan,
@@ -5053,6 +5098,15 @@ export async function runKeeperPass(
           batchPlan.builderPayment,
         ),
         ownerReturn: eth(batchPlan.ownerReturn),
+        directExpectedProfit: eth(
+          batchPlan.directExpectedProfit,
+        ),
+        batchExpectedProfit: eth(
+          batchPlan.batchExpectedProfit,
+        ),
+        expectedProfitAdvantage: eth(
+          batchPlan.expectedProfitAdvantage,
+        ),
         minimumViablePrefix: batchPlan.minimumViablePrefix,
       });
     }

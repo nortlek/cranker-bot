@@ -124,7 +124,9 @@ Each new block, the keeper:
    same-block fill revert unless it still covers gas and retained profit. The
    deterministic executor is deployed through the pinned EIP-2470 singleton
    factory only as an inseparable `[deploy, execute]` private bundle whose full
-   gas envelope is profitable; later uses verify the exact runtime code hash.
+   gas envelope is profitable and whose conservative retained profit exceeds
+   the best dependency-safe direct prefix; later uses make the same comparison
+   and verify the exact runtime code hash.
    The final signed bundle must simulate the exact direct beneficiary payment
    and aggregate coinbase difference before submission.
 4. If the round is short of tickets, finds the least net-cost set of callable
