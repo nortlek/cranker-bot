@@ -234,8 +234,13 @@ export function adjustAdaptiveBid(
       outcome.observedWinningBidBps === undefined
         ? undefined
         : clampToPolicy(
-            outcome.observedWinningBidBps +
-              policy.lossStepBps,
+            previousBidBps +
+              maximum(
+                0n,
+                outcome.observedWinningBidBps +
+                  policy.lossStepBps -
+                  effectiveBidBps,
+              ),
             policy,
           );
     const wasProbe =
@@ -296,7 +301,10 @@ export function adjustAdaptiveBid(
       lowestWinningBidBps ?? policy.baselineBidBps;
     const currentBidBps = clampToPolicy(
       recoverProbe
-        ? maximum(recoveryBid, lowerBound)
+        ? maximum(
+            maximum(recoveryBid, lowerBound),
+            observedTarget ?? previousBidBps,
+          )
         : observedTarget !== undefined && priceMiss
         ? maximum(previousBidBps, observedTarget)
         : previousBidBps,

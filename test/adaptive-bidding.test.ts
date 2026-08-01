@@ -41,6 +41,26 @@ describe("adjustAdaptiveBid", () => {
     expect(adjustment.state.consecutiveFullWins).toBe(0);
   });
 
+  it("corrects the requested target when shared fees underdeliver its exact bid", () => {
+    const adjustment = adjustAdaptiveBid(
+      {
+        currentBidBps: 7_000n,
+        consecutiveFullWins: 0,
+      },
+      policy,
+      {
+        kind: "miss",
+        blockNumber: 43n,
+        effectiveBidBps: 6_500n,
+        observedWinningBidBps: 7_000n,
+      },
+    );
+
+    expect(adjustment.action).toBe("increased");
+    expect(adjustment.reason).toBe("observed_competitor_price");
+    expect(adjustment.currentBidBps).toBe(7_525n);
+  });
+
   it("does not increase after a cheaper winner or an unmeasured miss", () => {
     const raised = {
       currentBidBps: 8_622n,
@@ -248,7 +268,7 @@ describe("adjustAdaptiveBid", () => {
       },
     );
 
-    expect(miss.currentBidBps).toBe(8_644n);
+    expect(miss.currentBidBps).toBe(8_829n);
     expect(miss.state.highestLosingBidBps).toBe(3_690n);
     expect(miss.state.lastObservedWinningBidBps).toBe(3_850n);
 
@@ -268,7 +288,7 @@ describe("adjustAdaptiveBid", () => {
       ).state;
     }
 
-    expect(state.currentBidBps).toBe(8_644n);
+    expect(state.currentBidBps).toBe(8_829n);
     expect(state.lastObservedWinningBidBps).toBe(3_850n);
 
     const third = adjustAdaptiveBid(
@@ -629,6 +649,20 @@ describe("adjustAdaptiveBid", () => {
 });
 
 describe("adaptive bid configuration", () => {
+  it("defaults the learned maximum to the full gross reward", () => {
+    const previousMaximum = process.env.ADAPTIVE_BID_MAX_BPS;
+    try {
+      delete process.env.ADAPTIVE_BID_MAX_BPS;
+      expect(loadConfig().adaptiveBidMaxBps).toBe(10_000n);
+    } finally {
+      if (previousMaximum === undefined) {
+        delete process.env.ADAPTIVE_BID_MAX_BPS;
+      } else {
+        process.env.ADAPTIVE_BID_MAX_BPS = previousMaximum;
+      }
+    }
+  });
+
   it("defaults the learned minimum below the starting bid", () => {
     const previousMinimum = process.env.ADAPTIVE_BID_MIN_BPS;
     try {

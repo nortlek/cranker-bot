@@ -413,7 +413,7 @@ export function loadConfig(): KeeperConfig {
   );
   const adaptiveBidMaxBps = integerEnv(
     "ADAPTIVE_BID_MAX_BPS",
-    9_900,
+    10_000,
     { min: 0, max: 10_000 },
   );
   const adaptiveBidMinBps = integerEnv(

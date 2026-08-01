@@ -379,7 +379,9 @@ successful `crank` fees are sent to that keeper address.
   discovery. New orders still start at `BUILDER_BID_BPS`.
 - `ADAPTIVE_BID_STEP_BPS`: margin added above a measured winning bid after a
   loss. The default is `25` (0.25 percentage points).
-- `ADAPTIVE_BID_MAX_BPS`: hard ceiling for the learned bid target.
+- `ADAPTIVE_BID_MAX_BPS`: search ceiling for the learned bid target. It
+  defaults to the full gross reward; exact profitability remains the economic
+  boundary and can clamp the payment below this target.
 - `ADAPTIVE_BID_WIN_STREAK`: consecutive wins required before probing a lower
   bid.
 - `ADAPTIVE_BID_DECAY_BPS`: minimum amount removed when bisecting toward the
