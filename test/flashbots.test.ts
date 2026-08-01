@@ -200,6 +200,60 @@ describe("simulateLongestValidBundlePrefix", () => {
 });
 
 describe("FlashbotsRelay", () => {
+  it("pins bundle simulation state to the target parent", async () => {
+    let receivedBody = "";
+    const server = createServer((request, response) => {
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => {
+        receivedBody += chunk;
+      });
+      request.on("end", () => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { results: [{ gasUsed: 123_456 }] },
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("test server did not bind a TCP port");
+      }
+      const relay = new FlashbotsRelay({
+        url: `http://127.0.0.1:${address.port}`,
+        authAccount: privateKeyToAccount(`0x${"01".repeat(32)}`),
+        timeoutMs: 1_000,
+      });
+
+      await relay.callBundle(["0x01"], 42n);
+
+      expect(JSON.parse(receivedBody)).toMatchObject({
+        method: "eth_callBundle",
+        params: [
+          {
+            txs: ["0x01"],
+            blockNumber: "0x2a",
+            stateBlockNumber: "0x29",
+          },
+        ],
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    }
+  });
+
   it("sends an authenticated, multiplexed bundle request", async () => {
     let receivedBody = "";
     let receivedSignature = "";

@@ -148,11 +148,14 @@ export class FlashbotsRelay {
     transactions: readonly Hex[],
     targetBlock: bigint,
   ): Promise<CallBundleResult> {
+    if (targetBlock <= 0n) {
+      throw new Error("bundle target block must have a parent");
+    }
     return this.#request<CallBundleResult>("eth_callBundle", [
       {
         txs: transactions,
         blockNumber: `0x${targetBlock.toString(16)}`,
-        stateBlockNumber: "latest",
+        stateBlockNumber: `0x${(targetBlock - 1n).toString(16)}`,
       },
     ]);
   }
