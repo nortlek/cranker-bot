@@ -1,5 +1,7 @@
 node_modules/
 dist/
+cache/
+out/
 .env
 .keeper-bid-state.json
 .keeper.pid
