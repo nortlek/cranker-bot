@@ -39,6 +39,11 @@ export interface DirectCoinbasePaymentValidation {
   readonly directCoinbasePayment: bigint;
 }
 
+export interface EmbeddedCoinbasePaymentValidation {
+  readonly totalCoinbasePayment: bigint;
+  readonly embeddedCoinbasePayment: bigint;
+}
+
 interface SendBundleResult {
   readonly bundleHash: Hash;
   readonly smart?: boolean | string;
@@ -266,6 +271,63 @@ export function validateDirectCoinbasePaymentSimulation(parameters: {
     totalCoinbasePayment,
     directCoinbasePayment,
   };
+}
+
+export function validateEmbeddedCoinbasePaymentSimulation(parameters: {
+  readonly result: CallBundleResult;
+  readonly transactionCount: number;
+  readonly paymentIndex: number;
+  readonly expectedTotalCoinbasePayment: bigint;
+  readonly expectedEmbeddedCoinbasePayment: bigint;
+}): EmbeddedCoinbasePaymentValidation {
+  if (
+    parameters.paymentIndex < 0 ||
+    parameters.paymentIndex >= parameters.transactionCount
+  ) {
+    throw new Error("embedded payment index is outside the bundle");
+  }
+  const items = parameters.result.results;
+  if (
+    items === undefined ||
+    items.length !== parameters.transactionCount
+  ) {
+    throw new Error(
+      "embedded payment simulation returned an incomplete result set",
+    );
+  }
+  const payment = items[parameters.paymentIndex];
+  if (
+    payment === undefined ||
+    payment.ethSentToCoinbase === undefined ||
+    parameters.result.coinbaseDiff === undefined
+  ) {
+    throw new Error(
+      "embedded payment simulation omitted coinbase accounting",
+    );
+  }
+  const totalCoinbasePayment = BigInt(
+    parameters.result.coinbaseDiff,
+  );
+  const embeddedCoinbasePayment = BigInt(
+    payment.ethSentToCoinbase,
+  );
+  if (
+    totalCoinbasePayment !==
+    parameters.expectedTotalCoinbasePayment
+  ) {
+    throw new Error(
+      `embedded payment simulation reported total coinbase payment ${totalCoinbasePayment}, expected ${parameters.expectedTotalCoinbasePayment}`,
+    );
+  }
+  if (
+    embeddedCoinbasePayment !==
+    parameters.expectedEmbeddedCoinbasePayment
+  ) {
+    throw new Error(
+      `embedded payment simulation reported direct payment ${embeddedCoinbasePayment}, expected ${parameters.expectedEmbeddedCoinbasePayment}`,
+    );
+  }
+  return { totalCoinbasePayment, embeddedCoinbasePayment };
 }
 
 export async function simulateLongestValidBundlePrefix(

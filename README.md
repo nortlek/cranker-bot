@@ -115,7 +115,18 @@ Each new block, the keeper:
 3. Outside that fast path, reads the standing-order and compatible vault
    registries, refreshes the candidate cache, and exact-estimates every
    currently callable `crank()` from the keeper account. Typed contract
-   reverts are treated as ineligible orders.
+   reverts are treated as ineligible orders. When the selected plan contains
+   two or more standalone standing orders, it can collapse them into one
+   owner-only `StandingOrderBatchExecutor.execute` call. The executor applies
+   each order's independently learned bid to only that order's realized fee,
+   pays the exact aggregate directly to the block beneficiary, and returns the
+   remainder to the signer. Its minimum-owner-return check makes a partial
+   same-block fill revert unless it still covers gas and retained profit. The
+   deterministic executor is deployed through the pinned EIP-2470 singleton
+   factory only as an inseparable `[deploy, execute]` private bundle whose full
+   gas envelope is profitable; later uses verify the exact runtime code hash.
+   The final signed bundle must simulate the exact direct beneficiary payment
+   and aggregate coinbase difference before submission.
 4. If the round is short of tickets, finds the least net-cost set of callable
    standing orders that covers the shortfall and appends `pull`. This allows a
    low- or zero-fee order only when the paid pull makes the complete sequence

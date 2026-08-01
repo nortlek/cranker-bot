@@ -673,6 +673,18 @@ These constraints prevent expensive or unsafe regressions:
   reward-producing crank. Require exact full-bundle simulation, exact
   `ethSentToCoinbase`/`coinbaseDiff`, and aggregate positive economics; never
   submit a helper-only or helper-free prefix of that paid variant.
+- The standing-order batch executor may replace only a private plan containing
+  two to 64 standalone standing-order cranks. Preserve every order's independent
+  adaptive bid and compute its embedded builder payment from that order's
+  actual reward. Verify the deterministic executor's exact owner-patched
+  runtime hash before use. If it is absent, deploy it only through the pinned
+  EIP-2470 singleton factory as the inseparable `[deploy, execute]` prefix and
+  require the full signing envelopes to be profitable. Both forms require an
+  exact final bundle simulation whose aggregate `coinbaseDiff` and executor
+  transaction `ethSentToCoinbase` exactly equal the modeled payments. Account
+  realized reward as the owner's returned ETH, validate every `Cranked` log
+  against the executor's `BatchExecuted` event, and never count the embedded
+  builder payment twice.
 - Profit checks include gas and builder payments. A receipt is the source of
   truth for gas; decoded token transfers and balance reconciliation are the
   source of truth for reward value.

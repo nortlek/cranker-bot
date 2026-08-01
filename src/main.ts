@@ -68,6 +68,7 @@ import {
   simulatedGasUsed,
   submitBundlePrefixLadder,
   validateDirectCoinbasePaymentSimulation,
+  validateEmbeddedCoinbasePaymentSimulation,
 } from "./flashbots.js";
 import {
   errorFingerprint,
@@ -1154,7 +1155,14 @@ async function main(): Promise<void> {
           let requestBidPolicy: string;
           let minimumAggregateBuilderBidBps: bigint | undefined;
           let profitabilityOnly = false;
-          if (request.order !== undefined) {
+          if (
+            request.kind === "standing_order_batch" ||
+            request.kind === "standing_order_batch_deploy"
+          ) {
+            requestBidBps = 0n;
+            requestBidPolicy = "standing_order_batch:embedded";
+            requestMinimumPriorityFeePerGas = 0n;
+          } else if (request.order !== undefined) {
             requestBidBps =
               adaptiveBidController?.currentBidBps(request.order) ??
               config.builderBidBps;
@@ -1318,6 +1326,30 @@ async function main(): Promise<void> {
         const builderBidBps =
           prefixSelection?.builderBidBps ?? fullBuilderBidBps;
         const quote = prefixSelection?.quote ?? fullQuote;
+        const embeddedGrossReward =
+          competitivelySelectedRequests.reduce(
+            (total, request) =>
+              total + (request.embeddedGrossReward ?? 0n),
+            0n,
+          );
+        const embeddedBuilderPayment =
+          competitivelySelectedRequests.reduce(
+            (total, request) =>
+              total +
+              (request.embeddedBuilderPayment ?? 0n),
+            0n,
+          );
+        const reportedGrossReward =
+          embeddedGrossReward > 0n
+            ? embeddedGrossReward
+            : grossReward;
+        const reportedBuilderPayment =
+          embeddedBuilderPayment + quote.builderPayment;
+        const reportedEffectiveBuilderBidBps =
+          effectiveBuilderBidBps(
+            reportedBuilderPayment,
+            reportedGrossReward,
+          );
         const bidPolicies = [
           ...new Set(
             selectedPricingComponents.map(
@@ -1361,7 +1393,11 @@ async function main(): Promise<void> {
             ),
           ]),
           firstNonce: firstRequest.nonce,
-          grossReward: eth(grossReward),
+          grossReward: eth(reportedGrossReward),
+          netRewardAfterEmbeddedPayment: eth(grossReward),
+          embeddedBuilderPayment: eth(
+            embeddedBuilderPayment,
+          ),
           simulatedGasUsed: totalGasUsed.toString(),
           bidPolicy,
           builderBidBps: builderBidBps.toString(),
@@ -1382,8 +1418,8 @@ async function main(): Promise<void> {
           configuredFirmBuilderBidBps:
             config.firmBuilderBidBps.toString(),
           effectiveBuilderBidBps:
-            quote.effectiveBuilderBidBps.toString(),
-          builderPayment: eth(quote.builderPayment),
+            reportedEffectiveBuilderBidBps.toString(),
+          builderPayment: eth(reportedBuilderPayment),
           priorityBuilderPayment: eth(
             quote.priorityBuilderPayment,
           ),
@@ -1516,7 +1552,80 @@ async function main(): Promise<void> {
           minimumViablePrefix,
           lastAdaptiveV2PullIndex + 1,
         );
-        if (quote.directBuilderPayment > 0n) {
+        const embeddedPaymentIndex = selectedRequests.findIndex(
+          (request) =>
+            (request.embeddedBuilderPayment ?? 0n) > 0n,
+        );
+        if (embeddedPaymentIndex >= 0) {
+          const finalSimulation =
+            competitivePrefixSimulation.simulation;
+          if (finalSimulation === undefined) {
+            throw new Error(
+              "embedded payment bundle lacked its exact simulation",
+            );
+          }
+          selectedGas = simulatedGasUsed(
+            finalSimulation,
+            selectedRequests.length,
+          );
+          const priorityBuilderPayment = selectedGas.reduce(
+            (total, transactionGas) =>
+              total +
+              transactionGas * quote.maxPriorityFeePerGas,
+            0n,
+          );
+          const totalCoinbasePayment =
+            priorityBuilderPayment + embeddedBuilderPayment;
+          validateEmbeddedCoinbasePaymentSimulation({
+            result: finalSimulation,
+            transactionCount: selectedRequests.length,
+            paymentIndex: embeddedPaymentIndex,
+            expectedTotalCoinbasePayment:
+              totalCoinbasePayment,
+            expectedEmbeddedCoinbasePayment:
+              embeddedBuilderPayment,
+          });
+          const totalExactGas = selectedGas.reduce(
+            (total, transactionGas) =>
+              total + transactionGas,
+            0n,
+          );
+          const exactExpectedProfit =
+            reportedGrossReward -
+            totalExactGas * baseFeeAllowancePerGas -
+            totalCoinbasePayment;
+          log(
+            exactExpectedProfit >= profitFloor
+              ? "info"
+              : "warn",
+            "standing_order_batch_payment_simulated",
+            {
+              targetBlock: targetBlock.toString(),
+              orders:
+                selectedRequests[embeddedPaymentIndex]
+                  ?.standingOrderBatchMembers?.length ?? 0,
+              grossReward: eth(reportedGrossReward),
+              priorityBuilderPayment: eth(
+                priorityBuilderPayment,
+              ),
+              embeddedBuilderPayment: eth(
+                embeddedBuilderPayment,
+              ),
+              totalBuilderPayment: eth(
+                totalCoinbasePayment,
+              ),
+              expectedProfit: eth(exactExpectedProfit),
+              requiredProfit: eth(profitFloor),
+              accepted: exactExpectedProfit >= profitFloor,
+            },
+          );
+          if (exactExpectedProfit < profitFloor) {
+            return { hashes: [], targetBlock, relayCount: 0 };
+          }
+          // Deployment and execution are inseparable, and the contract's
+          // embedded payment is never offered without every selected order.
+          minimumEconomicPrefix = selected.length;
+        } else if (quote.directBuilderPayment > 0n) {
           const finalSimulation =
             competitivePrefixSimulation.simulation;
           if (finalSimulation === undefined) {
@@ -1660,33 +1769,55 @@ async function main(): Promise<void> {
         }
         const effectiveBuilderBidBpsByOrder =
           quote.directBuilderPayment === 0n
-            ? attributePriorityBidsByOrder(
-                selectedRequests.flatMap((request, index) => {
-                  if (request.order === undefined) return [];
-                  const transactionGas = selectedGas[index];
-                  if (transactionGas === undefined) {
-                    throw new Error(
-                      "selected order omitted its simulated gas",
+            ? (() => {
+                const attributed = new Map(
+                  attributePriorityBidsByOrder(
+                    selectedRequests.flatMap(
+                      (request, index) => {
+                        if (request.order === undefined) return [];
+                        const transactionGas = selectedGas[index];
+                        if (transactionGas === undefined) {
+                          throw new Error(
+                            "selected order omitted its simulated gas",
+                          );
+                        }
+                        return [
+                          {
+                            order: request.order,
+                            rewardWei: estimatedJobReward({
+                              job: request,
+                              gasUsed: transactionGas,
+                              baseFeePerGas:
+                                bountyBaseFeePerGas,
+                              poolBountyEstimateBps:
+                                config.poolBountyEstimateBps,
+                              poolPullBountyEstimateBps:
+                                config.poolPullBountyEstimateBps,
+                            }),
+                            gasUsed: transactionGas,
+                          },
+                        ];
+                      },
+                    ),
+                    quote.maxPriorityFeePerGas,
+                  ),
+                );
+                for (const request of selectedRequests) {
+                  for (const member of
+                    request.standingOrderBatchMembers ?? []) {
+                    attributed.set(
+                      member.order.toLowerCase(),
+                      effectiveBuilderBidBps(
+                        (member.crankFee *
+                          member.builderBidBps) /
+                          10_000n,
+                        member.crankFee,
+                      ),
                     );
                   }
-                  return [
-                    {
-                      order: request.order,
-                      rewardWei: estimatedJobReward({
-                        job: request,
-                        gasUsed: transactionGas,
-                        baseFeePerGas: bountyBaseFeePerGas,
-                        poolBountyEstimateBps:
-                          config.poolBountyEstimateBps,
-                        poolPullBountyEstimateBps:
-                          config.poolPullBountyEstimateBps,
-                      }),
-                      gasUsed: transactionGas,
-                    },
-                  ];
-                }),
-                quote.maxPriorityFeePerGas,
-              )
+                }
+                return attributed;
+              })()
             : undefined;
         const finalGateStartedAt = performance.now();
         const finalGate = await readBeforeTargetBlock({
@@ -1864,12 +1995,12 @@ async function main(): Promise<void> {
           targetBlock,
           relayCount: relayIndexes.size,
           effectiveBuilderBidBps:
-            quote.effectiveBuilderBidBps,
+            reportedEffectiveBuilderBidBps,
           ...(effectiveBuilderBidBpsByOrder === undefined
             ? {}
             : { effectiveBuilderBidBpsByOrder }),
-          plannedGrossReward: grossReward,
-          plannedBuilderPayment: quote.builderPayment,
+          plannedGrossReward: reportedGrossReward,
+          plannedBuilderPayment: reportedBuilderPayment,
           plannedExpectedProfit: quote.expectedProfit,
           bundleCount: submissions.length,
           bundleHashes: submissions.map(
@@ -3533,6 +3664,9 @@ async function main(): Promise<void> {
                 : { observedHead }),
               account,
               config,
+              standingOrderBidBps: (order) =>
+                adaptiveBidController?.currentBidBps(order) ??
+                config.builderBidBps,
               additionalPoolConfigs,
               sendTransaction,
               sendBatch,

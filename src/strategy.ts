@@ -9,6 +9,7 @@ import {
   InvalidInputRpcError,
   InvalidParamsRpcError,
   isAddressEqual,
+  keccak256,
   RpcRequestError,
   TransactionReceiptNotFoundError,
   type Account,
@@ -43,7 +44,10 @@ import {
   vaultFactoryAbi,
 } from "./abi.js";
 import { nextBlockBaseFeePerGas } from "./base-fee.js";
-import { quoteCompetitiveFees } from "./bidding.js";
+import {
+  effectiveBuilderBidBps,
+  quoteCompetitiveFees,
+} from "./bidding.js";
 import { mapConcurrent } from "./concurrency.js";
 import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
@@ -109,9 +113,21 @@ import {
   isFreshChainlinkRound,
   stakeDaoGaugePrefixes,
 } from "./stakedao.js";
+import {
+  encodeStandingOrderBatchExecution,
+  SINGLETON_FACTORY_ADDRESS,
+  SINGLETON_FACTORY_CODE_HASH,
+  STANDING_ORDER_BATCH_DEPLOY_GAS_LIMIT,
+  standingOrderBatchEconomics,
+  standingOrderBatchExecutorAbi,
+  standingOrderBatchExecutorDeployment,
+  type StandingOrderBatchMember,
+} from "./standing-order-batch-executor.js";
 
 export type KeeperJobKind =
   | "standing_order"
+  | "standing_order_batch_deploy"
+  | "standing_order_batch"
   | "fwa_process"
   | "pool_pull"
   | "pool_sync"
@@ -153,6 +169,13 @@ export interface KeeperJob {
   readonly poolBuilderBidPolicy?: PoolBuilderBidPolicy;
   readonly requiresBundleSimulation?: boolean;
   readonly order?: Address;
+  readonly standingOrderBatchMembers?: readonly (
+    StandingOrderBatchMember & {
+      readonly poolVersion: KeeperConfig["poolVersion"];
+    }
+  )[];
+  readonly embeddedGrossReward?: bigint;
+  readonly embeddedBuilderPayment?: bigint;
   readonly roundId?: bigint;
   readonly stakeDaoCrvReward?: bigint;
   readonly stakeDaoCrvUsd?: bigint;
@@ -361,6 +384,9 @@ export interface StrategyContext {
   readonly observedHead?: KeeperObservedHead;
   readonly account: Account | Address;
   readonly config: KeeperConfig;
+  readonly standingOrderBidBps?: (
+    order: Address,
+  ) => bigint;
   /**
    * Additional verified pool adapters are planned inside the same pass. The
    * promise may begin resolving before the primary planner so activation
@@ -428,6 +454,209 @@ interface PlannedJobs {
   readonly minimumViablePrefix: number;
   readonly orders: number;
   readonly skipped: Map<string, number>;
+}
+
+export interface StandingOrderBatchPlan extends PlannedJobs {
+  readonly executor: Address;
+  readonly deploymentIncluded: boolean;
+  readonly grossReward: bigint;
+  readonly builderPayment: bigint;
+  readonly ownerReturn: bigint;
+}
+
+export async function planStandingOrderBatch(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly blockNumber: bigint;
+  readonly executionGasPrice: bigint;
+  readonly gasLimitMultiplierBps: bigint;
+  readonly minProfitWei: bigint;
+  readonly bidBps: (order: Address) => bigint;
+  readonly plan: PlannedJobs;
+}): Promise<StandingOrderBatchPlan | undefined> {
+  if (
+    parameters.plan.jobs.length < 2 ||
+    parameters.plan.jobs.length > 64 ||
+    parameters.plan.jobs.some(
+      (job) =>
+        job.kind !== "standing_order" ||
+        job.order === undefined ||
+        job.reward.kind !== "fixed",
+    )
+  ) {
+    return undefined;
+  }
+  const members = parameters.plan.jobs.map((job) => ({
+    order: job.order!,
+    crankFee:
+      job.reward.kind === "fixed"
+        ? job.reward.amountWei
+        : 0n,
+    builderBidBps: parameters.bidBps(job.order!),
+    poolVersion: job.poolVersion ?? "v1",
+  }));
+  const economics = standingOrderBatchEconomics(members);
+  const profitFloor = requiredProfit(parameters.minProfitWei);
+  if (economics.ownerReturn <= profitFloor) return undefined;
+
+  const accountAddress =
+    typeof parameters.account === "string"
+      ? parameters.account
+      : parameters.account.address;
+  const deployment =
+    standingOrderBatchExecutorDeployment(accountAddress);
+  const code = await parameters.client.getCode({
+    address: deployment.address,
+    blockNumber: parameters.blockNumber,
+  });
+  const executorDeployed = code !== undefined && code !== "0x";
+  const metadata = {
+    standingOrderBatchMembers: members,
+    embeddedGrossReward: economics.grossReward,
+    embeddedBuilderPayment: economics.builderPayment,
+  } as const;
+
+  if (executorDeployed) {
+    if (keccak256(code) !== deployment.expectedRuntimeCodeHash) {
+      throw new Error(
+        `standing-order batch executor runtime mismatch at ${deployment.address}`,
+      );
+    }
+    let minimumOwnerReturn = 1n;
+    let data = encodeStandingOrderBatchExecution(
+      members,
+      minimumOwnerReturn,
+    );
+    let estimatedGas = await parameters.client.estimateGas({
+      account: parameters.account,
+      to: deployment.address,
+      data,
+      blockNumber: parameters.blockNumber,
+    });
+    let gas = bufferedGas(
+      estimatedGas,
+      parameters.gasLimitMultiplierBps,
+    );
+    minimumOwnerReturn =
+      gas * parameters.executionGasPrice + profitFloor;
+    if (economics.ownerReturn < minimumOwnerReturn) {
+      return undefined;
+    }
+    data = encodeStandingOrderBatchExecution(
+      members,
+      minimumOwnerReturn,
+    );
+    estimatedGas = await parameters.client.estimateGas({
+      account: parameters.account,
+      to: deployment.address,
+      data,
+      blockNumber: parameters.blockNumber,
+    });
+    gas = bufferedGas(
+      estimatedGas,
+      parameters.gasLimitMultiplierBps,
+    );
+    const finalMinimumOwnerReturn =
+      gas * parameters.executionGasPrice + profitFloor;
+    if (economics.ownerReturn < finalMinimumOwnerReturn) {
+      return undefined;
+    }
+    if (finalMinimumOwnerReturn !== minimumOwnerReturn) {
+      minimumOwnerReturn = finalMinimumOwnerReturn;
+      data = encodeStandingOrderBatchExecution(
+        members,
+        minimumOwnerReturn,
+      );
+    }
+    return {
+      jobs: [
+        {
+          kind: "standing_order_batch",
+          label: `standing_order_batch:${members.length}`,
+          target: deployment.address,
+          data,
+          gas,
+          reward: {
+            kind: "fixed",
+            amountWei: economics.ownerReturn,
+          },
+          ...metadata,
+        },
+      ],
+      minimumViablePrefix: 1,
+      orders: parameters.plan.orders,
+      skipped: parameters.plan.skipped,
+      executor: deployment.address,
+      deploymentIncluded: false,
+      ...economics,
+    };
+  }
+
+  const singletonCode = await parameters.client.getCode({
+    address: SINGLETON_FACTORY_ADDRESS,
+    blockNumber: parameters.blockNumber,
+  });
+  if (
+    singletonCode === undefined ||
+    singletonCode === "0x" ||
+    keccak256(singletonCode) !== SINGLETON_FACTORY_CODE_HASH
+  ) {
+    throw new Error("singleton factory runtime does not match pinned code");
+  }
+  const requestedExecutionGas =
+    parameters.plan.jobs.reduce(
+      (total, job) => total + job.gas,
+      200_000n,
+    );
+  const maximumExecutionGas = BigInt(
+    ETHEREUM_TRANSACTION_GAS_LIMIT,
+  );
+  const executionGas =
+    requestedExecutionGas < maximumExecutionGas
+      ? requestedExecutionGas
+      : maximumExecutionGas;
+  const minimumOwnerReturn =
+    (STANDING_ORDER_BATCH_DEPLOY_GAS_LIMIT + executionGas) *
+      parameters.executionGasPrice +
+    profitFloor;
+  if (economics.ownerReturn < minimumOwnerReturn) {
+    return undefined;
+  }
+  return {
+    jobs: [
+      {
+        kind: "standing_order_batch_deploy",
+        label: "standing_order_batch_executor_deploy",
+        target: SINGLETON_FACTORY_ADDRESS,
+        data: deployment.deployData,
+        gas: STANDING_ORDER_BATCH_DEPLOY_GAS_LIMIT,
+        reward: { kind: "fixed", amountWei: 0n },
+        requiresBundleSimulation: true,
+      },
+      {
+        kind: "standing_order_batch",
+        label: `standing_order_batch:${members.length}`,
+        target: deployment.address,
+        data: encodeStandingOrderBatchExecution(
+          members,
+          minimumOwnerReturn,
+        ),
+        gas: executionGas,
+        reward: {
+          kind: "fixed",
+          amountWei: economics.ownerReturn,
+        },
+        requiresBundleSimulation: true,
+        ...metadata,
+      },
+    ],
+    minimumViablePrefix: 2,
+    orders: parameters.plan.orders,
+    skipped: parameters.plan.skipped,
+    executor: deployment.address,
+    deploymentIncluded: true,
+    ...economics,
+  };
 }
 
 const lastKnownOrderCountByFactory = new Map<string, number>();
@@ -4407,6 +4636,140 @@ type ReceiptLog = {
   readonly topics: [] | [Hex, ...Hex[]];
 };
 
+export interface StandingOrderBatchReceiptAccounting {
+  readonly valid: boolean;
+  readonly reason?: string;
+  readonly attempted: bigint;
+  readonly succeeded: bigint;
+  readonly grossReward: bigint;
+  readonly builderPayment: bigint;
+  readonly ownerReturn: bigint;
+  readonly includedOrders: readonly Address[];
+}
+
+export function accountStandingOrderBatchReceipt(
+  request: KeeperTransactionRequest,
+  logs: readonly ReceiptLog[],
+): StandingOrderBatchReceiptAccounting | undefined {
+  if (request.kind !== "standing_order_batch") return undefined;
+  const members = request.standingOrderBatchMembers ?? [];
+  const byOrder = new Map(
+    members.map((member) => [
+      member.order.toLowerCase(),
+      member,
+    ]),
+  );
+  const paidFees = new Map<string, bigint>();
+  let reported:
+    | {
+        readonly attempted: bigint;
+        readonly succeeded: bigint;
+        readonly grossReward: bigint;
+        readonly builderPayment: bigint;
+        readonly ownerReturn: bigint;
+      }
+    | undefined;
+  for (const entry of logs) {
+    const key = entry.address.toLowerCase();
+    const member = byOrder.get(key);
+    if (member !== undefined) {
+      try {
+        const decoded = decodeEventLog({
+          abi: standingOrderAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (decoded.eventName === "Cranked") {
+          if (paidFees.has(key)) {
+            return {
+              valid: false,
+              reason: "duplicate_order_reward",
+              attempted: BigInt(members.length),
+              succeeded: BigInt(paidFees.size),
+              grossReward: 0n,
+              builderPayment: 0n,
+              ownerReturn: 0n,
+              includedOrders: [],
+            };
+          }
+          paidFees.set(key, decoded.args.fee);
+        }
+      } catch {
+        // Ignore unrelated logs emitted by an order.
+      }
+    }
+    if (key === request.target.toLowerCase()) {
+      try {
+        const decoded = decodeEventLog({
+          abi: standingOrderBatchExecutorAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (decoded.eventName === "BatchExecuted") {
+          if (reported !== undefined) {
+            return {
+              valid: false,
+              reason: "duplicate_batch_event",
+              attempted: BigInt(members.length),
+              succeeded: BigInt(paidFees.size),
+              grossReward: 0n,
+              builderPayment: 0n,
+              ownerReturn: 0n,
+              includedOrders: [],
+            };
+          }
+          reported = decoded.args;
+        }
+      } catch {
+        // Ignore unrelated executor logs.
+      }
+    }
+  }
+  if (reported === undefined) {
+    return {
+      valid: false,
+      reason: "batch_event_missing",
+      attempted: BigInt(members.length),
+      succeeded: BigInt(paidFees.size),
+      grossReward: 0n,
+      builderPayment: 0n,
+      ownerReturn: 0n,
+      includedOrders: [],
+    };
+  }
+  let grossReward = 0n;
+  let builderPayment = 0n;
+  const includedOrders: Address[] = [];
+  for (const member of members) {
+    const paidFee = paidFees.get(member.order.toLowerCase());
+    if (paidFee === undefined) continue;
+    includedOrders.push(member.order);
+    grossReward += paidFee;
+    builderPayment +=
+      (paidFee * member.builderBidBps) / 10_000n;
+  }
+  const ownerReturn =
+    builderPayment > grossReward
+      ? 0n
+      : grossReward - builderPayment;
+  const valid =
+    reported.attempted === BigInt(members.length) &&
+    reported.succeeded === BigInt(paidFees.size) &&
+    reported.grossReward === grossReward &&
+    reported.builderPayment === builderPayment &&
+    reported.ownerReturn === ownerReturn;
+  return {
+    valid,
+    ...(valid ? {} : { reason: "batch_event_mismatch" }),
+    attempted: reported.attempted,
+    succeeded: reported.succeeded,
+    grossReward: reported.grossReward,
+    builderPayment: reported.builderPayment,
+    ownerReturn: reported.ownerReturn,
+    includedOrders: valid ? includedOrders : [],
+  };
+}
+
 function actualStakeDaoCrvReward(
   request: KeeperTransactionRequest,
   logs: readonly ReceiptLog[],
@@ -4437,8 +4800,14 @@ function actualJobReward(
   request: KeeperTransactionRequest,
   logs: readonly ReceiptLog[],
   firmAccounting?: FirmReceiptAccounting,
+  batchAccounting?: StandingOrderBatchReceiptAccounting,
 ): bigint {
   if (request.kind === "builder_payment") return 0n;
+  if (request.kind === "standing_order_batch") {
+    return batchAccounting?.valid === true
+      ? batchAccounting.ownerReturn
+      : 0n;
+  }
   if (
     (request.kind === "liquity_liquidation" ||
       request.kind === "convex_earmark" ||
@@ -4648,7 +5017,46 @@ export async function runKeeperPass(
     maxAttempts: 11,
     retryDelayMs: 100,
   });
-  const plan = planningRead.value;
+  let plan = planningRead.value;
+  if (
+    context.config.submissionMode === "flashbots" &&
+    context.standingOrderBidBps !== undefined
+  ) {
+    const batchPlanningRead = await retryTransientRead({
+      read: () =>
+        planStandingOrderBatch({
+          client: context.publicClient,
+          account: context.account,
+          blockNumber: latestBlock.number,
+          executionGasPrice: baseFeeAllowancePerGas,
+          gasLimitMultiplierBps:
+            context.config.gasLimitMultiplierBps,
+          minProfitWei: context.config.minProfitWei,
+          bidBps: context.standingOrderBidBps!,
+          plan,
+        }),
+      shouldRetry: isFreshBlockReadUnavailable,
+      maxAttempts: 11,
+      retryDelayMs: 100,
+    });
+    const batchPlan = batchPlanningRead.value;
+    if (batchPlan !== undefined) {
+      plan = batchPlan;
+      log("info", "standing_order_batch_selected", {
+        executor: batchPlan.executor,
+        deploymentIncluded: batchPlan.deploymentIncluded,
+        orders:
+          batchPlan.jobs.at(-1)?.standingOrderBatchMembers?.length ??
+          0,
+        grossReward: eth(batchPlan.grossReward),
+        embeddedBuilderPayment: eth(
+          batchPlan.builderPayment,
+        ),
+        ownerReturn: eth(batchPlan.ownerReturn),
+        minimumViablePrefix: batchPlan.minimumViablePrefix,
+      });
+    }
+  }
   if (planningRead.attempts > 1) {
     log("info", "planning_state_availability_waited", {
       planningBlock: latestBlock.number.toString(),
@@ -5089,12 +5497,17 @@ export async function runKeeperPass(
   const receiptResults = await Promise.all(
     submitted.map(async (submission, index) => {
       const batchFields =
-        privateTargetBlock !== undefined &&
-        submitted.length > 1
+        privateTargetBlock !== undefined
           ? {
-              batchTransactionCount: submitted.length,
-              batchPosition: index + 1,
-              batchTargetBlock: privateTargetBlock.toString(),
+              targetBlock: privateTargetBlock.toString(),
+              ...(submitted.length > 1
+                ? {
+                    batchTransactionCount: submitted.length,
+                    batchPosition: index + 1,
+                    batchTargetBlock:
+                      privateTargetBlock.toString(),
+                  }
+                : {}),
             }
           : {};
       try {
@@ -5218,11 +5631,35 @@ export async function runKeeperPass(
             });
           }
         }
+        const standingOrderBatchAccounting = successful
+          ? accountStandingOrderBatchReceipt(
+              submission.request,
+              receipt.logs,
+            )
+          : undefined;
+        if (
+          standingOrderBatchAccounting !== undefined &&
+          !standingOrderBatchAccounting.valid
+        ) {
+          log("warn", "standing_order_batch_accounting_failed", {
+            kind: submission.request.kind,
+            label: submission.request.label,
+            hash: submission.hash,
+            executor: submission.request.target,
+            reason:
+              standingOrderBatchAccounting.reason ?? "unknown",
+            attempted:
+              standingOrderBatchAccounting.attempted.toString(),
+            succeeded:
+              standingOrderBatchAccounting.succeeded.toString(),
+          });
+        }
         const paidReward = successful
           ? actualJobReward(
               submission.request,
               receipt.logs,
               firmAccounting,
+              standingOrderBatchAccounting,
             )
           : 0n;
         const paidStakeDaoCrv = successful
@@ -5281,6 +5718,22 @@ export async function runKeeperPass(
                   firmAccounting?.dolaBalanceDelta.toString() ?? "0",
               }
             : {}),
+          ...(standingOrderBatchAccounting === undefined
+            ? {}
+            : {
+                standingOrderBatchAttempted:
+                  standingOrderBatchAccounting.attempted.toString(),
+                standingOrderBatchSucceeded:
+                  standingOrderBatchAccounting.succeeded.toString(),
+                standingOrderBatchGrossReward: eth(
+                  standingOrderBatchAccounting.grossReward,
+                ),
+                standingOrderBatchBuilderPayment: eth(
+                  standingOrderBatchAccounting.builderPayment,
+                ),
+                standingOrderBatchAccountingValid:
+                  standingOrderBatchAccounting.valid,
+              }),
           gasCost: eth(gasCost),
           transactionValue: eth(valueCost),
           realizedProfit: eth(
@@ -5294,6 +5747,8 @@ export async function runKeeperPass(
           paidReward,
           gasCost,
           valueCost,
+          includedOrders:
+            standingOrderBatchAccounting?.includedOrders ?? [],
           blockNumber: receipt.blockNumber,
         };
       } catch (error) {
@@ -5317,6 +5772,7 @@ export async function runKeeperPass(
           paidReward: 0n,
           gasCost: 0n,
           valueCost: 0n,
+          includedOrders: [],
         };
       }
     }),
@@ -5388,6 +5844,31 @@ export async function runKeeperPass(
   }
 
   const orderAttempts = submitted.flatMap((submission, index) => {
+    const batchMembers =
+      submission.request.standingOrderBatchMembers;
+    if (
+      submission.request.kind === "standing_order_batch" &&
+      batchMembers !== undefined
+    ) {
+      const includedOrders = new Set(
+        (receiptResults[index]?.includedOrders ?? []).map((order) =>
+          order.toLowerCase(),
+        ),
+      );
+      return batchMembers.map((member) => ({
+        order: member.order,
+        poolVersion: member.poolVersion,
+        crankFee: member.crankFee,
+        hash: submission.hash,
+        included: includedOrders.has(
+          member.order.toLowerCase(),
+        ),
+        effectiveBidBps: effectiveBuilderBidBps(
+          (member.crankFee * member.builderBidBps) / 10_000n,
+          member.crankFee,
+        ),
+      }));
+    }
     const order = submission.request.order;
     if (order === undefined) return [];
     const reward = submission.request.reward;

@@ -10,6 +10,7 @@ import {
   submitBundlePrefixLadder,
   successfulPrefixLength,
   validateDirectCoinbasePaymentSimulation,
+  validateEmbeddedCoinbasePaymentSimulation,
 } from "../src/flashbots.js";
 
 describe("successfulPrefixLength", () => {
@@ -92,6 +93,46 @@ describe("validateDirectCoinbasePaymentSimulation", () => {
         expectedDirectCoinbasePayment: 143n,
       }),
     ).toThrow("omitted coinbase accounting");
+  });
+});
+
+describe("validateEmbeddedCoinbasePaymentSimulation", () => {
+  it("requires exact aggregate and in-transaction coinbase accounting", () => {
+    expect(
+      validateEmbeddedCoinbasePaymentSimulation({
+        result: {
+          coinbaseDiff: "243",
+          results: [
+            { gasUsed: 100, ethSentToCoinbase: "0" },
+            { gasUsed: 300, ethSentToCoinbase: "143" },
+          ],
+        },
+        transactionCount: 2,
+        paymentIndex: 1,
+        expectedTotalCoinbasePayment: 243n,
+        expectedEmbeddedCoinbasePayment: 143n,
+      }),
+    ).toEqual({
+      totalCoinbasePayment: 243n,
+      embeddedCoinbasePayment: 143n,
+    });
+  });
+
+  it("rejects a mismatch between the contract payment and simulation", () => {
+    expect(() =>
+      validateEmbeddedCoinbasePaymentSimulation({
+        result: {
+          coinbaseDiff: "143",
+          results: [
+            { gasUsed: 300, ethSentToCoinbase: "142" },
+          ],
+        },
+        transactionCount: 1,
+        paymentIndex: 0,
+        expectedTotalCoinbasePayment: 143n,
+        expectedEmbeddedCoinbasePayment: 143n,
+      }),
+    ).toThrow("reported direct payment 142, expected 143");
   });
 });
 
