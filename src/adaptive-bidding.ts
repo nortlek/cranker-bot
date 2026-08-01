@@ -435,10 +435,24 @@ export function adjustAdaptiveBid(
     policy.winDecayBps,
     (distanceToTarget + 1n) / 2n,
   );
+  const desiredEffectiveBidBps = maximum(
+    lowerTarget,
+    lowestWinningBidBps - decayStep,
+  );
+  const effectiveReduction =
+    effectiveBidBps > desiredEffectiveBidBps
+      ? effectiveBidBps - desiredEffectiveBidBps
+      : 0n;
+  // The controller stores a requested target, while shared-priority bundles
+  // can allocate a different effective payment to this order. Apply the
+  // measured effective reduction to the request instead of treating the two
+  // coordinate systems as identical.
   const currentBidBps = shouldDecay
-    ? maximum(
-        lowerTarget,
-        lowestWinningBidBps - decayStep,
+    ? clampToPolicy(
+        previousBidBps > effectiveReduction
+          ? previousBidBps - effectiveReduction
+          : policy.minimumBidBps,
+        policy,
       )
     : previousBidBps;
   const nextState: AdaptiveBidState = {

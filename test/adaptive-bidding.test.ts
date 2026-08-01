@@ -136,6 +136,30 @@ describe("adjustAdaptiveBid", () => {
     expect(third.state.consecutiveFullWins).toBe(0);
   });
 
+  it("never raises a requested target while probing down from an overallocated win", () => {
+    const adjustment = adjustAdaptiveBid(
+      {
+        currentBidBps: 2_726n,
+        consecutiveFullWins: 2,
+        lowestWinningBidBps: 10_000n,
+      },
+      {
+        ...policy,
+        baselineBidBps: 1_000n,
+        maximumBidBps: 10_000n,
+      },
+      {
+        kind: "full_win",
+        blockNumber: 47n,
+        effectiveBidBps: 11_149n,
+      },
+    );
+
+    expect(adjustment.action).toBe("decreased");
+    expect(adjustment.reason).toBe("sustained_wins_probe");
+    expect(adjustment.currentBidBps).toBe(1_000n);
+  });
+
   it("probes below old competitor evidence after sustained wins", () => {
     const adjustment = adjustAdaptiveBid(
       {
@@ -309,8 +333,8 @@ describe("adjustAdaptiveBid", () => {
     expect(state.highestLosingBidBps).toBe(3_690n);
     expect(state.lastObservedWinningBidBps).toBeUndefined();
     expect(state.lastObservedWinningBlock).toBeUndefined();
-    expect(state.currentBidBps).toBe(3_738n);
-    expect(state.activeProbeBidBps).toBe(3_738n);
+    expect(state.currentBidBps).toBe(8_805n);
+    expect(state.activeProbeBidBps).toBe(8_805n);
   });
 
   it("does not combine an expensive win with a cheaper contradiction streak", () => {
@@ -351,7 +375,7 @@ describe("adjustAdaptiveBid", () => {
       ).state;
     }
 
-    expect(state.currentBidBps).toBe(3_738n);
+    expect(state.currentBidBps).toBe(8_805n);
     expect(state.lastObservedWinningBidBps).toBe(3_850n);
     expect(state.consecutiveContradictingWins).toBe(2);
 
@@ -368,7 +392,7 @@ describe("adjustAdaptiveBid", () => {
       },
     ).state;
 
-    expect(state.currentBidBps).toBe(3_738n);
+    expect(state.currentBidBps).toBe(8_805n);
     expect(state.lastObservedWinningBidBps).toBeUndefined();
     expect(state.consecutiveContradictingWins).toBeUndefined();
   });
