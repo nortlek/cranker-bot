@@ -299,11 +299,18 @@ describe("pool pull economics", () => {
 });
 
 describe("private builder coverage", () => {
-  it("multiplexes to the observed Bob builder by default", () => {
+  it("multiplexes to every evidence-backed builder by default", () => {
     delete process.env.FLASHBOTS_BUILDERS;
 
-    expect(loadConfig().flashbotsBuilders).toContain(
+    expect(loadConfig().flashbotsBuilders).toEqual([
+      "flashbots",
+      "builder0x69",
+      "beaverbuild.org",
+      "Titan",
+      "rsync",
       "bobthebuilder",
-    );
+      "Bombora",
+      "Eureka",
+    ]);
   });
 });

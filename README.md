@@ -332,9 +332,11 @@ successful `crank` fees are sent to that keeper address.
   A bundle is submitted concurrently to every configured endpoint.
 - `FLASHBOTS_BUILDERS`: registered builder names for relay multiplexing. The
   defaults cover Flashbots, builder0x69, Beaver, Titan, rsync, and
-  `bobthebuilder`. Bob was added after a recurring final-ticket/pull pair landed
-  in a Bob-built block outside the Alchemy pending feed. Builder names must
-  remain entries from the canonical Flashbots builder registry.
+  `bobthebuilder`, plus Bombora and Eureka. Bob was added after a recurring
+  final-ticket/pull pair landed in a Bob-built block outside the Alchemy pending
+  feed. Bombora and Eureka were added after eight exact lifecycle bundles missed
+  in their blocks without any competing lifecycle transaction. Builder names
+  must remain entries from the canonical Flashbots builder registry.
 - `FLASHBOTS_AUTH_PRIVATE_KEY`: optional relay reputation key. It signs only
   relay authentication messages; when omitted, `PRIVATE_KEY` is used.
 - `RELAY_TIMEOUT_MS`: timeout for relay simulation and submission calls.
