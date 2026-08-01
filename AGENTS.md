@@ -636,7 +636,11 @@ These constraints prevent expensive or unsafe regressions:
   their bounded publication-skew windows. Do not classify raw/untyped
   `-32000` errors as publication lag.
 - The exact signed bundle and every economically safe prefix are simulated
-  before submission.
+  before submission. Every relay simulation pins `stateBlockNumber` to the
+  exact target parent; never use the relay's lagging `"latest"` state. A
+  classified Flashbots `-32001 block not found` response may retry against the
+  same relay, target, and exact parent for at most one second, then fails
+  closed.
 - Private one-block bundles are the default. A missed bundle expires and must
   not leak into the public mempool.
 - Pool lifecycle, pool pull, standing orders, the default-off LiveBid sweep,

@@ -17,6 +17,27 @@ interface JsonRpcResponse<T> {
   readonly error?: JsonRpcError;
 }
 
+class FlashbotsRpcError extends Error {
+  readonly code: number;
+
+  constructor(method: string, error: JsonRpcError) {
+    super(`Flashbots ${method} failed (${error.code}): ${error.message}`);
+    this.name = "FlashbotsRpcError";
+    this.code = error.code;
+  }
+}
+
+const CALL_BUNDLE_STATE_RETRY_WINDOW_MS = 1_000;
+const CALL_BUNDLE_STATE_RETRY_INTERVAL_MS = 100;
+
+function isCallBundleStateUnavailable(error: unknown): boolean {
+  return (
+    error instanceof FlashbotsRpcError &&
+    error.code === -32_001 &&
+    error.message.includes("block not found")
+  );
+}
+
 export interface CallBundleItem {
   readonly coinbaseDiff?: string;
   readonly error?: string;
@@ -134,9 +155,7 @@ export class FlashbotsRelay {
     }
     const payload = JSON.parse(responseBody) as JsonRpcResponse<T>;
     if (payload.error !== undefined) {
-      throw new Error(
-        `Flashbots ${method} failed (${payload.error.code}): ${payload.error.message}`,
-      );
+      throw new FlashbotsRpcError(method, payload.error);
     }
     if (payload.result === undefined) {
       throw new Error(`Flashbots ${method} returned no result`);
@@ -151,13 +170,32 @@ export class FlashbotsRelay {
     if (targetBlock <= 0n) {
       throw new Error("bundle target block must have a parent");
     }
-    return this.#request<CallBundleResult>("eth_callBundle", [
+    const parameters = [
       {
         txs: transactions,
         blockNumber: `0x${targetBlock.toString(16)}`,
         stateBlockNumber: `0x${(targetBlock - 1n).toString(16)}`,
       },
-    ]);
+    ] as const;
+    const deadline = Date.now() + CALL_BUNDLE_STATE_RETRY_WINDOW_MS;
+    for (;;) {
+      try {
+        return await this.#request<CallBundleResult>(
+          "eth_callBundle",
+          parameters,
+        );
+      } catch (error) {
+        if (!isCallBundleStateUnavailable(error) || Date.now() >= deadline) {
+          throw error;
+        }
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, CALL_BUNDLE_STATE_RETRY_INTERVAL_MS),
+        );
+        if (Date.now() >= deadline) {
+          throw error;
+        }
+      }
+    }
   }
 
   async sendBundle(
