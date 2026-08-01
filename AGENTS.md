@@ -279,6 +279,7 @@ jq -c 'select(
   .event == "keeper_planner_timing" or
   .event == "keeper_pass_timing" or
   .event == "bundle_stage_timing" or
+  .event == "bundle_simulation_state_availability_waited" or
   .event == "keeper_receipt_availability_waited" or
   .event == "relay_submission_result" or
   .event == "convex_candidate_cache_refreshed" or

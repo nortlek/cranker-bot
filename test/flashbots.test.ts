@@ -257,6 +257,12 @@ describe("FlashbotsRelay", () => {
   it("retries a briefly unavailable exact parent on the same relay", async () => {
     let calls = 0;
     const requestBodies: unknown[] = [];
+    const waits: Array<{
+      targetBlock: bigint;
+      stateBlockNumber: bigint;
+      attempts: number;
+      waitMs: number;
+    }> = [];
     const server = createServer((request, response) => {
       let receivedBody = "";
       request.setEncoding("utf8");
@@ -298,12 +304,22 @@ describe("FlashbotsRelay", () => {
         url: `http://127.0.0.1:${address.port}`,
         authAccount: privateKeyToAccount(`0x${"01".repeat(32)}`),
         timeoutMs: 1_000,
+        reportStateAvailabilityWait: (wait) => waits.push(wait),
       });
 
       await expect(relay.callBundle(["0x01"], 42n)).resolves.toEqual({
         results: [{ gasUsed: 123_456 }],
       });
       expect(calls).toBe(2);
+      expect(waits).toEqual([
+        {
+          targetBlock: 42n,
+          stateBlockNumber: 41n,
+          attempts: 2,
+          waitMs: expect.any(Number),
+        },
+      ]);
+      expect(waits[0]!.waitMs).toBeGreaterThan(0);
       expect(requestBodies).toEqual([
         expect.objectContaining({
           params: [expect.objectContaining({ stateBlockNumber: "0x29" })],

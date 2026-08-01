@@ -55,6 +55,13 @@ export interface CallBundleResult {
   readonly totalGasUsed?: number | string;
 }
 
+export interface CallBundleStateAvailabilityWait {
+  readonly targetBlock: bigint;
+  readonly stateBlockNumber: bigint;
+  readonly attempts: number;
+  readonly waitMs: number;
+}
+
 export interface DirectCoinbasePaymentValidation {
   readonly totalCoinbasePayment: bigint;
   readonly directCoinbasePayment: bigint;
@@ -96,15 +103,23 @@ export class FlashbotsRelay {
   readonly #url: string;
   readonly #authAccount: PrivateKeyAccount;
   readonly #timeoutMs: number;
+  readonly #reportStateAvailabilityWait:
+    | ((wait: CallBundleStateAvailabilityWait) => void)
+    | undefined;
 
   constructor(parameters: {
     url: string;
     authAccount: PrivateKeyAccount;
     timeoutMs: number;
+    reportStateAvailabilityWait?: (
+      wait: CallBundleStateAvailabilityWait,
+    ) => void;
   }) {
     this.#url = parameters.url;
     this.#authAccount = parameters.authAccount;
     this.#timeoutMs = parameters.timeoutMs;
+    this.#reportStateAvailabilityWait =
+      parameters.reportStateAvailabilityWait;
   }
 
   get url(): string {
@@ -177,13 +192,30 @@ export class FlashbotsRelay {
         stateBlockNumber: `0x${(targetBlock - 1n).toString(16)}`,
       },
     ] as const;
+    const stateBlockNumber = targetBlock - 1n;
+    const startedAt = Date.now();
+    let attempts = 0;
     const deadline = Date.now() + CALL_BUNDLE_STATE_RETRY_WINDOW_MS;
     for (;;) {
       try {
-        return await this.#request<CallBundleResult>(
+        attempts += 1;
+        const result = await this.#request<CallBundleResult>(
           "eth_callBundle",
           parameters,
         );
+        if (attempts > 1) {
+          try {
+            this.#reportStateAvailabilityWait?.({
+              targetBlock,
+              stateBlockNumber,
+              attempts,
+              waitMs: Date.now() - startedAt,
+            });
+          } catch {
+            // Simulation telemetry is fail-open.
+          }
+        }
+        return result;
       } catch (error) {
         if (!isCallBundleStateUnavailable(error) || Date.now() >= deadline) {
           throw error;

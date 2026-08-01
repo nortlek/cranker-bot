@@ -58,6 +58,7 @@ const IMPORTANT_EVENTS = new Set([
   "adaptive_bid_batch_complete",
   "adaptive_builder_bid_updated",
   "bundle_stage_timing",
+  "bundle_simulation_state_availability_waited",
   "competitor_bid_observed",
   "fatal",
   "firm_replenish_accounting_failed",

@@ -1014,11 +1014,20 @@ async function main(): Promise<void> {
         config.flashbotsAuthPrivateKey ?? config.privateKey,
       );
       const relays = config.flashbotsRelayUrls.map(
-        (url) =>
+        (url, relayIndex) =>
           new FlashbotsRelay({
             url,
             authAccount,
             timeoutMs: config.relayTimeoutMs,
+            reportStateAvailabilityWait: (wait) => {
+              log("info", "bundle_simulation_state_availability_waited", {
+                relayIndex,
+                targetBlock: wait.targetBlock.toString(),
+                stateBlockNumber: wait.stateBlockNumber.toString(),
+                attempts: wait.attempts,
+                waitMs: wait.waitMs,
+              });
+            },
           }),
       );
       sendBatch = async ({
