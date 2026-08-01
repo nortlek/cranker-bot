@@ -184,6 +184,10 @@ export interface KeeperBatchResult {
   readonly targetBlock: bigint;
   readonly relayCount: number;
   readonly effectiveBuilderBidBps?: bigint;
+  readonly effectiveBuilderBidBpsByOrder?: ReadonlyMap<
+    string,
+    bigint
+  >;
   readonly plannedGrossReward?: bigint;
   readonly plannedBuilderPayment?: bigint;
   readonly plannedExpectedProfit?: bigint;
@@ -4991,6 +4995,13 @@ export async function runKeeperPass(
       relayCount: batchResult?.relayCount ?? 0,
       effectiveBuilderBidBps:
         batchResult?.effectiveBuilderBidBps?.toString() ?? "",
+      effectiveBuilderBidBpsByOrder: JSON.stringify(
+        Object.fromEntries(
+          batchResult?.effectiveBuilderBidBpsByOrder ?? [],
+        ),
+        (_key, value) =>
+          typeof value === "bigint" ? value.toString() : value,
+      ),
     });
   }
   for (const [index, submission] of submitted.entries()) {
@@ -5382,7 +5393,9 @@ export async function runKeeperPass(
     const reward = submission.request.reward;
     if (reward.kind !== "fixed") return [];
     const effectiveBidBps =
-      batchResult?.effectiveBuilderBidBps;
+      batchResult?.effectiveBuilderBidBpsByOrder?.get(
+        order.toLowerCase(),
+      ) ?? batchResult?.effectiveBuilderBidBps;
     return [
       {
         order,

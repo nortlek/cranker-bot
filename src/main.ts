@@ -27,6 +27,7 @@ import {
 } from "./abi.js";
 import {
   aggregateBuilderBidBps,
+  attributePriorityBidsByOrder,
   compareObservedBuilderPayment,
   effectiveBuilderBidBps,
   quoteCompetitiveFees,
@@ -1657,6 +1658,36 @@ async function main(): Promise<void> {
         if (minimumEconomicPrefix > selected.length) {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
+        const effectiveBuilderBidBpsByOrder =
+          quote.directBuilderPayment === 0n
+            ? attributePriorityBidsByOrder(
+                selectedRequests.flatMap((request, index) => {
+                  if (request.order === undefined) return [];
+                  const transactionGas = selectedGas[index];
+                  if (transactionGas === undefined) {
+                    throw new Error(
+                      "selected order omitted its simulated gas",
+                    );
+                  }
+                  return [
+                    {
+                      order: request.order,
+                      rewardWei: estimatedJobReward({
+                        job: request,
+                        gasUsed: transactionGas,
+                        baseFeePerGas: bountyBaseFeePerGas,
+                        poolBountyEstimateBps:
+                          config.poolBountyEstimateBps,
+                        poolPullBountyEstimateBps:
+                          config.poolPullBountyEstimateBps,
+                      }),
+                      gasUsed: transactionGas,
+                    },
+                  ];
+                }),
+                quote.maxPriorityFeePerGas,
+              )
+            : undefined;
         const finalGateStartedAt = performance.now();
         const finalGate = await readBeforeTargetBlock({
           headSignal,
@@ -1834,6 +1865,9 @@ async function main(): Promise<void> {
           relayCount: relayIndexes.size,
           effectiveBuilderBidBps:
             quote.effectiveBuilderBidBps,
+          ...(effectiveBuilderBidBpsByOrder === undefined
+            ? {}
+            : { effectiveBuilderBidBpsByOrder }),
           plannedGrossReward: grossReward,
           plannedBuilderPayment: quote.builderPayment,
           plannedExpectedProfit: quote.expectedProfit,

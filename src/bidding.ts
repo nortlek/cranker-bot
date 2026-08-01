@@ -71,6 +71,45 @@ export function effectiveBuilderBidBps(
 }
 
 /**
+ * Attributes a shared priority fee to each standing order using that
+ * transaction's exact simulated gas and reward. A bundle-wide effective bid
+ * is not valid per-target evidence when rewards or gas differ.
+ */
+export function attributePriorityBidsByOrder(
+  components: readonly {
+    readonly order: string;
+    readonly rewardWei: bigint;
+    readonly gasUsed: bigint;
+  }[],
+  priorityFeePerGas: bigint,
+): ReadonlyMap<string, bigint> {
+  if (priorityFeePerGas < 0n) {
+    throw new Error("priorityFeePerGas cannot be negative");
+  }
+  const attributed = new Map<string, bigint>();
+  for (const component of components) {
+    if (component.rewardWei <= 0n) {
+      throw new Error("order rewardWei must be positive");
+    }
+    if (component.gasUsed <= 0n) {
+      throw new Error("order gasUsed must be positive");
+    }
+    const key = component.order.toLowerCase();
+    if (attributed.has(key)) {
+      throw new Error(`duplicate standing order ${component.order}`);
+    }
+    attributed.set(
+      key,
+      effectiveBuilderBidBps(
+        component.gasUsed * priorityFeePerGas,
+        component.rewardWei,
+      ),
+    );
+  }
+  return attributed;
+}
+
+/**
  * Re-prices our already simulated bundle against an observed absolute builder
  * payment. Competitor-normalized bid percentages are not comparable when its
  * realized pool reimbursement differs from our simulated reimbursement.

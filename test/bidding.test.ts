@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregateBuilderBidBps,
+  attributePriorityBidsByOrder,
   compareObservedBuilderPayment,
   effectiveBuilderBidBps,
   quoteCompetitiveFees,
@@ -46,6 +47,65 @@ describe("effectiveBuilderBidBps", () => {
   it("attributes a shared priority fee to each order's own reward", () => {
     expect(effectiveBuilderBidBps(30n, 300n)).toBe(1_000n);
     expect(effectiveBuilderBidBps(30n, 400n)).toBe(750n);
+  });
+});
+
+describe("attributePriorityBidsByOrder", () => {
+  it("attributes a shared gas price using each order's gas and reward", () => {
+    const bids = attributePriorityBidsByOrder(
+      [
+        {
+          order: "0xAAA",
+          rewardWei: 200n,
+          gasUsed: 10n,
+        },
+        {
+          order: "0xBBB",
+          rewardWei: 100n,
+          gasUsed: 15n,
+        },
+      ],
+      4n,
+    );
+
+    expect(bids.get("0xaaa")).toBe(2_000n);
+    expect(bids.get("0xbbb")).toBe(6_000n);
+  });
+
+  it("rejects duplicate target attribution", () => {
+    expect(() =>
+      attributePriorityBidsByOrder(
+        [
+          { order: "0xAAA", rewardWei: 200n, gasUsed: 10n },
+          { order: "0xaaa", rewardWei: 100n, gasUsed: 15n },
+        ],
+        4n,
+      ),
+    ).toThrow("duplicate standing order");
+  });
+
+  it("does not misclassify the block-25656702 package conflict as an underbid", () => {
+    const bids = attributePriorityBidsByOrder(
+      [
+        {
+          order: "0x20537147391a1C6dEe78b1597e9aBf749E761162",
+          rewardWei: parseEther("0.0001"),
+          gasUsed: 218_313n,
+        },
+      ],
+      414_585_470n,
+    );
+
+    expect(
+      bids.get(
+        "0x20537147391a1c6dee78b1597e9abf749e761162",
+      ),
+    ).toBe(9_051n);
+    expect(
+      bids.get(
+        "0x20537147391a1c6dee78b1597e9abf749e761162",
+      ),
+    ).toBeGreaterThan(7_834n);
   });
 });
 

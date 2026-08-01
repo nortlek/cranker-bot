@@ -63,6 +63,32 @@ describe("adjustAdaptiveBid", () => {
     expect(unknown.currentBidBps).toBe(8_622n);
   });
 
+  it("holds a target when its exact per-order bid beats a competing package", () => {
+    const adjustment = adjustAdaptiveBid(
+      {
+        currentBidBps: 3_119n,
+        consecutiveFullWins: 0,
+        highestLosingBidBps: 2_921n,
+        highestLosingBidBlock: 25_656_120n,
+      },
+      policy,
+      {
+        kind: "miss",
+        blockNumber: 25_656_702n,
+        effectiveBidBps: 9_051n,
+        observedWinningBidBps: 7_834n,
+      },
+    );
+
+    expect(adjustment.action).toBe("held");
+    expect(adjustment.reason).toBe("miss_without_higher_price");
+    expect(adjustment.currentBidBps).toBe(3_119n);
+    expect(adjustment.state.highestLosingBidBps).toBe(2_921n);
+    expect(adjustment.state.highestLosingBidBlock).toBe(
+      25_656_120n,
+    );
+  });
+
   it("holds wins before bisecting toward the learned minimum", () => {
     let state = {
       currentBidBps: 8_622n,

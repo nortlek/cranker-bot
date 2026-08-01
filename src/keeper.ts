@@ -61,6 +61,10 @@ export interface CrankBatchResult {
   readonly targetBlock: bigint;
   readonly relayCount: number;
   readonly effectiveBuilderBidBps?: bigint;
+  readonly effectiveBuilderBidBpsByOrder?: ReadonlyMap<
+    string,
+    bigint
+  >;
   readonly bundleCount?: number;
   readonly bundleHashes?: readonly Hash[];
   readonly bundles?: readonly {
@@ -570,7 +574,9 @@ export async function runPass(context: KeeperContext): Promise<PassResult> {
         targetBlock: privateTargetBlock,
         attempts: submitted.map((submission, index) => {
           const effectiveBidBps =
-            privateBatchResult?.effectiveBuilderBidBps;
+            privateBatchResult?.effectiveBuilderBidBpsByOrder?.get(
+              submission.candidate.address.toLowerCase(),
+            ) ?? privateBatchResult?.effectiveBuilderBidBps;
           return {
             order: submission.candidate.address,
             crankFee: submission.candidate.crankFee,

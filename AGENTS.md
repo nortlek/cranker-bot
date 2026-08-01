@@ -662,9 +662,11 @@ These constraints prevent expensive or unsafe regressions:
   Never feed ambiguous wrapper economics into the controller.
 - Standing-order targets start at `BUILDER_BID_BPS`, but durable per-target
   price discovery may bid lower after repeated wins. Its bracket must learn
-  from the exact bundle-effective bid after profit and fee caps, not just the
-  requested bid, and must persist explicit probe state plus block-aged price
-  evidence.
+  from the exact payment expressed by that order's simulated gas and reward
+  after profit and fee caps, not the bundle-wide average or requested bid.
+  Direct-payment variants without an exact per-order allocation remain on the
+  conservative aggregate attribution. The controller must persist explicit
+  probe state plus block-aged price evidence.
 - A direct coinbase payment may only fill an existing fee-capped adaptive bid
   for a zero-value, standing-order-only private batch. The pinned receive-only
   helper must pass its startup code-hash check, occupy the final contiguous
