@@ -54,3 +54,30 @@ export function nextBlockBaseFeePerGas(parameters: {
     EIP1559_BASE_FEE_CHANGE_DENOMINATOR;
   return parameters.parentBaseFeePerGas - baseFeeDelta;
 }
+
+/**
+ * Adds one wei of signed EIP-1559 capacity for private relay simulation.
+ *
+ * The target child's base fee remains exact and economic accounting continues
+ * to use that exact price. The extra capacity only avoids a relay publication
+ * race where an otherwise exact max fee can be rejected as below the target
+ * base fee. A configured maximum is never exceeded solely for this envelope.
+ */
+export function relayCompatibleMaxFeePerGas(parameters: {
+  readonly expectedMaxFeePerGas: bigint;
+  readonly configuredMaximum?: bigint;
+}): bigint {
+  if (parameters.expectedMaxFeePerGas < 0n) {
+    throw new Error("expected max fee cannot be negative");
+  }
+  if (
+    parameters.configuredMaximum !== undefined &&
+    parameters.configuredMaximum < 0n
+  ) {
+    throw new Error("configured maximum fee cannot be negative");
+  }
+  return parameters.configuredMaximum === undefined ||
+    parameters.expectedMaxFeePerGas < parameters.configuredMaximum
+    ? parameters.expectedMaxFeePerGas + 1n
+    : parameters.expectedMaxFeePerGas;
+}

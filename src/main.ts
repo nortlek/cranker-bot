@@ -33,6 +33,7 @@ import {
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
 } from "./bidding.js";
+import { relayCompatibleMaxFeePerGas } from "./base-fee.js";
 import {
   isTransientCompetitionObservationError,
   observeWinningCrankBids,
@@ -1465,6 +1466,19 @@ async function main(): Promise<void> {
               baseFeeAllowancePerGas,
             });
         }
+        competitivelyPricedWithPayment =
+          competitivelyPricedWithPayment.map((request) => ({
+            ...request,
+            maxFeePerGas: relayCompatibleMaxFeePerGas({
+              expectedMaxFeePerGas: request.maxFeePerGas,
+              ...(selectedProfitabilityOnlyPricing
+                ? {}
+                : {
+                    configuredMaximum:
+                      config.maxFeePerGas,
+                  }),
+            }),
+          }));
         const competitiveSignStartedAt = performance.now();
         const competitiveTransactions = await Promise.all(
           competitivelyPricedWithPayment.map((request) =>

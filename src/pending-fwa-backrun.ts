@@ -13,7 +13,10 @@ import {
 } from "viem";
 
 import { fwaAbi, poolAbi } from "./abi.js";
-import { nextBlockBaseFeePerGas } from "./base-fee.js";
+import {
+  nextBlockBaseFeePerGas,
+  relayCompatibleMaxFeePerGas,
+} from "./base-fee.js";
 import { quoteCompetitiveFees } from "./bidding.js";
 import type { KeeperConfig } from "./config.js";
 import { bufferedGas, requiredProfit } from "./economics.js";
@@ -281,15 +284,6 @@ function sameFeeQuote(
   );
 }
 
-function simulationFeeEnvelope(
-  expectedGasPrice: bigint,
-  configuredMaximum: bigint,
-): bigint {
-  return expectedGasPrice < configuredMaximum
-    ? expectedGasPrice + 1n
-    : expectedGasPrice;
-}
-
 async function simulatePendingFwaBundle(parameters: {
   readonly relay: FlashbotsRelay;
   readonly transactions: readonly Hex[];
@@ -443,10 +437,11 @@ async function exactPricedLifecycle(parameters: {
       : 0n) +
       parameters.config.poolSyncGasLimit +
       parameters.config.poolSettleGasLimit) *
-    simulationFeeEnvelope(
-      parameters.baseFeeAllowancePerGas,
-      parameters.config.maxFeePerGas,
-    );
+    relayCompatibleMaxFeePerGas({
+      expectedMaxFeePerGas:
+        parameters.baseFeeAllowancePerGas,
+      configuredMaximum: parameters.config.maxFeePerGas,
+    });
   if (preliminaryReservation > parameters.accountBalance) {
     return undefined;
   }
@@ -464,10 +459,11 @@ async function exactPricedLifecycle(parameters: {
         }),
     syncGas: parameters.config.poolSyncGasLimit,
     settleGas: parameters.config.poolSettleGasLimit,
-    maxFeePerGas: simulationFeeEnvelope(
-      parameters.baseFeeAllowancePerGas,
-      parameters.config.maxFeePerGas,
-    ),
+    maxFeePerGas: relayCompatibleMaxFeePerGas({
+      expectedMaxFeePerGas:
+        parameters.baseFeeAllowancePerGas,
+      configuredMaximum: parameters.config.maxFeePerGas,
+    }),
     maxPriorityFeePerGas: 0n,
   });
   const preliminarySimulation =
@@ -547,10 +543,11 @@ async function exactPricedLifecycle(parameters: {
       settleGasUsed,
       parameters.config.gasLimitMultiplierBps,
     );
-    const signedMaxFeePerGas = simulationFeeEnvelope(
-      quote.maxFeePerGas,
-      parameters.config.maxFeePerGas,
-    );
+    const signedMaxFeePerGas =
+      relayCompatibleMaxFeePerGas({
+        expectedMaxFeePerGas: quote.maxFeePerGas,
+        configuredMaximum: parameters.config.maxFeePerGas,
+      });
     if (
       ((processGasLimit ?? 0n) +
         syncGasLimit +
@@ -666,10 +663,10 @@ async function exactPricedLifecycle(parameters: {
           ? {}
           : { processCount: parameters.processCount }),
         grossReward: finalGrossReward,
-        maxFeePerGas: simulationFeeEnvelope(
-          repriced.maxFeePerGas,
-          parameters.config.maxFeePerGas,
-        ),
+        maxFeePerGas: relayCompatibleMaxFeePerGas({
+          expectedMaxFeePerGas: repriced.maxFeePerGas,
+          configuredMaximum: parameters.config.maxFeePerGas,
+        }),
         expectedGasPrice: repriced.maxFeePerGas,
         maxPriorityFeePerGas:
           repriced.maxPriorityFeePerGas,

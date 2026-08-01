@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { nextBlockBaseFeePerGas } from "../src/base-fee.js";
+import {
+  nextBlockBaseFeePerGas,
+  relayCompatibleMaxFeePerGas,
+} from "../src/base-fee.js";
 
 describe("nextBlockBaseFeePerGas", () => {
   it("matches a historical Ethereum child exactly", () => {
@@ -62,5 +65,47 @@ describe("nextBlockBaseFeePerGas", () => {
         parentGasLimit: 200n,
       }),
     ).toThrow("cannot exceed");
+  });
+});
+
+describe("relayCompatibleMaxFeePerGas", () => {
+  it("adds one wei of private relay capacity below the configured maximum", () => {
+    expect(
+      relayCompatibleMaxFeePerGas({
+        expectedMaxFeePerGas: 100n,
+        configuredMaximum: 200n,
+      }),
+    ).toBe(101n);
+  });
+
+  it("preserves a saturated configured maximum", () => {
+    expect(
+      relayCompatibleMaxFeePerGas({
+        expectedMaxFeePerGas: 200n,
+        configuredMaximum: 200n,
+      }),
+    ).toBe(200n);
+  });
+
+  it("adds one wei when profitability is the only boundary", () => {
+    expect(
+      relayCompatibleMaxFeePerGas({
+        expectedMaxFeePerGas: 200n,
+      }),
+    ).toBe(201n);
+  });
+
+  it("rejects negative fee inputs", () => {
+    expect(() =>
+      relayCompatibleMaxFeePerGas({
+        expectedMaxFeePerGas: -1n,
+      }),
+    ).toThrow("cannot be negative");
+    expect(() =>
+      relayCompatibleMaxFeePerGas({
+        expectedMaxFeePerGas: 1n,
+        configuredMaximum: -1n,
+      }),
+    ).toThrow("cannot be negative");
   });
 });
