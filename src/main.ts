@@ -2688,9 +2688,8 @@ async function main(): Promise<void> {
                       transaction.hash.toLowerCase(),
                   );
                 const result =
-                  await executePendingFwaBackrunWithRetargets(
-                    {
-                      execute: () =>
+                  await executePendingFwaBackrunWithRetargets({
+                    execute: (headBlockNumber) =>
                         executePendingFwaBackrun({
                           publicClient: exactStateClient,
                           pendingClient: discoveryClient,
@@ -2703,6 +2702,13 @@ async function main(): Promise<void> {
                           config,
                           builderBidBps:
                             config.poolBuilderBidBps,
+                          headBlockNumber,
+                          targetBlockHasArrived: (
+                            targetBlock,
+                          ) =>
+                            headSignal.latestAfter(
+                              targetBlock - 1n,
+                            ) !== undefined,
                           coordinator: signerCoordinator,
                           assertSignerLeaseHeld,
                           isPrerequisiteCurrent,
@@ -2737,8 +2743,18 @@ async function main(): Promise<void> {
                             }),
                           signal,
                         }),
-                      isPrerequisiteCurrent,
-                      isPrerequisitePending: async () => {
+                    getAuthoritativeHead: () => {
+                        const head =
+                          headSignal.latestAfter(-1n);
+                        if (head === undefined) {
+                          throw new Error(
+                            "pending FWA execution requires an authoritative subscribed head",
+                          );
+                        }
+                        return head;
+                      },
+                    isPrerequisiteCurrent,
+                    isPrerequisitePending: async () => {
                         if (!isPrerequisiteCurrent()) {
                           return false;
                         }
@@ -2759,11 +2775,10 @@ async function main(): Promise<void> {
                             transaction.blockNumber === null,
                         );
                       },
-                      prerequisiteHash: prerequisite.hash,
-                      requestId: prerequisite.requestId,
-                      signal,
-                    },
-                  );
+                    prerequisiteHash: prerequisite.hash,
+                    requestId: prerequisite.requestId,
+                    signal,
+                  });
                 log(
                   "info",
                   "pending_fwa_backrun_complete",

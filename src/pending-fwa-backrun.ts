@@ -55,7 +55,10 @@ export interface PendingFwaBackrunResult {
 
 export async function executePendingFwaBackrunWithRetargets(
   parameters: {
-    readonly execute: () => Promise<PendingFwaBackrunResult>;
+    readonly execute: (
+      parentBlock: bigint,
+    ) => Promise<PendingFwaBackrunResult>;
+    readonly getAuthoritativeHead: () => bigint;
     readonly isPrerequisiteCurrent: () => boolean;
     readonly isPrerequisitePending: () => Promise<boolean>;
     readonly prerequisiteHash: Hash;
@@ -75,12 +78,13 @@ export async function executePendingFwaBackrunWithRetargets(
       "pending FWA maximum target attempts must be between 1 and 8",
     );
   }
+  let parentBlock = parameters.getAuthoritativeHead();
   for (
     let attempt = 1;
     attempt <= maximumTargetAttempts;
     attempt += 1
   ) {
-    const result = await parameters.execute();
+    const result = await parameters.execute(parentBlock);
     if (
       result.status !== "skipped" ||
       result.reason !== "target_block_arrived" ||
@@ -110,11 +114,41 @@ export async function executePendingFwaBackrunWithRetargets(
     ) {
       return result;
     }
+    const completedTargetBlock = result.targetBlock;
+    if (completedTargetBlock === undefined) {
+      log("debug", "pending_fwa_retarget_gate_failed", {
+        prerequisiteHash: parameters.prerequisiteHash,
+        requestId: parameters.requestId.toString(),
+        completedTargetBlock: "",
+        reason: "completed_target_block_unavailable",
+      });
+      return result;
+    }
+    const retargetParentBlock =
+      parameters.getAuthoritativeHead();
+    if (
+      retargetParentBlock < completedTargetBlock ||
+      retargetParentBlock <= parentBlock
+    ) {
+      log("debug", "pending_fwa_retarget_gate_failed", {
+        prerequisiteHash: parameters.prerequisiteHash,
+        requestId: parameters.requestId.toString(),
+        completedTargetBlock:
+          completedTargetBlock.toString(),
+        previousParentBlock: parentBlock.toString(),
+        authoritativeHead: retargetParentBlock.toString(),
+        reason: "authoritative_head_not_advanced",
+      });
+      return result;
+    }
+    parentBlock = retargetParentBlock;
     log("info", "pending_fwa_backrun_retargeted", {
       prerequisiteHash: parameters.prerequisiteHash,
       requestId: parameters.requestId.toString(),
       completedTargetBlock:
-        result.targetBlock?.toString() ?? "",
+        completedTargetBlock.toString(),
+      retargetParentBlock: parentBlock.toString(),
+      nextTargetBlock: (parentBlock + 1n).toString(),
       nextTargetAttempt: attempt + 1,
       maximumTargetAttempts,
       reason: "prerequisite_still_pending",
@@ -790,6 +824,10 @@ export async function executePendingFwaBackrun(parameters: {
   readonly builders: readonly string[];
   readonly config: KeeperConfig;
   readonly builderBidBps: bigint;
+  readonly headBlockNumber: bigint;
+  readonly targetBlockHasArrived: (
+    targetBlock: bigint,
+  ) => boolean;
   readonly coordinator: SignerSubmissionCoordinator;
   readonly assertSignerLeaseHeld: () => Promise<void>;
   readonly isPrerequisiteCurrent: () => boolean;
@@ -811,8 +849,7 @@ export async function executePendingFwaBackrun(parameters: {
     return { status: "skipped", reason: "shutdown" };
   }
 
-  const currentHead =
-    await parameters.publicClient.getBlockNumber();
+  const currentHead = parameters.headBlockNumber;
   const targetBlock = currentHead + 1n;
   const [latestNonce, pendingNonce] = await Promise.all([
     parameters.publicClient.getTransactionCount({
@@ -1145,8 +1182,7 @@ export async function executePendingFwaBackrun(parameters: {
     await parameters.assertSignerLeaseHeld();
     if (
       abortRequested(parameters.signal) ||
-      (await parameters.publicClient.getBlockNumber()) >=
-        targetBlock
+      parameters.targetBlockHasArrived(targetBlock)
     ) {
       return {
         status: "skipped",

@@ -612,13 +612,12 @@ These constraints prevent expensive or unsafe regressions:
   economics, lease, and deadline are all revalidated; permit at most three
   consecutive target attempts and never retarget a mined or replaced
   prerequisite.
-  Known production limitation at source `99e8749`: round 364 proved that the
-  retry wrapper can re-enter the executor while its `eth_blockNumber` view is
-  still stale, causing all three attempts to repeat the already-arrived target
-  block. The path fails closed and spends no gas, but the retry is ineffective.
-  Before relying on retargeting, bind each retry's exact parent to the
-  authoritative subscribed head and add a regression proving targets advance
-  across `target_block_arrived`.
+  Each attempt, including every retarget after `target_block_arrived`, binds
+  its exact parent to the authoritative subscribed head. A retarget may proceed
+  only after that head reaches the completed target and advances beyond the
+  previous planning parent; otherwise it fails closed instead of repeating an
+  already-arrived target. The HTTP/WS client's `eth_blockNumber` view is not a
+  planning-head fallback for this lane.
 - A WebSocket `newHeads` event selects the planning head when configured;
   otherwise `eth_blockNumber` does. Retain the complete subscribed header and
   do not wait for a duplicate HTTP block object or provider fee estimate.

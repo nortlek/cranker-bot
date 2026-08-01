@@ -55,12 +55,14 @@ describe("pending FWA fulfillment backrun", () => {
       },
     ];
     const execute = vi.fn(async () => executions.shift()!);
+    const heads = [100n, 101n];
     const loggedEntries: LogEntry[] = [];
     setLogSink((entry) => loggedEntries.push(entry));
 
     const result =
       await executePendingFwaBackrunWithRetargets({
         execute,
+        getAuthoritativeHead: () => heads.shift()!,
         isPrerequisiteCurrent: () => true,
         isPrerequisitePending: vi.fn(async () => true),
         prerequisiteHash,
@@ -74,6 +76,8 @@ describe("pending FWA fulfillment backrun", () => {
       realizedProfitWei: 1n,
     });
     expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute).toHaveBeenNthCalledWith(1, 100n);
+    expect(execute).toHaveBeenNthCalledWith(2, 101n);
     expect(
       loggedEntries.find(
         (entry) =>
@@ -87,6 +91,8 @@ describe("pending FWA fulfillment backrun", () => {
       nextTargetAttempt: 2,
       maximumTargetAttempts: 3,
       reason: "prerequisite_still_pending",
+      retargetParentBlock: "101",
+      nextTargetBlock: "102",
     });
   });
 
@@ -103,6 +109,7 @@ describe("pending FWA fulfillment backrun", () => {
     const result =
       await executePendingFwaBackrunWithRetargets({
         execute,
+        getAuthoritativeHead: () => 100n,
         isPrerequisiteCurrent: () => true,
         isPrerequisitePending,
         prerequisiteHash:
@@ -117,6 +124,45 @@ describe("pending FWA fulfillment backrun", () => {
     });
     expect(execute).toHaveBeenCalledOnce();
     expect(isPrerequisitePending).toHaveBeenCalledOnce();
+  });
+
+  it("does not repeat an arrived target while the authoritative head is stale", async () => {
+    const execute = vi.fn(async () => ({
+      status: "skipped" as const,
+      reason: "target_block_arrived",
+      targetBlock: 101n,
+    }));
+    const loggedEntries: LogEntry[] = [];
+    setLogSink((entry) => loggedEntries.push(entry));
+
+    const result =
+      await executePendingFwaBackrunWithRetargets({
+        execute,
+        getAuthoritativeHead: () => 100n,
+        isPrerequisiteCurrent: () => true,
+        isPrerequisitePending: async () => true,
+        prerequisiteHash:
+          `0x${"93".repeat(32)}`,
+        requestId: 79n,
+      });
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      reason: "target_block_arrived",
+      targetBlock: 101n,
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(
+      loggedEntries.find(
+        (entry) =>
+          entry.event === "pending_fwa_retarget_gate_failed",
+      ),
+    ).toMatchObject({
+      completedTargetBlock: "101",
+      previousParentBlock: "100",
+      authoritativeHead: "100",
+      reason: "authoritative_head_not_advanced",
+    });
   });
 
   it("prices only sync and settle after the public prerequisite", () => {
@@ -468,6 +514,8 @@ describe("pending FWA fulfillment backrun", () => {
           poolBountyEstimateBps: 10_000n,
         },
         builderBidBps: 300n,
+        headBlockNumber: 100n,
+        targetBlockHasArrived: () => false,
         coordinator: signerCoordinator,
         assertSignerLeaseHeld: vi.fn(
           async () => undefined,
