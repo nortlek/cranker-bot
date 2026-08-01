@@ -31,6 +31,8 @@ const originalPoolPullBountyEstimateBps =
   process.env.POOL_PULL_BOUNTY_ESTIMATE_BPS;
 const originalWsUrl = process.env.WS_URL;
 const originalSubmissionMode = process.env.SUBMISSION_MODE;
+const originalFlashbotsRelayUrls =
+  process.env.FLASHBOTS_RELAY_URLS;
 const originalFlashbotsBuilders =
   process.env.FLASHBOTS_BUILDERS;
 
@@ -109,6 +111,12 @@ afterEach(() => {
     delete process.env.SUBMISSION_MODE;
   } else {
     process.env.SUBMISSION_MODE = originalSubmissionMode;
+  }
+  if (originalFlashbotsRelayUrls === undefined) {
+    delete process.env.FLASHBOTS_RELAY_URLS;
+  } else {
+    process.env.FLASHBOTS_RELAY_URLS =
+      originalFlashbotsRelayUrls;
   }
   if (originalFlashbotsBuilders === undefined) {
     delete process.env.FLASHBOTS_BUILDERS;
@@ -299,6 +307,19 @@ describe("pool pull economics", () => {
 });
 
 describe("private builder coverage", () => {
+  it("submits directly to every evidence-backed endpoint by default", () => {
+    delete process.env.FLASHBOTS_RELAY_URLS;
+
+    expect(loadConfig().flashbotsRelayUrls).toEqual([
+      "https://relay.flashbots.net",
+      "https://rpc.quasar.win",
+      "https://rpc.titanbuilder.xyz",
+      "https://rpc.beaverbuild.org",
+      "https://rpc.eurekabuilder.xyz",
+      "https://rpc.buildernet.org",
+    ]);
+  });
+
   it("multiplexes to every evidence-backed builder by default", () => {
     delete process.env.FLASHBOTS_BUILDERS;
 

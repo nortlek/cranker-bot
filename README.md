@@ -322,10 +322,10 @@ successful `crank` fees are sent to that keeper address.
 - `ENABLE_VAULTS` and `VAULT_FACTORY_ADDRESS`: include the compatible
   PullVault registry. Startup verifies that it targets the expected pool.
 - `FLASHBOTS_RELAY_URLS`: comma-separated authenticated bundle relay endpoints.
-  The default sends through Flashbots and Quasar plus direct Titan and Beaver
-  endpoints. Flashbots still multiplexes to the configured builder list; the
-  direct paths reduce latency and provide independent delivery for short FWA
-  ready windows.
+  The default sends through Flashbots and Quasar plus direct Titan, Beaver,
+  Eureka, and BuilderNet endpoints. Flashbots still multiplexes to the
+  configured builder list; the direct paths reduce latency and provide
+  independent delivery for short FWA ready windows.
   The first must support `eth_callBundle` and is used for simulation; remaining
   endpoints receive the already-simulated bundle. The default also submits
   directly to Quasar because it has recently built competing pool cycles.

@@ -149,7 +149,7 @@ function submissionModeEnv(): "flashbots" | "public" {
 function relayUrlsEnv(): readonly string[] {
   const values = (
     process.env.FLASHBOTS_RELAY_URLS ||
-    "https://relay.flashbots.net,https://rpc.quasar.win,https://rpc.titanbuilder.xyz,https://rpc.beaverbuild.org"
+    "https://relay.flashbots.net,https://rpc.quasar.win,https://rpc.titanbuilder.xyz,https://rpc.beaverbuild.org,https://rpc.eurekabuilder.xyz,https://rpc.buildernet.org"
   )
     .split(",")
     .map((value) => value.trim())
