@@ -81,3 +81,32 @@ export function relayCompatibleMaxFeePerGas(parameters: {
     ? parameters.expectedMaxFeePerGas + 1n
     : parameters.expectedMaxFeePerGas;
 }
+
+/**
+ * Computes the EIP-1559 gas price charged at a known target base fee.
+ *
+ * A signed max-fee envelope can intentionally exceed base fee plus priority
+ * fee (for example, by the relay-compatibility wei above) without increasing
+ * the effective price paid by the transaction.
+ */
+export function effectiveEip1559GasPrice(parameters: {
+  readonly baseFeePerGas: bigint;
+  readonly maxFeePerGas: bigint;
+  readonly maxPriorityFeePerGas: bigint;
+}): bigint {
+  if (parameters.baseFeePerGas < 0n) {
+    throw new Error("base fee cannot be negative");
+  }
+  if (parameters.maxFeePerGas < parameters.baseFeePerGas) {
+    throw new Error("max fee cannot be below base fee");
+  }
+  if (parameters.maxPriorityFeePerGas < 0n) {
+    throw new Error("priority fee cannot be negative");
+  }
+
+  const uncappedPrice =
+    parameters.baseFeePerGas + parameters.maxPriorityFeePerGas;
+  return uncappedPrice < parameters.maxFeePerGas
+    ? uncappedPrice
+    : parameters.maxFeePerGas;
+}

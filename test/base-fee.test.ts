@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  effectiveEip1559GasPrice,
   nextBlockBaseFeePerGas,
   relayCompatibleMaxFeePerGas,
 } from "../src/base-fee.js";
@@ -107,5 +108,45 @@ describe("relayCompatibleMaxFeePerGas", () => {
         configuredMaximum: -1n,
       }),
     ).toThrow("cannot be negative");
+  });
+});
+
+describe("effectiveEip1559GasPrice", () => {
+  it("does not charge unused relay-compatible max-fee capacity", () => {
+    const baseFeePerGas = 80n;
+    const maxPriorityFeePerGas = 20n;
+    const maxFeePerGas = relayCompatibleMaxFeePerGas({
+      expectedMaxFeePerGas:
+        baseFeePerGas + maxPriorityFeePerGas,
+    });
+
+    expect(maxFeePerGas).toBe(101n);
+    expect(
+      effectiveEip1559GasPrice({
+        baseFeePerGas,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+      }),
+    ).toBe(100n);
+  });
+
+  it("respects a max-fee cap below base fee plus priority fee", () => {
+    expect(
+      effectiveEip1559GasPrice({
+        baseFeePerGas: 80n,
+        maxFeePerGas: 95n,
+        maxPriorityFeePerGas: 20n,
+      }),
+    ).toBe(95n);
+  });
+
+  it("rejects an envelope below the known base fee", () => {
+    expect(() =>
+      effectiveEip1559GasPrice({
+        baseFeePerGas: 80n,
+        maxFeePerGas: 79n,
+        maxPriorityFeePerGas: 20n,
+      }),
+    ).toThrow("max fee cannot be below base fee");
   });
 });

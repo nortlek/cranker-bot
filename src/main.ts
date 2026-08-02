@@ -34,7 +34,10 @@ import {
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
 } from "./bidding.js";
-import { relayCompatibleMaxFeePerGas } from "./base-fee.js";
+import {
+  effectiveEip1559GasPrice,
+  relayCompatibleMaxFeePerGas,
+} from "./base-fee.js";
 import {
   isTransientCompetitionObservationError,
   observeWinningCrankBids,
@@ -1838,7 +1841,13 @@ async function main(): Promise<void> {
                 config.poolPullBountyEstimateBps,
             });
             prefixMaximumGasCost +=
-              transactionGas * request.maxFeePerGas;
+              transactionGas *
+              effectiveEip1559GasPrice({
+                baseFeePerGas: baseFeeAllowancePerGas,
+                maxFeePerGas: request.maxFeePerGas,
+                maxPriorityFeePerGas:
+                  request.maxPriorityFeePerGas,
+              });
             const count = index + 1;
             if (
               count >= minimumViablePrefix &&
@@ -1851,6 +1860,15 @@ async function main(): Promise<void> {
           }
         }
         if (minimumEconomicPrefix > selected.length) {
+          log("info", "bundle_profitability_floor_rejected", {
+            targetBlock: targetBlock.toString(),
+            selectedJobs: selected.length,
+            minimumViablePrefix,
+            requiredEconomicPrefix: minimumEconomicPrefix,
+            requiredProfit: eth(profitFloor),
+            reason:
+              "no_profitable_prefix_after_competitive_simulation",
+          });
           return { hashes: [], targetBlock, relayCount: 0 };
         }
         const effectiveBuilderBidBpsByOrder =
