@@ -52,6 +52,14 @@ export interface ObservedBuilderPaymentComparison {
   readonly profitable: boolean;
 }
 
+export interface IndependentPriorityFeeAllocation {
+  readonly priorityFeesPerGas: readonly bigint[];
+  readonly priorityBuilderPayment: bigint;
+  readonly expectedGasCost: bigint;
+  readonly expectedProfit: bigint;
+  readonly requiredProfit: bigint;
+}
+
 function ceilDivide(numerator: bigint, denominator: bigint): bigint {
   return (numerator + denominator - 1n) / denominator;
 }
@@ -80,6 +88,7 @@ export function attributePriorityBidsByOrder(
     readonly order: string;
     readonly rewardWei: bigint;
     readonly gasUsed: bigint;
+    readonly priorityFeePerGas?: bigint;
   }[],
   priorityFeePerGas: bigint,
 ): ReadonlyMap<string, bigint> {
@@ -94,6 +103,11 @@ export function attributePriorityBidsByOrder(
     if (component.gasUsed <= 0n) {
       throw new Error("order gasUsed must be positive");
     }
+    const componentPriorityFeePerGas =
+      component.priorityFeePerGas ?? priorityFeePerGas;
+    if (componentPriorityFeePerGas < 0n) {
+      throw new Error("order priorityFeePerGas cannot be negative");
+    }
     const key = component.order.toLowerCase();
     if (attributed.has(key)) {
       throw new Error(`duplicate standing order ${component.order}`);
@@ -101,12 +115,94 @@ export function attributePriorityBidsByOrder(
     attributed.set(
       key,
       effectiveBuilderBidBps(
-        component.gasUsed * priorityFeePerGas,
+        component.gasUsed * componentPriorityFeePerGas,
         component.rewardWei,
       ),
     );
   }
   return attributed;
+}
+
+/**
+ * Prices independent transactions against their own reward-normalized bid.
+ * A shared priority fee preserves only the aggregate payment and can
+ * accidentally move value from a highly contested order to cheap orders in
+ * the same batch. Return undefined when the exact per-component targets would
+ * cross the configured fee boundary or the aggregate retained-profit floor;
+ * callers can then use the ordinary aggregate profitability clamp.
+ */
+export function allocateIndependentPriorityFees(parameters: {
+  readonly components: readonly {
+    readonly rewardWei: bigint;
+    readonly gasUsed: bigint;
+    readonly builderBidBps: bigint;
+    readonly minimumPriorityFeePerGas: bigint;
+  }[];
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly maxFeePerGasCap?: bigint;
+  readonly minProfitWei: bigint;
+}): IndependentPriorityFeeAllocation | undefined {
+  if (parameters.components.length === 0) return undefined;
+  if (parameters.baseFeeAllowancePerGas < 0n) {
+    throw new Error("baseFeeAllowancePerGas cannot be negative");
+  }
+
+  const priorityFeesPerGas: bigint[] = [];
+  let grossReward = 0n;
+  let expectedGasCost = 0n;
+  let priorityBuilderPayment = 0n;
+  for (const component of parameters.components) {
+    if (component.rewardWei <= 0n) {
+      throw new Error("component rewardWei must be positive");
+    }
+    if (component.gasUsed <= 0n) {
+      throw new Error("component gasUsed must be positive");
+    }
+    if (
+      component.builderBidBps < 0n ||
+      component.builderBidBps > 10_000n
+    ) {
+      throw new Error("component builderBidBps must be between 0 and 10000");
+    }
+    if (component.minimumPriorityFeePerGas < 0n) {
+      throw new Error(
+        "component minimumPriorityFeePerGas cannot be negative",
+      );
+    }
+    const desiredBuilderPayment =
+      (component.rewardWei * component.builderBidBps) / 10_000n;
+    const requestedPriorityFeePerGas =
+      desiredBuilderPayment === 0n
+        ? component.minimumPriorityFeePerGas
+        : ceilDivide(desiredBuilderPayment, component.gasUsed) >
+            component.minimumPriorityFeePerGas
+          ? ceilDivide(desiredBuilderPayment, component.gasUsed)
+          : component.minimumPriorityFeePerGas;
+    const maxFeePerGas =
+      parameters.baseFeeAllowancePerGas + requestedPriorityFeePerGas;
+    if (
+      parameters.maxFeePerGasCap !== undefined &&
+      maxFeePerGas > parameters.maxFeePerGasCap
+    ) {
+      return undefined;
+    }
+    priorityFeesPerGas.push(requestedPriorityFeePerGas);
+    grossReward += component.rewardWei;
+    priorityBuilderPayment +=
+      requestedPriorityFeePerGas * component.gasUsed;
+    expectedGasCost += maxFeePerGas * component.gasUsed;
+  }
+
+  const profitFloor = requiredProfit(parameters.minProfitWei);
+  const expectedProfit = grossReward - expectedGasCost;
+  if (expectedProfit < profitFloor) return undefined;
+  return {
+    priorityFeesPerGas,
+    priorityBuilderPayment,
+    expectedGasCost,
+    expectedProfit,
+    requiredProfit: profitFloor,
+  };
 }
 
 /**

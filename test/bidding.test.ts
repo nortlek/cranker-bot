@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregateBuilderBidBps,
+  allocateIndependentPriorityFees,
   attributePriorityBidsByOrder,
   compareObservedBuilderPayment,
   effectiveBuilderBidBps,
@@ -72,6 +73,29 @@ describe("attributePriorityBidsByOrder", () => {
     expect(bids.get("0xbbb")).toBe(6_000n);
   });
 
+  it("attributes each order's independently priced transaction", () => {
+    const bids = attributePriorityBidsByOrder(
+      [
+        {
+          order: "0xAAA",
+          rewardWei: 300n,
+          gasUsed: 10n,
+          priorityFeePerGas: 27n,
+        },
+        {
+          order: "0xBBB",
+          rewardWei: 200n,
+          gasUsed: 20n,
+          priorityFeePerGas: 1n,
+        },
+      ],
+      4n,
+    );
+
+    expect(bids.get("0xaaa")).toBe(9_000n);
+    expect(bids.get("0xbbb")).toBe(1_000n);
+  });
+
   it("rejects duplicate target attribution", () => {
     expect(() =>
       attributePriorityBidsByOrder(
@@ -106,6 +130,102 @@ describe("attributePriorityBidsByOrder", () => {
         "0x20537147391a1c6dee78b1597e9abf749e761162",
       ),
     ).toBeGreaterThan(7_834n);
+  });
+});
+
+describe("allocateIndependentPriorityFees", () => {
+  it("preserves each standalone order's own bid inside a mixed batch", () => {
+    const allocation = allocateIndependentPriorityFees({
+      components: [
+        {
+          rewardWei: 300n,
+          gasUsed: 10n,
+          builderBidBps: 9_000n,
+          minimumPriorityFeePerGas: 0n,
+        },
+        {
+          rewardWei: 200n,
+          gasUsed: 20n,
+          builderBidBps: 1_000n,
+          minimumPriorityFeePerGas: 0n,
+        },
+      ],
+      baseFeeAllowancePerGas: 1n,
+      maxFeePerGasCap: 100n,
+      minProfitWei: 1n,
+    });
+
+    expect(allocation).toEqual({
+      priorityFeesPerGas: [27n, 1n],
+      priorityBuilderPayment: 290n,
+      expectedGasCost: 320n,
+      expectedProfit: 180n,
+      requiredProfit: 1n,
+    });
+  });
+
+  it("does not dilute a contested order across the block-25665517 batch", () => {
+    const components = [
+      {
+        rewardWei: parseEther("0.0003"),
+        gasUsed: 218_313n,
+        builderBidBps: 9_409n,
+        minimumPriorityFeePerGas: 0n,
+      },
+      {
+        rewardWei: parseEther("0.0002"),
+        gasUsed: 218_313n,
+        builderBidBps: 1_000n,
+        minimumPriorityFeePerGas: 0n,
+      },
+      {
+        rewardWei: parseEther("0.0002"),
+        gasUsed: 218_313n,
+        builderBidBps: 1_112n,
+        minimumPriorityFeePerGas: 0n,
+      },
+    ] as const;
+    const allocation = allocateIndependentPriorityFees({
+      components,
+      baseFeeAllowancePerGas: 35_969_900n,
+      maxFeePerGasCap: parseGwei("5"),
+      minProfitWei: parseEther("0.000001"),
+    });
+
+    expect(allocation).toBeDefined();
+    const bids = attributePriorityBidsByOrder(
+      components.map((component, index) => ({
+        order: `0x${index}`,
+        rewardWei: component.rewardWei,
+        gasUsed: component.gasUsed,
+        priorityFeePerGas: allocation!.priorityFeesPerGas[index]!,
+      })),
+      0n,
+    );
+    expect(bids.get("0x0")).toBeGreaterThanOrEqual(9_409n);
+    expect(bids.get("0x1")).toBeGreaterThanOrEqual(1_000n);
+    expect(bids.get("0x2")).toBeGreaterThanOrEqual(1_112n);
+    expect(allocation!.expectedProfit).toBeGreaterThanOrEqual(
+      allocation!.requiredProfit,
+    );
+  });
+
+  it("refuses independent targets that cross the aggregate profit floor", () => {
+    expect(
+      allocateIndependentPriorityFees({
+        components: [
+          {
+            rewardWei: 300n,
+            gasUsed: 10n,
+            builderBidBps: 10_000n,
+            minimumPriorityFeePerGas: 0n,
+          },
+        ],
+        baseFeeAllowancePerGas: 1n,
+        maxFeePerGasCap: 100n,
+        minProfitWei: 1n,
+      }),
+    ).toBeUndefined();
   });
 });
 

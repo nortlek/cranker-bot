@@ -24,6 +24,7 @@ import {
   estimatedJobReward,
   maximumFundableGasEnvelope,
   mergeConcurrentPoolPlans,
+  orderStandaloneStandingJobsForAuction,
   orderAlreadyBought,
   orderHasMinimumBalance,
   planningHeadIsStale,
@@ -663,6 +664,64 @@ describe("planningHeadIsStale", () => {
     expect(() => planningHeadIsStale(-1n, 0n)).toThrow(
       "block numbers cannot be negative",
     );
+  });
+});
+
+describe("orderStandaloneStandingJobsForAuction", () => {
+  const standingJob = (
+    order: `0x${string}`,
+    reward: bigint,
+  ) => ({
+    kind: "standing_order" as const,
+    label: `standing_order:${order}`,
+    target: order,
+    order,
+    data: "0x" as const,
+    gas: 10n,
+    reward: { kind: "fixed" as const, amountWei: reward },
+    poolVersion: "v2" as const,
+  });
+
+  it("puts lower-competition work before a contested suffix", () => {
+    const expensive = standingJob(
+      "0x1000000000000000000000000000000000000001",
+      300n,
+    );
+    const cheap = standingJob(
+      "0x2000000000000000000000000000000000000002",
+      200n,
+    );
+    const bids = new Map([
+      [expensive.order, 9_409n],
+      [cheap.order, 1_000n],
+    ]);
+
+    expect(
+      orderStandaloneStandingJobsForAuction({
+        jobs: [expensive, cheap],
+        bidBps: (order) => bids.get(order)!,
+        maxFeePerGas: 1n,
+      }),
+    ).toEqual([cheap, expensive]);
+  });
+
+  it("uses profit order when bid targets are equal", () => {
+    const smaller = standingJob(
+      "0x1000000000000000000000000000000000000001",
+      200n,
+    );
+    const larger = standingJob(
+      "0x2000000000000000000000000000000000000002",
+      300n,
+    );
+
+    expect(
+      orderStandaloneStandingJobsForAuction({
+        jobs: [smaller, larger],
+        bidBps: () => 1_000n,
+        maxFeePerGas: 1n,
+      }),
+    ).toEqual([larger, smaller]);
   });
 });
 

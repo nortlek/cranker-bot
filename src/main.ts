@@ -27,6 +27,7 @@ import {
 } from "./abi.js";
 import {
   aggregateBuilderBidBps,
+  allocateIndependentPriorityFees,
   attributePriorityBidsByOrder,
   compareObservedBuilderPayment,
   effectiveBuilderBidBps,
@@ -1347,6 +1348,33 @@ async function main(): Promise<void> {
         const builderBidBps =
           prefixSelection?.builderBidBps ?? fullBuilderBidBps;
         const quote = prefixSelection?.quote ?? fullQuote;
+        const independentPriorityAllocation =
+          prefixSelection !== undefined &&
+          quote.directBuilderPayment === 0n &&
+          competitivelySelectedRequests.every(
+            (request) =>
+              request.kind === "standing_order" &&
+              request.order !== undefined &&
+              request.standingOrderBatchMembers === undefined,
+          )
+            ? allocateIndependentPriorityFees({
+                components: selectedPricingComponents,
+                baseFeeAllowancePerGas,
+                maxFeePerGasCap: config.maxFeePerGas,
+                minProfitWei: config.minProfitWei,
+              })
+            : undefined;
+        const priorityFeesPerGas =
+          independentPriorityAllocation?.priorityFeesPerGas ??
+          selectedPricingComponents.map(
+            () => quote.maxPriorityFeePerGas,
+          );
+        const priorityBuilderPayment =
+          independentPriorityAllocation?.priorityBuilderPayment ??
+          quote.priorityBuilderPayment;
+        const quotedExpectedProfit =
+          independentPriorityAllocation?.expectedProfit ??
+          quote.expectedProfit;
         const embeddedGrossReward =
           competitivelySelectedRequests.reduce(
             (total, request) =>
@@ -1365,7 +1393,9 @@ async function main(): Promise<void> {
             ? embeddedGrossReward
             : grossReward;
         const reportedBuilderPayment =
-          embeddedBuilderPayment + quote.builderPayment;
+          embeddedBuilderPayment +
+          priorityBuilderPayment +
+          quote.directBuilderPayment;
         const reportedEffectiveBuilderBidBps =
           effectiveBuilderBidBps(
             reportedBuilderPayment,
@@ -1392,7 +1422,7 @@ async function main(): Promise<void> {
                 .slice(selectedLength)
                 .map((request) => request.kind),
             ),
-            selectedExpectedProfit: eth(quote.expectedProfit),
+            selectedExpectedProfit: eth(quotedExpectedProfit),
             fullExpectedProfit: eth(fullQuote.expectedProfit),
           });
         }
@@ -1442,7 +1472,7 @@ async function main(): Promise<void> {
             reportedEffectiveBuilderBidBps.toString(),
           builderPayment: eth(reportedBuilderPayment),
           priorityBuilderPayment: eth(
-            quote.priorityBuilderPayment,
+            priorityBuilderPayment,
           ),
           directBuilderPayment: eth(
             quote.directBuilderPayment,
@@ -1451,11 +1481,24 @@ async function main(): Promise<void> {
             quote.directPaymentGasUsed.toString(),
           directPaymentEnabled:
             quote.directBuilderPayment > 0n,
-          maxFeePerGas: gwei(quote.maxFeePerGas),
-          maxPriorityFeePerGas: gwei(
-            quote.maxPriorityFeePerGas,
+          maxFeePerGas: gwei(
+            baseFeeAllowancePerGas +
+              priorityFeesPerGas.reduce(
+                (highest, priorityFee) =>
+                  priorityFee > highest ? priorityFee : highest,
+                0n,
+              ),
           ),
-          expectedProfit: eth(quote.expectedProfit),
+          maxPriorityFeePerGas: gwei(
+            priorityFeesPerGas.reduce(
+              (highest, priorityFee) =>
+                priorityFee > highest ? priorityFee : highest,
+              0n,
+            ),
+          ),
+          independentPriorityFees:
+            independentPriorityAllocation !== undefined,
+          expectedProfit: eth(quotedExpectedProfit),
           requiredProfit: eth(quote.requiredProfit),
           cappedByProfit: quote.cappedByProfit,
           cappedByFeeCap: quote.cappedByFeeCap,
@@ -1469,10 +1512,15 @@ async function main(): Promise<void> {
           return { hashes: [], targetBlock, relayCount: 0 };
         }
         const competitivelyPriced =
-          competitivelySelectedRequests.map((request) => ({
+          competitivelySelectedRequests.map((request, index) => ({
             ...request,
-            maxFeePerGas: quote.maxFeePerGas,
-            maxPriorityFeePerGas: quote.maxPriorityFeePerGas,
+            maxFeePerGas:
+              baseFeeAllowancePerGas +
+              (priorityFeesPerGas[index] ??
+                quote.maxPriorityFeePerGas),
+            maxPriorityFeePerGas:
+              priorityFeesPerGas[index] ??
+              quote.maxPriorityFeePerGas,
           }));
         let competitivelyPricedWithPayment:
           readonly KeeperTransactionRequest[] =
@@ -1614,9 +1662,11 @@ async function main(): Promise<void> {
             selectedRequests.length,
           );
           const priorityBuilderPayment = selectedGas.reduce(
-            (total, transactionGas) =>
+            (total, transactionGas, index) =>
               total +
-              transactionGas * quote.maxPriorityFeePerGas,
+              transactionGas *
+                (selectedRequests[index]?.maxPriorityFeePerGas ??
+                  quote.maxPriorityFeePerGas),
             0n,
           );
           const totalCoinbasePayment =
@@ -1691,9 +1741,11 @@ async function main(): Promise<void> {
           }
           const jobGas = selectedGas.slice(0, helperIndex);
           const priorityBuilderPayment = jobGas.reduce(
-            (total, transactionGas) =>
+            (total, transactionGas, index) =>
               total +
-              transactionGas * quote.maxPriorityFeePerGas,
+              transactionGas *
+                (selectedRequests[index]?.maxPriorityFeePerGas ??
+                  quote.maxPriorityFeePerGas),
             0n,
           );
           const totalCoinbasePayment =
@@ -1772,7 +1824,7 @@ async function main(): Promise<void> {
           minimumEconomicPrefix = selected.length;
         } else {
           let prefixReward = 0n;
-          let prefixGas = 0n;
+          let prefixMaximumGasCost = 0n;
           for (
             let index = 0;
             index < selectedRequests.length;
@@ -1797,12 +1849,13 @@ async function main(): Promise<void> {
               poolPullBountyEstimateBps:
                 config.poolPullBountyEstimateBps,
             });
-            prefixGas += transactionGas;
+            prefixMaximumGasCost +=
+              transactionGas * request.maxFeePerGas;
             const count = index + 1;
             if (
               count >= minimumViablePrefix &&
               prefixReward -
-                prefixGas * quote.maxFeePerGas <
+                prefixMaximumGasCost <
                 profitFloor
             ) {
               minimumEconomicPrefix = count + 1;
@@ -1840,6 +1893,8 @@ async function main(): Promise<void> {
                                 config.poolPullBountyEstimateBps,
                             }),
                             gasUsed: transactionGas,
+                            priorityFeePerGas:
+                              request.maxPriorityFeePerGas,
                           },
                         ];
                       },
@@ -2046,7 +2101,7 @@ async function main(): Promise<void> {
             : { effectiveBuilderBidBpsByOrder }),
           plannedGrossReward: reportedGrossReward,
           plannedBuilderPayment: reportedBuilderPayment,
-          plannedExpectedProfit: quote.expectedProfit,
+          plannedExpectedProfit: quotedExpectedProfit,
           bundleCount: submissions.length,
           bundleHashes: submissions.map(
             (submission) => submission.bundleHash,

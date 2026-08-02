@@ -683,6 +683,14 @@ These constraints prevent expensive or unsafe regressions:
   Direct-payment variants without an exact per-order allocation remain on the
   conservative aggregate attribution. The controller must persist explicit
   probe state plus block-aged price evidence.
+- A multi-transaction standalone standing-order batch prices every transaction
+  from that order's own reward-normalized target. Do not use one shared
+  priority fee: it can dilute a contested high-reward order while overpaying
+  cheap orders even when the aggregate payment looks correct. Order eligible
+  independent work by ascending adaptive target, then expected profit, so an
+  expensive contested suffix cannot invalidate easier prefixes. Recompute the
+  exact safe prefix floor from each transaction's assigned fee and preserve the
+  aggregate retained-profit boundary.
 - A direct coinbase payment may only fill an existing fee-capped adaptive bid
   for a zero-value, standing-order-only private batch. The pinned receive-only
   helper must pass its startup code-hash check, occupy the final contiguous

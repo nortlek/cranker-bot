@@ -468,6 +468,46 @@ export interface StandingOrderBatchPlan extends PlannedJobs {
   readonly expectedProfitAdvantage: bigint;
 }
 
+/**
+ * A nonce-contiguous bundle can only expose prefixes. Put lower-competition
+ * standalone orders first so a contested suffix cannot invalidate otherwise
+ * winnable work. Equal-price orders retain profit-first ordering.
+ */
+export function orderStandaloneStandingJobsForAuction(parameters: {
+  readonly jobs: readonly KeeperJob[];
+  readonly bidBps: (order: Address) => bigint;
+  readonly maxFeePerGas: bigint;
+}): readonly KeeperJob[] {
+  if (
+    parameters.jobs.length < 2 ||
+    parameters.jobs.some(
+      (job) =>
+        job.kind !== "standing_order" ||
+        job.order === undefined ||
+        job.reward.kind !== "fixed",
+    )
+  ) {
+    return parameters.jobs;
+  }
+  return [...parameters.jobs].sort((left, right) => {
+    const leftBid = parameters.bidBps(left.order!);
+    const rightBid = parameters.bidBps(right.order!);
+    if (leftBid !== rightBid) return leftBid < rightBid ? -1 : 1;
+    const leftReward =
+      left.reward.kind === "fixed" ? left.reward.amountWei : 0n;
+    const rightReward =
+      right.reward.kind === "fixed" ? right.reward.amountWei : 0n;
+    const leftProfit =
+      leftReward - left.gas * parameters.maxFeePerGas;
+    const rightProfit =
+      rightReward - right.gas * parameters.maxFeePerGas;
+    if (leftProfit !== rightProfit) {
+      return leftProfit > rightProfit ? -1 : 1;
+    }
+    return left.label.localeCompare(right.label);
+  });
+}
+
 export async function planStandingOrderBatch(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly account: Account | Address;
@@ -5109,6 +5149,34 @@ export async function runKeeperPass(
         ),
         minimumViablePrefix: batchPlan.minimumViablePrefix,
       });
+    } else if (
+      plan.minimumViablePrefix === 1 &&
+      plan.jobs.length > 1
+    ) {
+      const orderedJobs = orderStandaloneStandingJobsForAuction({
+        jobs: plan.jobs,
+        bidBps: context.standingOrderBidBps,
+        maxFeePerGas,
+      });
+      if (
+        orderedJobs.some(
+          (job, index) => job !== plan.jobs[index],
+        )
+      ) {
+        plan = { ...plan, jobs: orderedJobs };
+        log("info", "standing_order_auction_ordering", {
+          jobs: orderedJobs.length,
+          orders: JSON.stringify(
+            orderedJobs.map((job) => job.order),
+          ),
+          builderBidBps: JSON.stringify(
+            orderedJobs.map((job) =>
+              context.standingOrderBidBps!(job.order!).toString(),
+            ),
+          ),
+          policy: "lower_competition_prefix_first",
+        });
+      }
     }
   }
   if (planningRead.attempts > 1) {
