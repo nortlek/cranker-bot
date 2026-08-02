@@ -1,6 +1,7 @@
 import {
   encodeAbiParameters,
   encodeEventTopics,
+  encodeFunctionData,
   getAddress,
   parseAbiParameters,
   type Address,
@@ -19,6 +20,7 @@ import {
   filterRelevantPoolPulls,
   groupRelevantPoolLifecycleBounties,
   isTransientCompetitionObservationError,
+  poolLifecycleAdaptiveBidEligibility,
   receiptHasPoolCrankBounty,
 } from "../src/competition.js";
 
@@ -206,6 +208,184 @@ describe("directBeneficiaryPaymentFromTraces", () => {
         ],
       }),
     ).toBe(0n);
+  });
+});
+
+describe("poolLifecycleAdaptiveBidEligibility", () => {
+  const roundId = 55n;
+  const poolRewardTrace = {
+    action: {
+      from: POOL,
+      to: CALLER,
+      value: "0x4b0",
+    },
+  };
+  const syncTrace = {
+    action: {
+      from: CALLER,
+      to: POOL,
+      value: "0x0",
+      input: encodeFunctionData({
+        abi: poolAbi,
+        functionName: "syncFwaResult",
+        args: [roundId],
+      }),
+    },
+  };
+  const bountyLog = {
+    address: POOL,
+    topics: encodeEventTopics({
+      abi: poolAbi,
+      eventName: "CrankBountyPaid",
+      args: { roundId, cranker: CALLER },
+    }).filter((topic): topic is Hex => typeof topic === "string"),
+    data: encodeAbiParameters(
+      parseAbiParameters("uint256"),
+      [1_200n],
+    ),
+  };
+
+  it("accepts an exactly attributed pool-only reward", () => {
+    expect(
+      poolLifecycleAdaptiveBidEligibility({
+        traces: [
+          syncTrace,
+          poolRewardTrace,
+          {
+            action: {
+              from: CALLER,
+              to: ORDER_A,
+              value: "0x3e8",
+              input: "0x",
+            },
+          },
+        ],
+        receiptLogs: [bountyLog],
+        pool: POOL,
+        cranker: CALLER,
+        beneficiary: ORDER_A,
+        roundId,
+        grossPoolReward: 1_200n,
+      }),
+    ).toEqual({
+      eligible: true,
+      reason: "pool_only_value_attribution",
+    });
+  });
+
+  it("rejects a wrapper with a non-pool receipt log", () => {
+    expect(
+      poolLifecycleAdaptiveBidEligibility({
+        traces: [syncTrace, poolRewardTrace],
+        receiptLogs: [
+          bountyLog,
+          { ...bountyLog, address: ORDER_A },
+        ],
+        pool: POOL,
+        cranker: CALLER,
+        beneficiary: ORDER_A,
+        roundId,
+        grossPoolReward: 1_200n,
+      }),
+    ).toEqual({
+      eligible: false,
+      reason: "non_pool_receipt_log",
+    });
+  });
+
+  it("rejects an additional value inflow to the cranker", () => {
+    expect(
+      poolLifecycleAdaptiveBidEligibility({
+        traces: [
+          syncTrace,
+          poolRewardTrace,
+          {
+            action: {
+              from: ORDER_A,
+              to: CALLER,
+              value: "0x1",
+            },
+          },
+        ],
+        receiptLogs: [bountyLog],
+        pool: POOL,
+        cranker: CALLER,
+        beneficiary: ORDER_A,
+        roundId,
+        grossPoolReward: 1_200n,
+      }),
+    ).toEqual({
+      eligible: false,
+      reason: "additional_cranker_value_inflow",
+    });
+  });
+
+  it("rejects unrelated cranker calls and beneficiary payments", () => {
+    expect(
+      poolLifecycleAdaptiveBidEligibility({
+        traces: [
+          syncTrace,
+          poolRewardTrace,
+          {
+            action: {
+              from: CALLER,
+              to: UNKNOWN_ORDER,
+              value: "0x0",
+            },
+          },
+        ],
+        receiptLogs: [bountyLog],
+        pool: POOL,
+        cranker: CALLER,
+        beneficiary: ORDER_A,
+        roundId,
+        grossPoolReward: 1_200n,
+      }),
+    ).toEqual({
+      eligible: false,
+      reason: "unexpected_cranker_call",
+    });
+    expect(
+      poolLifecycleAdaptiveBidEligibility({
+        traces: [
+          syncTrace,
+          poolRewardTrace,
+          {
+            action: {
+              from: UNKNOWN_ORDER,
+              to: ORDER_A,
+              value: "0x1",
+            },
+          },
+        ],
+        receiptLogs: [bountyLog],
+        pool: POOL,
+        cranker: CALLER,
+        beneficiary: ORDER_A,
+        roundId,
+        grossPoolReward: 1_200n,
+      }),
+    ).toEqual({
+      eligible: false,
+      reason: "non_cranker_beneficiary_payment",
+    });
+  });
+
+  it("rejects a pool reward that does not match emitted bounties", () => {
+    expect(
+      poolLifecycleAdaptiveBidEligibility({
+        traces: [syncTrace, poolRewardTrace],
+        receiptLogs: [bountyLog],
+        pool: POOL,
+        cranker: CALLER,
+        beneficiary: ORDER_A,
+        roundId,
+        grossPoolReward: 1_199n,
+      }),
+    ).toEqual({
+      eligible: false,
+      reason: "pool_reward_inflow_mismatch",
+    });
   });
 });
 

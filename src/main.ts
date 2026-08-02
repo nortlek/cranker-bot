@@ -166,6 +166,9 @@ let telemetrySink: BatchedEventSink | undefined;
 let signerLease: SignerLease | undefined;
 let adaptiveBidController: AdaptiveBidController | undefined;
 let v2PoolPullBidController: AdaptiveBidController | undefined;
+let v2PoolFulfilledBidController:
+  | AdaptiveBidController
+  | undefined;
 let signerLeaseFailure: Error | undefined;
 let closeHeadSubscription: (() => Promise<void>) | undefined;
 let closePendingFundingRuntime:
@@ -222,6 +225,7 @@ async function closeRuntimeResources(): Promise<void> {
         closeHeadSubscription?.(),
         adaptiveBidController?.close(),
         v2PoolPullBidController?.close(),
+        v2PoolFulfilledBidController?.close(),
         telemetrySink?.close(),
         discordNotifier?.flush(),
         dashboardRuntime?.close(),
@@ -323,6 +327,31 @@ async function main(): Promise<void> {
             new PostgresAdaptiveBidPersistence(
               config.databaseUrl,
               "v2_pool_pull",
+            ),
+          );
+    const v2PoolFulfilledPolicy = {
+      minimumBidBps: config.poolBuilderBidBps,
+      baselineBidBps: config.poolBuilderBidBps,
+      // As with V2 pulls, 100% is only the controller's request ceiling.
+      // Exact retained-profit pricing is the sole economic boundary.
+      maximumBidBps: 10_000n,
+      lossStepBps: 1n,
+      winDecayBps: config.adaptiveBidDecayBps,
+      winsBeforeDecay: config.adaptiveBidWinStreak,
+      evidenceMaxAgeBlocks:
+        config.adaptiveBidEvidenceMaxAgeBlocks,
+    };
+    v2PoolFulfilledBidController =
+      config.databaseUrl === undefined
+        ? await AdaptiveBidController.load(
+            v2PoolFulfilledPolicy,
+            `${config.adaptiveBidStatePath}.v2-pool-fulfilled`,
+          )
+        : await AdaptiveBidController.loadWithPersistence(
+            v2PoolFulfilledPolicy,
+            new PostgresAdaptiveBidPersistence(
+              config.databaseUrl,
+              "v2_pool_fulfilled",
             ),
           );
   }
@@ -827,10 +856,46 @@ async function main(): Promise<void> {
     StrategyContext["observePoolLifecycleBatch"] = async (
       outcome,
     ) => {
+      const v2FulfilledBidController =
+        outcome.poolVersion === "v2" &&
+        outcome.pureSingleRoundFulfilledLifecycle
+          ? v2PoolFulfilledBidController
+          : undefined;
       const missed = outcome.attempts.filter(
         (attempt) => !attempt.included,
       );
-      if (missed.length === 0) return;
+      if (missed.length === 0) {
+        if (v2FulfilledBidController !== undefined) {
+          const adjustment =
+            await v2FulfilledBidController.observe(
+              outcome.pool,
+              {
+                kind: "full_win",
+                blockNumber: outcome.targetBlock,
+                ...(outcome.effectiveBuilderBidBps === undefined
+                  ? {}
+                  : {
+                      effectiveBidBps:
+                        outcome.effectiveBuilderBidBps,
+                    }),
+              },
+            );
+          log(
+            "info",
+            "v2_pool_fulfilled_adaptive_bid_adjusted",
+            {
+              pool: outcome.pool,
+              targetBlock: outcome.targetBlock.toString(),
+              outcome: "full_win",
+              ...adaptiveBidAdjustmentFields(adjustment),
+              effectiveBuilderBidBps:
+                outcome.effectiveBuilderBidBps?.toString() ?? "",
+              pricingBoundary: "exact_profitability_only",
+            },
+          );
+        }
+        return;
+      }
       const lostRoundIds = [
         ...new Set(
           missed.map((attempt) =>
@@ -872,6 +937,7 @@ async function main(): Promise<void> {
             },
           );
         }
+        let observedWinningBidBps: bigint | undefined;
         for (const observation of observationRead.value) {
           const paymentComparison =
             outcome.plannedGrossReward === undefined ||
@@ -889,6 +955,21 @@ async function main(): Promise<void> {
                     outcome.plannedExpectedProfit,
                   minProfitWei: config.minProfitWei,
                 });
+          const eligibleProfitableEvidence =
+            v2FulfilledBidController !== undefined &&
+            observation.adaptiveBidEligible &&
+            paymentComparison?.profitable === true;
+          if (
+            eligibleProfitableEvidence &&
+            paymentComparison !== undefined &&
+            (observedWinningBidBps === undefined ||
+              paymentComparison
+                .requiredBidBpsAgainstPlannedGross >
+                observedWinningBidBps)
+          ) {
+            observedWinningBidBps =
+              paymentComparison.requiredBidBpsAgainstPlannedGross;
+          }
           log(
             "info",
             "pool_lifecycle_competitor_bid_observed",
@@ -911,6 +992,10 @@ async function main(): Promise<void> {
               ),
               winningBidBpsUpperBound:
                 observation.winningBidBpsUpperBound.toString(),
+              adaptiveBidEligible:
+                observation.adaptiveBidEligible,
+              adaptiveBidExclusionReason:
+                observation.adaptiveBidExclusionReason,
               ...(paymentComparison === undefined
                 ? {}
                 : {
@@ -942,7 +1027,54 @@ async function main(): Promise<void> {
                       paymentComparison.profitable,
                   }),
               action:
-                "record_only_without_contaminating_standing_order_learning",
+                v2FulfilledBidController === undefined
+                  ? "record_only_non_pure_or_non_v2_lifecycle"
+                  : eligibleProfitableEvidence
+                    ? "feed_v2_pool_fulfilled_controller"
+                    : observation.adaptiveBidEligible
+                      ? "hold_unprofitable_competitor_evidence"
+                      : "hold_ambiguous_competitor_economics",
+            },
+          );
+        }
+        const adaptiveAdjustment =
+          v2FulfilledBidController === undefined
+            ? undefined
+            : await v2FulfilledBidController.observe(
+                outcome.pool,
+                {
+                  kind: "miss",
+                  blockNumber: outcome.targetBlock,
+                  ...(outcome.effectiveBuilderBidBps === undefined
+                    ? {}
+                    : {
+                        effectiveBidBps:
+                          outcome.effectiveBuilderBidBps,
+                      }),
+                  ...(observedWinningBidBps === undefined
+                    ? {}
+                    : { observedWinningBidBps }),
+                },
+              );
+        if (adaptiveAdjustment !== undefined) {
+          log(
+            "info",
+            "v2_pool_fulfilled_adaptive_bid_adjusted",
+            {
+              pool: outcome.pool,
+              targetBlock: outcome.targetBlock.toString(),
+              outcome:
+                observationRead.value.length > 0
+                  ? "competitor_won"
+                  : "no_competitor_lifecycle",
+              ...adaptiveBidAdjustmentFields(adaptiveAdjustment),
+              effectiveBuilderBidBps:
+                outcome.effectiveBuilderBidBps?.toString() ?? "",
+              observedWinningBidBps:
+                observedWinningBidBps?.toString() ?? "",
+              counterfactualProfitableEvidence:
+                observedWinningBidBps !== undefined,
+              pricingBoundary: "exact_profitability_only",
             },
           );
         }
@@ -959,7 +1091,8 @@ async function main(): Promise<void> {
           ),
           observedCompetitors: observationRead.value.length,
           action:
-            "hold_lane_specific_bid_pending_repeated_exact_evidence",
+            adaptiveAdjustment?.action ??
+            "hold_record_only_lifecycle_evidence",
         });
       } catch (error) {
         log(
@@ -1185,18 +1318,22 @@ async function main(): Promise<void> {
           } else if (
             request.poolBuilderBidPolicy !== undefined
           ) {
-            const poolPullBidController =
-              v2PoolPullBidController;
-            const adaptiveV2PoolPull =
-              request.poolVersion === "v2" &&
-              request.poolBuilderBidPolicy === "pool_pull" &&
-              poolPullBidController !== undefined;
-            if (
-              adaptiveV2PoolPull &&
-              poolPullBidController !== undefined
-            ) {
+            const adaptivePoolBidController =
+              request.poolVersion !== "v2"
+                ? undefined
+                : request.poolBuilderBidPolicy === "pool_pull"
+                  ? v2PoolPullBidController
+                  : request.poolBuilderBidPolicy ===
+                      "pool_fulfilled"
+                    ? v2PoolFulfilledBidController
+                    : undefined;
+            const adaptiveV2PoolPolicy =
+              adaptivePoolBidController !== undefined;
+            if (adaptivePoolBidController !== undefined) {
               requestBidBps =
-                poolPullBidController.currentBidBps(request.target);
+                adaptivePoolBidController.currentBidBps(
+                  request.target,
+                );
             } else {
               requestBidBps =
                 request.configuredBuilderBidBps ??
@@ -1206,14 +1343,18 @@ async function main(): Promise<void> {
                     ? config.poolBuilderBidBps
                     : config.poolFulfilledBuilderBidBps);
             }
-            requestBidPolicy = adaptiveV2PoolPull
-              ? "v2:pool_pull:adaptive_profitability_only"
+            requestBidPolicy = adaptiveV2PoolPolicy
+              ? `v2:${request.poolBuilderBidPolicy}:adaptive_profitability_only`
               : request.poolVersion === undefined
                 ? request.poolBuilderBidPolicy
                 : `${request.poolVersion}:${request.poolBuilderBidPolicy}`;
-            if (adaptiveV2PoolPull) {
-              minimumAggregateBuilderBidBps = requestBidBps;
+            if (adaptiveV2PoolPolicy) {
               profitabilityOnly = true;
+              if (
+                request.poolBuilderBidPolicy === "pool_pull"
+              ) {
+                minimumAggregateBuilderBidBps = requestBidBps;
+              }
             }
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
@@ -3575,6 +3716,19 @@ async function main(): Promise<void> {
         : "exact_profitability_only",
     configuredPoolFulfilledBuilderBidBps:
       config.poolFulfilledBuilderBidBps.toString(),
+    activeV2PoolFulfilledBuilderBidBps:
+      v2Config === undefined
+        ? ""
+        : (v2PoolFulfilledBidController?.currentBidBps(
+            v2Config.expectedPoolAddress,
+          ) ?? config.poolBuilderBidBps
+          ).toString(),
+    v2PoolFulfilledAdaptiveBidding:
+      v2PoolFulfilledBidController !== undefined,
+    v2PoolFulfilledPricingBoundary:
+      v2PoolFulfilledBidController === undefined
+        ? "configured_fee_and_profitability"
+        : "exact_profitability_only",
     configuredLiveBidSweepBuilderBidBps:
       config.liveBidSweepBuilderBidBps.toString(),
     configuredLiquityBuilderBidBps:

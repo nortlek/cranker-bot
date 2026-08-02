@@ -357,12 +357,12 @@ successful `crank` fees are sent to that keeper address.
   to the aggregate bundle a builder evaluates, and can rise to the exact
   retained-profit boundary without inheriting the standing-order controller.
 - `POOL_FULFILLED_BUILDER_BID_BPS`: builder share for ordinary fulfilled
-  `sync → settle` and settle-only work. The default is `7250` (72.5%), just
-  above the lowest of three exact recent fulfilled-cycle clearings. This does
-  not affect the ready acquisition lane, which retains its low independent
-  bid. Exact simulation, the global fee ceiling, and the positive-profit gate
-  still reject a fulfilled bundle that cannot afford this target. Mixed
-  order/pool bundles weight every component by its own policy.
+  V1 `sync → settle` work. The default is `7250` (72.5%). V2 fulfilled work
+  instead starts from `POOL_BUILDER_BID_BPS`, learns pure profitable clearing
+  evidence in the independent `v2_pool_fulfilled` durable scope, and can rise
+  only to the exact retained-profit boundary. Ready processor chains and
+  settle-only cleanup retain the low pool policy. Mixed order/pool bundles
+  weight every component by its own policy.
 - `LIVE_BID_SWEEP_BUILDER_BID_BPS`: builder share applied only to an adapter
   sweep. The default is `100` (1%); historical winning calls paid zero
   priority fee, so it does not inherit the standing-order bid.
@@ -688,14 +688,18 @@ missed sync or settlement aggregates the winning transaction's
 transaction, cranker, gross pool
 reward, priority payment, direct beneficiary payment, and a
 pool-reward-normalized bid upper bound. Exact, counterfactually profitable V2
-pull observations update their own adaptive scope. V1 pull and lifecycle
-observations remain record-only because a wrapper transaction may earn
-unrelated rewards; none contaminate standing-order state.
+pull observations update their own adaptive scope. Pure, single-round V2
+fulfilled lifecycle batches use a second independent adaptive scope. A
+lifecycle winner can update it only when the exact receipt and trace prove
+pool-only logs, same-round lifecycle calls, pool ETH inflow equal to the
+emitted bounty, no other cranker inflow, and profitable counterfactual
+economics. Ready processor chains, settle-only cleanup, V1 lifecycle, and
+ambiguous wrappers remain record-only; none contaminate standing-order state.
 
-Direct beneficiary transfers are read from the
-[Routescan internal-operations API](https://routescan.io/docs/api/transactions).
-The result is an inferred transaction-level bid; if the competing transaction
-contains unrelated MEV, it can overstate the portion funded by the crank.
+Direct beneficiary transfers and lifecycle value attribution are read from the
+discovery RPC's exact `trace_transaction` result. Trace failure is held rather
+than interpreted as a zero payment. The resulting transaction-level bid is
+adaptive evidence only after the lane-specific attribution gates pass.
 
 ## Production
 

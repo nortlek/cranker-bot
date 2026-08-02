@@ -16,6 +16,7 @@ import {
   exactSimulationPlanIsAdmissible,
   fwaProcessJob,
   highestPositiveClaimableIndexes,
+  isPureSingleRoundFulfilledLifecycleBatch,
   isConvexCrvChangeRevert,
   isConvexNoExpiredLocksRevert,
   isFreshBlockReadUnavailable,
@@ -76,6 +77,54 @@ describe("readOrderFactoryOrders", () => {
         functionName: "allOrders",
       }),
     );
+  });
+});
+
+describe("isPureSingleRoundFulfilledLifecycleBatch", () => {
+  const sync = {
+    kind: "pool_sync" as const,
+    target: POOL,
+    poolVersion: "v2" as const,
+    poolBuilderBidPolicy: "pool_fulfilled" as const,
+    roundId: 55n,
+  };
+  const settle = {
+    ...sync,
+    kind: "pool_settle" as const,
+  };
+
+  it("accepts only a same-round V2 fulfilled lifecycle with sync", () => {
+    expect(
+      isPureSingleRoundFulfilledLifecycleBatch([sync, settle]),
+    ).toBe(true);
+  });
+
+  it("rejects ready, settle-only, mixed, and multi-round batches", () => {
+    expect(
+      isPureSingleRoundFulfilledLifecycleBatch([
+        { ...sync, poolBuilderBidPolicy: "pool_ready" },
+        { ...settle, poolBuilderBidPolicy: "pool_ready" },
+      ]),
+    ).toBe(false);
+    expect(
+      isPureSingleRoundFulfilledLifecycleBatch([settle]),
+    ).toBe(false);
+    expect(
+      isPureSingleRoundFulfilledLifecycleBatch([
+        sync,
+        {
+          kind: "standing_order",
+          target: POOL,
+          poolVersion: "v2",
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      isPureSingleRoundFulfilledLifecycleBatch([
+        sync,
+        { ...settle, roundId: 56n },
+      ]),
+    ).toBe(false);
   });
 });
 

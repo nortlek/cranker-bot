@@ -1,4 +1,5 @@
 import {
+  decodeFunctionData,
   decodeEventLog,
   parseAbiItem,
   type Address,
@@ -12,6 +13,7 @@ import {
 import {
   factoryAbi,
   poolAbi,
+  poolV2Abi,
   standingOrderAbi,
   vaultFactoryAbi,
 } from "./abi.js";
@@ -30,6 +32,9 @@ const BPS = 10_000n;
 
 export interface RpcTransactionTrace {
   readonly action?: {
+    readonly callType?: string;
+    readonly from?: string;
+    readonly input?: Hex;
     readonly to?: string;
     readonly value?: string;
   };
@@ -84,11 +89,140 @@ export interface WinningPoolLifecycleBidObservation {
   readonly priorityPayment: bigint;
   readonly directBeneficiaryPayment: bigint;
   readonly totalBuilderPayment: bigint;
+  readonly adaptiveBidEligible: boolean;
+  readonly adaptiveBidExclusionReason: string;
   /**
    * This is an upper bound when the same transaction earned a processor,
    * standing-order, or other reward outside the pool lifecycle calls.
    */
   readonly winningBidBpsUpperBound: bigint;
+}
+
+export function poolLifecycleAdaptiveBidEligibility(parameters: {
+  readonly traces: readonly RpcTransactionTrace[];
+  readonly receiptLogs: readonly {
+    readonly address: Address;
+    readonly data: Hex;
+    readonly topics: readonly Hex[];
+  }[];
+  readonly pool: Address;
+  readonly cranker: Address;
+  readonly beneficiary: Address;
+  readonly roundId: bigint;
+  readonly grossPoolReward: bigint;
+}): {
+  readonly eligible: boolean;
+  readonly reason: string;
+} {
+  const pool = parameters.pool.toLowerCase();
+  const cranker = parameters.cranker.toLowerCase();
+  const beneficiary = parameters.beneficiary.toLowerCase();
+  if (beneficiary === cranker) {
+    return { eligible: false, reason: "cranker_is_beneficiary" };
+  }
+  for (const entry of parameters.receiptLogs) {
+    if (entry.address.toLowerCase() !== pool) {
+      return { eligible: false, reason: "non_pool_receipt_log" };
+    }
+    try {
+      const decoded = decodeEventLog({
+        abi: poolV2Abi,
+        data: entry.data,
+        topics: entry.topics as [] | [Hex, ...Hex[]],
+      });
+      if (
+        decoded.eventName === "CrankBountyPaid" &&
+        decoded.args.roundId === parameters.roundId &&
+        decoded.args.cranker.toLowerCase() === cranker
+      ) {
+        continue;
+      }
+      if (
+        (decoded.eventName === "RoundClaimable" ||
+          decoded.eventName === "RoundSettled" ||
+          decoded.eventName === "RoundVoided") &&
+        decoded.args.roundId === parameters.roundId
+      ) {
+        continue;
+      }
+    } catch {
+      // Fall through to the fail-closed event classification below.
+    }
+    return { eligible: false, reason: "unexpected_pool_event" };
+  }
+
+  let poolRewardInflow = 0n;
+  let syncCalls = 0;
+  for (const trace of parameters.traces) {
+    const action = trace.action;
+    if (trace.error != null) {
+      return { eligible: false, reason: "failed_trace_frame" };
+    }
+    if (action?.value === undefined) continue;
+    const from = action.from?.toLowerCase();
+    const to = action.to?.toLowerCase();
+    const input = action.input ?? "0x";
+    const value = BigInt(action.value);
+
+    if (value > 0n && to === beneficiary && from !== cranker) {
+      return {
+        eligible: false,
+        reason: "non_cranker_beneficiary_payment",
+      };
+    }
+
+    if (from === cranker) {
+      if (to === cranker && value === 0n) continue;
+      if (to === beneficiary && value > 0n && input === "0x") {
+        continue;
+      }
+      if (to !== pool || value !== 0n) {
+        return { eligible: false, reason: "unexpected_cranker_call" };
+      }
+      try {
+        const decoded = decodeFunctionData({
+          abi: poolV2Abi,
+          data: input,
+        });
+        if (
+          (decoded.functionName !== "syncFwaResult" &&
+            decoded.functionName !== "settle" &&
+            decoded.functionName !== "settleForcedEth") ||
+          decoded.args[0] !== parameters.roundId
+        ) {
+          return {
+            eligible: false,
+            reason: "unexpected_pool_lifecycle_call",
+          };
+        }
+        if (decoded.functionName === "syncFwaResult") syncCalls += 1;
+      } catch {
+        return {
+          eligible: false,
+          reason: "undecodable_pool_lifecycle_call",
+        };
+      }
+    }
+
+    if (value <= 0n || to !== cranker) continue;
+    if (from !== pool) {
+      return {
+        eligible: false,
+        reason: "additional_cranker_value_inflow",
+      };
+    }
+    poolRewardInflow += value;
+  }
+  if (syncCalls !== 1) {
+    return { eligible: false, reason: "missing_unique_sync_call" };
+  }
+  if (poolRewardInflow !== parameters.grossPoolReward) {
+    return {
+      eligible: false,
+      reason: "pool_reward_inflow_mismatch",
+    };
+  }
+  return { eligible: true, reason: "pool_only_value_attribution" };
 }
 
 export interface CompetitionRegistryConfig {
@@ -407,6 +541,20 @@ async function directBeneficiaryPayment(
   transactionHash: Hash,
   beneficiary: Address,
 ): Promise<bigint> {
+  const traces = await transactionTraces(
+    traceClient,
+    transactionHash,
+  );
+  return directBeneficiaryPaymentFromTraces({
+    traces,
+    beneficiary,
+  });
+}
+
+async function transactionTraces(
+  traceClient: PublicClient<Transport, Chain>,
+  transactionHash: Hash,
+): Promise<readonly RpcTransactionTrace[]> {
   let traces: readonly RpcTransactionTrace[];
   try {
     traces = (await traceClient.request({
@@ -421,10 +569,7 @@ async function directBeneficiaryPayment(
   if (traces.length === 0) {
     throw new Error("competitor RPC trace returned no frames");
   }
-  return directBeneficiaryPaymentFromTraces({
-    traces,
-    beneficiary,
-  });
+  return traces;
 }
 
 export async function observeWinningCrankBids(
@@ -682,14 +827,13 @@ export async function observeWinningPoolLifecycleBids(
   const baseFeePerGas = block.baseFeePerGas ?? 0n;
   return Promise.all(
     candidates.map(async (candidate) => {
-      const [receipt, directPayment] = await Promise.all([
+      const [receipt, traces] = await Promise.all([
         publicClient.getTransactionReceipt({
           hash: candidate.transactionHash,
         }),
-        directBeneficiaryPayment(
+        transactionTraces(
           parameters.traceClient,
           candidate.transactionHash,
-          block.miner,
         ),
       ]);
       if (candidate.grossPoolReward <= 0n) {
@@ -697,6 +841,20 @@ export async function observeWinningPoolLifecycleBids(
           `competitor pool lifecycle ${candidate.transactionHash} emitted no round-${candidate.roundId} crank bounty`,
         );
       }
+      const directPayment = directBeneficiaryPaymentFromTraces({
+        traces,
+        beneficiary: block.miner,
+      });
+      const adaptiveEligibility =
+        poolLifecycleAdaptiveBidEligibility({
+          traces,
+          receiptLogs: receipt.logs,
+          pool: parameters.pool,
+          cranker: candidate.cranker,
+          beneficiary: block.miner,
+          roundId: candidate.roundId,
+          grossPoolReward: candidate.grossPoolReward,
+        });
       const calculated = calculateWinningBidBps({
         totalCrankFees: candidate.grossPoolReward,
         gasUsed: receipt.gasUsed,
@@ -713,6 +871,10 @@ export async function observeWinningPoolLifecycleBids(
         directBeneficiaryPayment: directPayment,
         totalBuilderPayment: calculated.totalBuilderPayment,
         winningBidBpsUpperBound: calculated.winningBidBps,
+        adaptiveBidEligible: adaptiveEligibility.eligible,
+        adaptiveBidExclusionReason: adaptiveEligibility.eligible
+          ? ""
+          : adaptiveEligibility.reason,
       };
     }),
   );

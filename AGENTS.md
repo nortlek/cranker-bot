@@ -366,9 +366,18 @@ trace method, and do not restore the retired asynchronous trace-indexer path.
 After a missed pool sync or settlement,
 `pool_lifecycle_competitor_bid_observed` aggregates every
 `CrankBountyPaid` event for the lost round and winning transaction, then stores
-the same payment fields and a pool-reward-normalized upper bound. It is also
-record-only because the transaction may earn a processor, standing-order, or
-other reward outside the observed lifecycle calls.
+the same payment fields and a pool-reward-normalized upper bound. V1 and
+ambiguous wrapper observations remain record-only. A pure V2 fulfilled
+lifecycle observation may update the independent durable
+`v2_pool_fulfilled` controller only when the exact receipt and trace prove all
+logs came from the pool, every direct cranker call was same-round lifecycle or
+beneficiary-payment scaffolding, the pool-to-cranker ETH inflow exactly matched
+the emitted bounty, no other positive cranker inflow existed, and beating the
+payment remained counterfactually profitable. Only our own pure, single-round
+`pool_fulfilled` outcomes feed wins or losses to this scope; ready processor
+chains and settle-only cleanup retain the independent low pool bid.
+`v2_pool_fulfilled_adaptive_bid_adjusted` records every held, increased, or
+decreased V2 fulfilled target.
 `pool_lifecycle_bid_observation` distinguishes a competitor win from a miss
 with no competing lifecycle transaction in that target block.
 
@@ -681,6 +690,14 @@ These constraints prevent expensive or unsafe regressions:
   above the economically admissible payment, not an economic cap. Because the
   aggregate high bid is justified by the pull, the private prefix floor must
   include that pull; never offer the same high-fee lifecycle-only prefix.
+- V2 fulfilled acquisition batches start at the low pool bid and learn exact
+  clearing prices in the independent durable `v2_pool_fulfilled` scope. The
+  adaptive target applies only to the fulfilled lifecycle reward, has no fixed
+  percentage or `MAX_FEE_PER_GAS_GWEI` ceiling, and remains clamped by the
+  exact retained-profit floor. Ready processor chains and settle-only cleanup
+  never inherit this bid. Competitor evidence is eligible only after the
+  receipt-and-trace attribution gate above proves pure pool lifecycle
+  economics; every ambiguous wrapper remains record-only.
 - Competitive lanes share `AdaptiveBidController`; add a durable scope and
   safe lane-specific outcome normalization instead of copying its feedback
   loop. A measured, profitable higher competitor raises the target. Sustained
@@ -692,7 +709,7 @@ These constraints prevent expensive or unsafe regressions:
   inert.
   A probe miss with no competitor or a cheaper measured winner must hold the
   probe; raising payment cannot repair builder reach, timing, or state conflict.
-  Never feed ambiguous wrapper economics into the controller.
+  Never feed ambiguous wrapper economics into any controller.
 - Standing-order targets start at `BUILDER_BID_BPS`, but durable per-target
   price discovery may bid lower after repeated wins. Its bracket must learn
   from the exact payment expressed by that order's simulated gas and reward
@@ -758,7 +775,7 @@ At the last handoff, the configured policy was approximately:
 | Pending-funding standing-order backrun | 10% |
 | Pool pull | V1 10%; V2 adaptive from 10% to profitability boundary |
 | Pool acquisition ready | 3% |
-| Pool acquisition fulfilled | 72.5% |
+| Pool acquisition fulfilled | V1 72.5%; V2 adaptive from 3% to profitability boundary |
 | LiveBid sweep | 1% (feature default-off) |
 | Liquity V2 | 81% |
 | Convex | 10% |

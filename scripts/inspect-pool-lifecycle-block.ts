@@ -2,7 +2,9 @@ import {
   createPublicClient,
   formatEther,
   formatGwei,
+  getAddress,
   http,
+  type Address,
   type Hash,
 } from "viem";
 import { mainnet } from "viem/chains";
@@ -37,6 +39,16 @@ function ourTransactionHashes(): readonly Hash[] {
     });
 }
 
+function poolArgument(fallback: Address): Address {
+  const prefix = "--pool=";
+  const argument = process.argv.find((value) =>
+    value.startsWith(prefix),
+  );
+  return argument === undefined
+    ? fallback
+    : getAddress(argument.slice(prefix.length));
+}
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const client = createPublicClient({
@@ -47,20 +59,24 @@ async function main(): Promise<void> {
       timeout: 20_000,
     }),
   });
+  const traceClient = createPublicClient({
+    chain: mainnet,
+    transport: http(config.discoveryRpcUrl, {
+      retryCount: 3,
+      retryDelay: 500,
+      timeout: 20_000,
+    }),
+  });
   const block = requiredBigintArgument("block");
   const round = requiredBigintArgument("round");
+  const pool = poolArgument(config.expectedPoolAddress);
   const observations =
     await observeWinningPoolLifecycleBids(client, {
       targetBlock: block,
-      pool: config.expectedPoolAddress,
+      pool,
       lostRoundIds: [round],
       ourTransactionHashes: ourTransactionHashes(),
-      traceConfig: {
-        url: config.competitorTraceUrl,
-        timeoutMs: config.competitorTraceTimeoutMs,
-        retries: config.competitorTraceRetries,
-        retryDelayMs: config.competitorTraceRetryDelayMs,
-      },
+      traceClient,
     });
   const canonicalBlock = await client.getBlock({
     blockNumber: block,
@@ -113,6 +129,10 @@ async function main(): Promise<void> {
         ),
         winningBidBpsUpperBound:
           observation.winningBidBpsUpperBound.toString(),
+        adaptiveBidEligible:
+          observation.adaptiveBidEligible,
+        adaptiveBidExclusionReason:
+          observation.adaptiveBidExclusionReason,
         conservativeRetainedAfterKnownCostsEth: formatEther(
           conservativeRetainedAfterKnownCosts,
         ),
@@ -129,7 +149,7 @@ async function main(): Promise<void> {
           ? undefined
           : formatGwei(canonicalBlock.baseFeePerGas),
       beneficiary: canonicalBlock.miner,
-      pool: config.expectedPoolAddress,
+      pool,
       observations: enriched,
     }),
   );

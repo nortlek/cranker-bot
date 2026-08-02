@@ -363,9 +363,11 @@ export interface PoolLifecycleBatchOutcome {
   readonly targetBlock: bigint;
   readonly pool: Address;
   readonly poolVersion: KeeperConfig["poolVersion"];
+  readonly effectiveBuilderBidBps?: bigint;
   readonly plannedGrossReward?: bigint;
   readonly plannedBuilderPayment?: bigint;
   readonly plannedExpectedProfit?: bigint;
+  readonly pureSingleRoundFulfilledLifecycle: boolean;
   readonly attempts: readonly {
     readonly hash: Hash;
     readonly roundId: bigint;
@@ -373,8 +375,48 @@ export interface PoolLifecycleBatchOutcome {
       | "pool_sync"
       | "pool_settle"
       | "pool_settle_forced_eth";
+    readonly bidPolicy?: PoolBuilderBidPolicy;
     readonly included: boolean;
   }[];
+}
+
+export function isPureSingleRoundFulfilledLifecycleBatch(
+  requests: readonly Pick<
+    KeeperJob,
+    | "kind"
+    | "target"
+    | "poolVersion"
+    | "poolBuilderBidPolicy"
+    | "roundId"
+  >[],
+): boolean {
+  const first = requests[0];
+  if (
+    first === undefined ||
+    first.poolVersion !== "v2" ||
+    first.poolBuilderBidPolicy !== "pool_fulfilled" ||
+    first.roundId === undefined
+  ) {
+    return false;
+  }
+  const pool = first.target.toLowerCase();
+  const roundId = first.roundId;
+  let includesSync = false;
+  for (const request of requests) {
+    if (
+      (request.kind !== "pool_sync" &&
+        request.kind !== "pool_settle" &&
+        request.kind !== "pool_settle_forced_eth") ||
+      request.poolVersion !== "v2" ||
+      request.poolBuilderBidPolicy !== "pool_fulfilled" ||
+      request.roundId !== roundId ||
+      request.target.toLowerCase() !== pool
+    ) {
+      return false;
+    }
+    includesSync ||= request.kind === "pool_sync";
+  }
+  return includesSync;
 }
 
 export interface StrategyContext {
@@ -2278,7 +2320,7 @@ async function planPrimaryJobs(parameters: {
               roundId: roundCount,
               gas,
               terms,
-              bidPolicy: "pool_fulfilled",
+              bidPolicy: "pool_ready",
               config,
             }),
           ],
@@ -6230,6 +6272,12 @@ export async function runKeeperPass(
           hash: submission.hash,
           roundId: submission.request.roundId,
           kind,
+          ...(submission.request.poolBuilderBidPolicy === undefined
+            ? {}
+            : {
+                bidPolicy:
+                  submission.request.poolBuilderBidPolicy,
+              }),
           included:
             receiptResults[index]?.successful ?? false,
         },
@@ -6247,6 +6295,10 @@ export async function runKeeperPass(
         request.kind === "pool_settle" ||
         request.kind === "pool_settle_forced_eth",
     )?.request;
+    const pureSingleRoundFulfilledLifecycle =
+      isPureSingleRoundFulfilledLifecycleBatch(
+        submitted.map(({ request }) => request),
+      );
     try {
       await context.observePoolLifecycleBatch({
         targetBlock: privateTargetBlock,
@@ -6256,6 +6308,12 @@ export async function runKeeperPass(
         poolVersion:
           lifecycleRequest?.poolVersion ??
           context.config.poolVersion,
+        ...(batchResult?.effectiveBuilderBidBps === undefined
+          ? {}
+          : {
+              effectiveBuilderBidBps:
+                batchResult.effectiveBuilderBidBps,
+            }),
         ...(batchResult?.plannedGrossReward === undefined
           ? {}
           : {
@@ -6274,6 +6332,7 @@ export async function runKeeperPass(
               plannedExpectedProfit:
                 batchResult.plannedExpectedProfit,
             }),
+        pureSingleRoundFulfilledLifecycle,
         attempts: poolLifecycleAttempts,
       });
     } catch (error) {

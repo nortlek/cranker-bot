@@ -81,6 +81,7 @@ const IMPORTANT_EVENTS = new Set([
   "signer_lease_waiting",
   "stakedao_curve_opportunity",
   "stakedao_curve_scan_failed",
+  "v2_pool_fulfilled_adaptive_bid_adjusted",
 ]);
 
 function directReport(entry: LogEntry): void {
