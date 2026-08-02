@@ -406,10 +406,13 @@ successful `crank` fees are sent to that keeper address.
   top-of-hour rolling report. The active signer lease holder queries durable
   PostgreSQL telemetry for 1-hour and 24-hour receipt P&L, transaction
   successes and failures, gross rewards, gas, submissions, pass health, last
-  activity, and a 24-hour lane breakdown. Failed outcomes include reverts,
-  private misses/expirations, and unresolved receipts. Current Chainlink
-  ETH/USD converts the receipt-derived ETH P&L for presentation; an oracle
-  failure sends the ETH-only report. Dry-run workers never start this lane.
+  activity, total supported account holdings in ETH and USD, and a 24-hour
+  lane breakdown. Account holdings cover ETH, WETH, DAI, DOLA, CRV, and CVX
+  with the same freshness, DOLA cap, and FiRM haircut rules as goal status.
+  Failed outcomes include reverts, private misses/expirations, and unresolved
+  receipts. Current Chainlink ETH/USD converts the receipt-derived ETH P&L for
+  presentation; an oracle failure sends the ETH-only report. Dry-run workers
+  never start this lane.
 - `DISCORD_WEBHOOK_TIMEOUT_MS`: per-delivery timeout. Notifications are queued
   independently and never block block processing or transaction submission.
 - `DATABASE_URL`: optional PostgreSQL storage for durable structured events.

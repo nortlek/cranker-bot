@@ -72,7 +72,10 @@ afterEach(() => {
 
 describe("hourly stats embed", () => {
   it("renders rolling P&L, outcomes, health, USD, and lane results", () => {
-    const embed = buildHourlyStatsEmbed(snapshot(), 2_000);
+    const embed = buildHourlyStatsEmbed(snapshot(), 2_000, {
+      totalEthEquivalentWei: 364_189_069_992_856_067n,
+      totalUsd: 728.37813999,
+    });
 
     expect(embed.title).toBe("Hourly keeper stats");
     expect(embed.color).toBe(0x2ecc71);
@@ -89,6 +92,12 @@ describe("hourly stats embed", () => {
       embed.fields?.find((field) => field.name === "Operations")
         ?.value,
     ).toContain("block 25670000");
+    expect(
+      embed.fields?.find((field) => field.name === "Operations")
+        ?.value,
+    ).toContain(
+      "0.364189069992856067 ETH ($728.38)",
+    );
     expect(
       embed.fields?.find((field) =>
         field.name.startsWith("24h by lane"),
@@ -236,6 +245,10 @@ describe("HourlyStatsReporter", () => {
       ethUsd: async () => {
         throw new Error("provider details that must not be logged");
       },
+      accountBalance: async () => ({
+        totalEthEquivalentWei: 360_000_000_000_000_000n,
+        totalUsd: 720,
+      }),
       report,
     });
 

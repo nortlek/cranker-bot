@@ -250,6 +250,12 @@ export const CRV_ADDRESS = getAddress(
 export const CRV_USD_FEED_ADDRESS = getAddress(
   "0xCd627aA160A6fA45Eb793D19Ef54f5062F20f33f",
 );
+export const DAI_ADDRESS = getAddress(
+  "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+);
+export const DAI_USD_FEED_ADDRESS = getAddress(
+  "0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9",
+);
 export const ETH_USD_FEED_ADDRESS = getAddress(
   "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
 );
@@ -261,6 +267,9 @@ export const FIRM_DOLA_ADDRESS = getAddress(
 );
 export const FIRM_DOLA_USD_FEED_ADDRESS = getAddress(
   "0xE33592594f72Cc7ec8a05788be8E8455746C3a32",
+);
+export const WETH_ADDRESS = getAddress(
+  "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
 );
 // Deployment block of the canonical Ethereum DBR contract. AddMarket events
 // are immutable, so scanning from this block reconstructs the market registry

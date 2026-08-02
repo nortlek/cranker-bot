@@ -43,6 +43,11 @@ export interface HourlyStatsSnapshot {
   readonly health: HourlyStatsHealth;
 }
 
+export interface HourlyStatsAccountBalance {
+  readonly totalEthEquivalentWei: bigint;
+  readonly totalUsd: number;
+}
+
 export interface HourlyStatsSource {
   load(now: Date): Promise<HourlyStatsSnapshot>;
   close(): Promise<void>;
@@ -463,6 +468,7 @@ function laneField(lanes: readonly HourlyStatsLane[]): string {
 export function buildHourlyStatsEmbed(
   snapshot: HourlyStatsSnapshot,
   ethUsd?: number,
+  accountBalance?: HourlyStatsAccountBalance,
 ): DiscordEmbed {
   const { health } = snapshot;
   const color =
@@ -500,6 +506,19 @@ export function buildHourlyStatsEmbed(
       {
         name: "Operations",
         value: [
+          `**Total account balance:** ${
+            accountBalance === undefined
+              ? "valuation unavailable"
+              : `${formatEther(
+                  accountBalance.totalEthEquivalentWei,
+                )} ETH ($${accountBalance.totalUsd.toLocaleString(
+                  "en-US",
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  },
+                )})`
+          }`,
           `**Submitted (1h / 24h):** ${health.submissions1h} / ${health.submissions24h}`,
           `**Passes (1h / 24h):** ${health.passes1h} / ${health.passes24h}`,
           `**Pass failures:** ${health.passFailures1h} / ${health.passFailures24h}`,
@@ -593,6 +612,9 @@ export class HourlyStatsReporter {
   readonly #sender: HourlyStatsSender;
   readonly #beforeReport: (() => Promise<void>) | undefined;
   readonly #ethUsd: (() => Promise<number>) | undefined;
+  readonly #accountBalance:
+    | (() => Promise<HourlyStatsAccountBalance>)
+    | undefined;
   readonly #report: StatsReporterLog;
   readonly #now: () => Date;
   readonly #intervalMs: number;
@@ -606,6 +628,9 @@ export class HourlyStatsReporter {
     readonly sender: HourlyStatsSender;
     readonly beforeReport?: (() => Promise<void>) | undefined;
     readonly ethUsd?: (() => Promise<number>) | undefined;
+    readonly accountBalance?:
+      | (() => Promise<HourlyStatsAccountBalance>)
+      | undefined;
     readonly report?: StatsReporterLog;
     readonly now?: () => Date;
     readonly intervalMs?: number;
@@ -618,6 +643,7 @@ export class HourlyStatsReporter {
     this.#sender = parameters.sender;
     this.#beforeReport = parameters.beforeReport;
     this.#ethUsd = parameters.ethUsd;
+    this.#accountBalance = parameters.accountBalance;
     this.#report = parameters.report ?? (() => undefined);
     this.#now = parameters.now ?? (() => new Date());
     this.#intervalMs = intervalMs;
@@ -711,9 +737,37 @@ export class HourlyStatsReporter {
       }
     }
 
+    let accountBalance: HourlyStatsAccountBalance | undefined;
+    if (this.#accountBalance !== undefined) {
+      try {
+        const balance = await this.#accountBalance();
+        if (
+          balance.totalEthEquivalentWei < 0n ||
+          !Number.isFinite(balance.totalUsd) ||
+          balance.totalUsd < 0
+        ) {
+          throw new Error("invalid account balance valuation");
+        }
+        accountBalance = balance;
+      } catch (error) {
+        this.#report(
+          "warn",
+          "hourly_stats_account_balance_failed",
+          {
+            ...errorFingerprint(error),
+            action: "sending_without_account_balance",
+          },
+        );
+      }
+    }
+
     try {
       await this.#sender.send(
-        buildHourlyStatsEmbed(snapshot, ethUsd),
+        buildHourlyStatsEmbed(
+          snapshot,
+          ethUsd,
+          accountBalance,
+        ),
       );
     } catch (error) {
       this.#report("warn", "hourly_stats_delivery_failed", {
@@ -734,6 +788,15 @@ export class HourlyStatsReporter {
       realizedProfit24h: `${formatEther(
         snapshot.twentyFourHours.realizedProfitWei,
       )} ETH`,
+      ...(accountBalance === undefined
+        ? {}
+        : {
+            totalAccountBalance: `${formatEther(
+              accountBalance.totalEthEquivalentWei,
+            )} ETH`,
+            totalAccountBalanceUsd:
+              accountBalance.totalUsd,
+          }),
     });
   }
 }

@@ -18,6 +18,7 @@ import {
   AdaptiveBidController,
   adaptiveBidAdjustmentFields,
 } from "./adaptive-bidding.js";
+import { readKeeperAccountBalance } from "./account-balance.js";
 import {
   factoryAbi,
   fwaAbi,
@@ -3647,6 +3648,8 @@ async function main(): Promise<void> {
     throw new Error("PRIVATE_KEY is required when DRY_RUN=false");
   }
 
+  const accountAddress =
+    typeof account === "string" ? account : account.address;
   if (!config.dryRun) {
     log("info", "signer_initialization_ready", {
       durationMs: performance.now() - startupStartedAt,
@@ -3686,14 +3689,23 @@ async function main(): Promise<void> {
           await telemetrySink?.flush();
         },
         ethUsd: readCurrentEthUsd,
+        accountBalance: () =>
+          readKeeperAccountBalance({
+            client: publicClient,
+            account: accountAddress,
+            ethOracleMaxAgeSeconds:
+              config.firmEthOracleMaxAgeSeconds,
+            dolaOracleMaxAgeSeconds:
+              config.firmDolaOracleMaxAgeSeconds,
+            dolaValuationHaircutBps:
+              config.firmRewardHaircutBps,
+          }),
         report: log,
       });
       hourlyStatsReporter.start();
     }
   }
 
-  const accountAddress =
-    typeof account === "string" ? account : account.address;
   const balance = await publicClient.getBalance({ address: accountAddress });
   log("info", "keeper_started", {
     chainId,
