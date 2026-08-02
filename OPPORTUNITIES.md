@@ -454,6 +454,51 @@ for `-0.000004941604941098 ETH` net. Break-even required
 `0.0005726532000001 ETH`, so current inventory was only 13.7% of break-even.
 There is no current profitable action.
 
+A 2026-07-31 refresh during renewed DERP trading reversed that stale snapshot.
+At block `24501608`, the preceding 100,000 blocks spanned 10,018 seconds and
+contained four successful collections, all profitable, with no failed crank
+visible in the bounded Blockscout transaction history. They retained
+`0.000257848615270174 ETH` after receipt gas. The trailing 24 hours contained
+13 successful collections from 11 distinct callers, all profitable, retaining
+`0.000982125191072545 ETH`; the median gap between successes was 112.84
+minutes. At an approximately `$1,860.80` spot ETH price, that is a
+protocol-wide opportunity pool of about `$1.83/day`, not expected capture by
+this keeper. The hotter 100,000-block burst annualizes to about `$4.14/day`
+but is too short and activity-dependent to use as a baseline.
+
+The current competitor field does not resemble a mature keeper auction. The
+repeat leader won only three of the 13 trailing-day calls, every recent winner
+used zero priority fee, and the recent addresses mostly interleave occasional
+`collect` calls with StonkPit game actions, NFT mints, or other application
+activity. Several addresses also share exact gas-limit fingerprints consistent
+with a common UI or wallet estimator. There is historical automation: address
+`0x959133320B8fAC322c12C8648255264617155964` submitted 20 collections between
+15:03 and 17:13 UTC on 2026-07-30, including thin or unprofitable work, and an
+earlier 30-call window had one address win 21 times. That behavior is
+automated or button-spam-like but not economically sophisticated. It had
+stopped capturing the later window. Most decisively, at block `24504738`, 42
+minutes after the latest collection, exact simulation still exposed
+`0.005522482035202483 ETH`, a `0.000055224820352024 ETH` tip, and
+`0.000049697880532024 ETH` estimated direct net profit—roughly ten times the
+break-even inventory—without an incumbent taking it.
+
+Use `$1.8-$2.0/day` only as the current gross forgone-pool estimate. Realistic
+capture remains unknown because FCFS signal-to-submission latency has not been
+measured; illustrative 25%, 50%, and 75% shares of the trailing-day pool are
+about `$0.46`, `$0.91`, and `$1.37` per day. Do not promote those scenarios to
+an EV claim until the observer labels wins, losses, and stale-race gas.
+
+A 2026-08-01 read-only refresh at block `24824584` still found the lane live
+but sparse. Exact simulation exposed `0.00359206156226602 ETH`, a
+`0.00003592061562266 ETH` tip, `0.00000545877332 ETH` estimated gas, and
+`0.00003046184230266 ETH` direct net profit. The break-even inventory was only
+`0.0005458773320001 ETH`, so the call was safely above the static economic
+threshold. The preceding 100,000 blocks contained two successful collections
+from two callers, both profitable, no observed failed crank, and
+`0.000126990799109869 ETH` net after known gas. The currently unclaimed
+profitable state reinforces that competition is intermittent, but two episodes
+remain far below the sample required to authorize a public FCFS worker.
+
 Use `npm run inspect:robinhood` for a current read-only simulation and bounded
 history/competitor sample. Optional knobs are `ROBINHOOD_RPC_URL`,
 `ROBINHOOD_LOOKBACK_BLOCKS`, `ROBINHOOD_MAX_RECEIPTS`, and
