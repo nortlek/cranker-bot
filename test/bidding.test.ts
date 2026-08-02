@@ -426,6 +426,34 @@ describe("selectMostProfitablePrefix", () => {
     );
   });
 
+  it("keeps a profit-floor suffix that increases the absolute builder payment", () => {
+    const selected = selectMostProfitablePrefix({
+      components: [
+        {
+          rewardWei: 2_000n,
+          gasUsed: 101n,
+          builderBidBps: 10_000n,
+          minimumPriorityFeePerGas: 0n,
+        },
+        {
+          rewardWei: 1_000n,
+          gasUsed: 101n,
+          builderBidBps: 10_000n,
+          minimumPriorityFeePerGas: 0n,
+        },
+      ],
+      minimumViablePrefix: 1,
+      baseFeeAllowancePerGas: 1n,
+      maxFeePerGasCap: 100n,
+      minProfitWei: 100n,
+    });
+
+    expect(selected?.length).toBe(2);
+    expect(selected?.quote.cappedByProfit).toBe(true);
+    expect(selected?.quote.builderPayment).toBe(2_626n);
+    expect(selected?.quote.expectedProfit).toBe(172n);
+  });
+
   it("returns undefined when no dependency-safe prefix is profitable", () => {
     expect(
       selectMostProfitablePrefix({

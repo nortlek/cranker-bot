@@ -442,9 +442,12 @@ export function quoteCompetitiveFees(parameters: {
 }
 
 /**
- * Selects the contiguous, dependency-safe prefix with the greatest retained
- * profit after exact simulated gas and the prefix's reward-weighted builder
- * policy. Shorter prefixes win ties to avoid unnecessary execution risk.
+ * Selects the best contiguous, dependency-safe prefix after exact simulated
+ * gas and the prefix's reward-weighted builder policy. Retained profit wins
+ * normally. When both candidates are clamped to the retained-profit floor,
+ * their tiny profit difference is only integer fee-rate rounding; prefer the
+ * larger absolute builder payment so a low-fee suffix strengthens rather than
+ * weakens the bundle's auction bid. Shorter prefixes still win exact ties.
  */
 export function selectMostProfitablePrefix(parameters: {
   readonly components: readonly CompetitivePrefixComponent[];
@@ -529,10 +532,14 @@ export function selectMostProfitablePrefix(parameters: {
           }),
     });
     if (!quote.profitable) continue;
-    if (
+    const betterThanBest =
       best === undefined ||
-      quote.expectedProfit > best.quote.expectedProfit
-    ) {
+      (quote.cappedByProfit && best.quote.cappedByProfit
+        ? quote.builderPayment > best.quote.builderPayment ||
+          (quote.builderPayment === best.quote.builderPayment &&
+            quote.expectedProfit > best.quote.expectedProfit)
+        : quote.expectedProfit > best.quote.expectedProfit);
+    if (betterThanBest) {
       best = {
         length,
         grossReward,

@@ -647,6 +647,11 @@ These constraints prevent expensive or unsafe regressions:
   the locally derived target base fee is already covered. Do not apply this
   retry to any other `-32000` response, and never let it outlive the target-head
   deadline.
+- Prefix selection normally maximizes retained profit. If multiple prefixes
+  are clamped by the retained-profit floor, prefer the prefix with the larger
+  absolute builder payment: the sub-gas-unit retained-profit difference is
+  integer fee-rate rounding, while pruning positive-reward standing-order
+  suffixes can make our aggregate bid lose to a broader competitor batch.
 - Private one-block bundles are the default. A missed bundle expires and must
   not leak into the public mempool.
 - Pool lifecycle, pool pull, standing orders, the default-off LiveBid sweep,
