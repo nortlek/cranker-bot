@@ -2,7 +2,6 @@
 
 import {
   Activity,
-  ArrowDownRight,
   ArrowUpRight,
   Blocks,
   Bot,
@@ -13,7 +12,6 @@ import {
   Copy,
   Crosshair,
   ExternalLink,
-  Flame,
   Gauge,
   Inbox,
   Layers3,
@@ -93,7 +91,25 @@ type DashboardApiResponse = {
     receiptProfitUsd: number;
     receiptProfitEth: number;
     receiptCount: number;
+    batchAttempts: number;
+    batchWins: number;
+    batchWinRate: number;
+    relayAttempts: number;
+    relayAccepted: number;
+    relayDeliveryRate: number;
   };
+  execution: {
+    lastPassAt: string;
+    lastBlock: string;
+    viable: number;
+    sent: number;
+    confirmed: number;
+    activeRuns: number;
+    signerLeases: number;
+    passFailures24h: number;
+  };
+  lanes: Array<{ key: LaneKey; value: number; chartValue: number }>;
+  relays: Array<{ relayIndex: number; attempted: number; accepted: number }>;
   pnl: PnlPoint[];
   transactions: Transaction[];
 };
@@ -158,11 +174,11 @@ const pnlData: PnlPoint[] = basePnlData.map((point, index) => {
 });
 
 const laneData = [
-  { name: "Standing orders", short: "Orders", value: 128.42, fill: "#b7f34a" },
-  { name: "Pool lifecycle", short: "Lifecycle", value: 67.18, fill: "#6ce5d7" },
-  { name: "FWA backruns", short: "FWA", value: 41.63, fill: "#8ba6ff" },
-  { name: "Pool pull", short: "Pull", value: 12.84, fill: "#c5a7ff" },
-  { name: "Other lanes", short: "Other", value: 3.67, fill: "#65706a" },
+  { key: "orders" as const, name: "Standing orders", short: "Orders", value: 128.42, chartValue: 128.42, fill: "#b7f34a" },
+  { key: "lifecycle" as const, name: "Pool lifecycle", short: "Lifecycle", value: 67.18, chartValue: 67.18, fill: "#6ce5d7" },
+  { key: "fwa" as const, name: "FWA backruns", short: "FWA", value: 41.63, chartValue: 41.63, fill: "#8ba6ff" },
+  { key: "pull" as const, name: "Pool pull", short: "Pull", value: 12.84, chartValue: 12.84, fill: "#c5a7ff" },
+  { key: "other" as const, name: "Other lanes", short: "Other", value: 3.67, chartValue: 3.67, fill: "#65706a" },
 ];
 
 const transactions: Transaction[] = [
@@ -533,7 +549,7 @@ export default function Home() {
         const data = (await response.json()) as DashboardApiResponse;
         if (!cancelled) setLiveData(data);
       } catch {
-        // The verified build-time snapshot remains visible while telemetry is unavailable.
+        // The clearly labeled layout snapshot remains visible while telemetry is unavailable.
       }
     };
     void refresh();
@@ -547,12 +563,12 @@ export default function Home() {
   const chartData = useMemo(() => {
     const source = liveData?.pnl.length ? liveData.pnl : pnlData;
     const ranged = range === "24H" ? source.slice(-2) : range === "7D" ? source.slice(-7) : source;
-    let cumulative = 0;
-    return ranged.map((point) => {
+    return ranged.reduce<Array<PnlPoint & { activePnl: number }>>((points, point) => {
       const interval = activePnlLanes.reduce((total, lane) => total + point[lane], 0);
-      cumulative += interval;
-      return { ...point, activePnl: Number(cumulative.toFixed(2)) };
-    });
+      const cumulative = (points.at(-1)?.activePnl ?? 0) + interval;
+      points.push({ ...point, activePnl: Number(cumulative.toFixed(2)) });
+      return points;
+    }, []);
   }, [activePnlLanes, liveData, range]);
 
   const filteredTransactions = useMemo(() => {
@@ -586,6 +602,98 @@ export default function Home() {
     }
     return rows;
   }, [filteredTransactions]);
+
+  const displayLaneData = useMemo(() => {
+    if (!liveData) return laneData;
+    return laneDefinitions.map((lane) => {
+      const telemetry = liveData.lanes.find((item) => item.key === lane.key);
+      return {
+        key: lane.key,
+        name: lane.label,
+        short: lane.label,
+        value: telemetry?.value ?? 0,
+        chartValue: telemetry?.chartValue ?? 0,
+        fill: lane.color,
+      };
+    });
+  }, [liveData]);
+
+  const profitableLaneTotal = displayLaneData.reduce(
+    (total, lane) => total + Math.max(0, lane.value),
+    0,
+  );
+  const leadingLane = [...displayLaneData].sort(
+    (left, right) => right.value - left.value,
+  )[0];
+  const leadingLaneShare =
+    leadingLane && profitableLaneTotal > 0
+      ? (Math.max(0, leadingLane.value) / profitableLaneTotal) * 100
+      : 0;
+
+  const displayRelayData = liveData
+    ? liveData.relays.map((relay, index) => ({
+        builder: `Relay ${relay.relayIndex + 1}`,
+        attempted: relay.attempted,
+        landed: relay.accepted,
+        color: laneDefinitions[index % laneDefinitions.length].color,
+      }))
+    : builderData;
+
+  const lastPassFresh = liveData?.execution.lastPassAt
+    ? Date.parse(liveData.generatedAt) - Date.parse(liveData.execution.lastPassAt) < 60_000
+    : false;
+  const signerHealthy = Boolean(
+    liveData &&
+      liveData.execution.activeRuns === 1 &&
+      liveData.execution.signerLeases === 1 &&
+      lastPassFresh,
+  );
+  const healthScore = liveData
+    ? [
+        lastPassFresh,
+        liveData.execution.activeRuns === 1,
+        liveData.execution.signerLeases === 1,
+        liveData.execution.passFailures24h === 0,
+      ].filter(Boolean).length / 4
+    : 1;
+
+  const displayHealthEvents = liveData
+    ? [
+        {
+          time: liveData.execution.lastPassAt
+            ? new Date(liveData.execution.lastPassAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })
+            : "—",
+          title: "Latest pass",
+          meta: `block ${liveData.execution.lastBlock || "—"} · ${liveData.execution.viable} viable · ${liveData.execution.sent} sent`,
+          tone: lastPassFresh ? "good" : "warning",
+        },
+        {
+          time: "NOW",
+          title: "Signer lease",
+          meta: `${liveData.execution.signerLeases} held · ${liveData.execution.activeRuns} active run`,
+          tone:
+            liveData.execution.signerLeases === 1 && liveData.execution.activeRuns === 1
+              ? "good"
+              : "warning",
+        },
+        {
+          time: "24H",
+          title: "Keeper pass failures",
+          meta: `${liveData.execution.passFailures24h} recorded`,
+          tone: liveData.execution.passFailures24h === 0 ? "good" : "warning",
+        },
+        {
+          time: "7D",
+          title: "Relay delivery",
+          meta: `${liveData.summary.relayAccepted}/${liveData.summary.relayAttempts} submissions accepted`,
+          tone: liveData.summary.relayAccepted > 0 ? "accent" : "warning",
+        },
+      ]
+    : healthEvents;
 
   const togglePnlLane = (lane: LaneKey) => {
     setActivePnlLanes((current) =>
@@ -641,7 +749,7 @@ export default function Home() {
 
           <span className="nav-label">Operations</span>
           <a className="nav-item" href="#lanes">
-            <Layers3 size={18} /> Keeper lanes <em>9</em>
+            <Layers3 size={18} /> Keeper lanes <em>{laneDefinitions.length}</em>
           </a>
           <a className="nav-item" href="#health">
             <Activity size={18} /> System health <i />
@@ -655,17 +763,21 @@ export default function Home() {
         <div className="signer-card">
           <div className="signer-head">
             <span className="pulse-dot" />
-            <strong>Signer online</strong>
+            <strong>
+              {liveData
+                ? signerHealthy ? "Signer online" : "Signer attention"
+                : "Signer snapshot"}
+            </strong>
             <span>PROD</span>
           </div>
           <div className="signer-address">0xeAaf…2D48</div>
           <div className="signer-meta">
-            <span>Nonce</span>
-            <strong>latest = pending</strong>
+            <span>Runs</span>
+            <strong>{liveData ? `${liveData.execution.activeRuns} active` : "1 active"}</strong>
           </div>
           <div className="signer-meta">
             <span>Lease</span>
-            <strong>Acquired</strong>
+            <strong>{liveData ? `${liveData.execution.signerLeases} held` : "Acquired"}</strong>
           </div>
         </div>
         <div className="network-chip">
@@ -690,7 +802,7 @@ export default function Home() {
           <div className="topbar-right">
             <div className="sync-state">
               <span className="pulse-dot" />
-              {liveData ? "LIVE" : "SNAPSHOT"}
+              {liveData ? "LIVE" : "DEMO"}
               <small>
                 {liveData
                   ? `Synced ${new Date(liveData.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
@@ -711,7 +823,7 @@ export default function Home() {
               <div className="eyebrow">
                 <span>ETHEREUM MAINNET</span>
                 <i />
-                <span>VERIFIED SNAPSHOT</span>
+                <span>{liveData ? "LIVE TELEMETRY" : "LAYOUT SNAPSHOT"}</span>
               </div>
               <h1>Command center</h1>
               <p>Profit, execution quality, and every keeper lane in one view.</p>
@@ -719,7 +831,13 @@ export default function Home() {
             <div className="hero-actions">
               <button className="secondary-button">
                 <Clock3 size={16} />
-                Jul 30, 2026
+                {liveData
+                  ? new Date(liveData.generatedAt).toLocaleDateString([], {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                  : "Jul 30, 2026"}
                 <ChevronDown size={14} />
               </button>
               <button className="primary-button" disabled title="Execution remains isolated from the dashboard">
@@ -732,7 +850,7 @@ export default function Home() {
           <section className="metric-grid" aria-label="Key performance metrics">
             <article className="metric-card featured">
               <div className="metric-heading">
-                <span>{liveData ? "Receipt-attributed P&L" : "Verified net P&L"}</span>
+                <span>{liveData ? "Receipt-attributed P&L" : "Illustrative P&L"}</span>
                 <div className="metric-icon"><CircleDollarSign size={17} /></div>
               </div>
               <strong className="metric-value">
@@ -771,21 +889,25 @@ export default function Home() {
                 <span>Bundle win rate</span>
                 <div className="metric-icon"><Target size={17} /></div>
               </div>
-              <strong className="metric-value">74.2<small>%</small></strong>
+              <strong className="metric-value">
+                {(liveData?.summary.batchWinRate ?? 74.2).toFixed(1)}<small>%</small>
+              </strong>
               <div className="metric-footer">
-                <span className="positive"><ArrowUpRight size={14} /> 5.8 pts</span>
-                <small>vs previous 7d</small>
+                <span className="positive"><Check size={14} /> {liveData ? `${liveData.summary.batchWins}/${liveData.summary.batchAttempts}` : "5.8 pts"}</span>
+                <small>{liveData ? "batches won · last 7d" : "vs previous 7d"}</small>
               </div>
             </article>
             <article className="metric-card">
               <div className="metric-heading">
-                <span>Median inclusion</span>
-                <div className="metric-icon"><Flame size={17} /></div>
+                <span>{liveData ? "Relay delivery" : "Median inclusion"}</span>
+                <div className="metric-icon"><Radio size={17} /></div>
               </div>
-              <strong className="metric-value">1.0 <small>block</small></strong>
+              <strong className="metric-value">
+                {liveData ? liveData.summary.relayDeliveryRate.toFixed(1) : "1.0"} <small>{liveData ? "%" : "block"}</small>
+              </strong>
               <div className="metric-footer">
-                <span className="positive"><ArrowDownRight size={14} /> 340ms</span>
-                <small>planning latency</small>
+                <span className="positive"><Check size={14} /> {liveData ? `${liveData.summary.relayAccepted}/${liveData.summary.relayAttempts}` : "340ms"}</span>
+                <small>{liveData ? "accepted · last 7d" : "planning latency"}</small>
               </div>
             </article>
           </section>
@@ -883,19 +1005,19 @@ export default function Home() {
                 <div className="donut-chart">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={laneData} dataKey="value" innerRadius={57} outerRadius={77} paddingAngle={2} stroke="none">
-                        {laneData.map((item) => <Cell key={item.name} fill={item.fill} />)}
+                      <Pie data={displayLaneData} dataKey="chartValue" innerRadius={57} outerRadius={77} paddingAngle={2} stroke="none">
+                        {displayLaneData.map((item) => <Cell key={item.name} fill={item.fill} />)}
                       </Pie>
                       <Tooltip content={<CustomTooltip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="donut-center">
-                    <strong>9</strong>
+                    <strong>{displayLaneData.filter((lane) => lane.value !== 0).length}</strong>
                     <span>lanes</span>
                   </div>
                 </div>
                 <div className="lane-list">
-                  {laneData.slice(0, 4).map((lane) => (
+                  {displayLaneData.map((lane) => (
                     <div className="lane-row" key={lane.name}>
                       <span><i style={{ background: lane.fill }} />{lane.name}</span>
                       <strong>{formatUsd(lane.value)}</strong>
@@ -906,8 +1028,8 @@ export default function Home() {
               <div className="lane-callout">
                 <Sparkles size={16} />
                 <div>
-                  <strong>Standing orders lead</strong>
-                  <span>50.6% of all-time realized profit</span>
+                  <strong>{leadingLane ? `${leadingLane.name} lead` : "No realized lane profit"}</strong>
+                  <span>{leadingLaneShare.toFixed(1)}% of positive receipt-attributed profit</span>
                 </div>
               </div>
             </article>
@@ -918,19 +1040,19 @@ export default function Home() {
               <div className="panel-head compact">
                 <div>
                   <span className="section-kicker">RELAY INTELLIGENCE</span>
-                  <h2>Builder inclusion</h2>
+                  <h2>{liveData ? "Relay delivery" : "Builder inclusion"}</h2>
                 </div>
                 <span className="period-label">LAST 7 DAYS</span>
               </div>
               <div className="builder-chart" aria-label="Builder inclusion performance">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={builderData} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 2 }} barCategoryGap={18}>
-                    <XAxis type="number" hide domain={[0, 50]} />
+                  <BarChart data={displayRelayData} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 2 }} barCategoryGap={18}>
+                    <XAxis type="number" hide />
                     <YAxis type="category" dataKey="builder" axisLine={false} tickLine={false} tick={{ fill: "#aab5b0", fontSize: 12 }} width={72} />
                     <Tooltip cursor={{ fill: "rgba(255,255,255,.025)" }} content={<CustomTooltip />} />
                     <Bar dataKey="attempted" fill="#26302c" radius={[0, 4, 4, 0]} barSize={9} />
                     <Bar dataKey="landed" radius={[0, 4, 4, 0]} barSize={9}>
-                      {builderData.map((item) => <Cell key={item.builder} fill={item.color} />)}
+                      {displayRelayData.map((item) => <Cell key={item.builder} fill={item.color} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -938,7 +1060,7 @@ export default function Home() {
               <div className="builder-foot">
                 <span><i className="built-landed" /> Landed</span>
                 <span><i className="built-attempted" /> Attempted</span>
-                <strong>77.4% avg.</strong>
+                <strong>{liveData ? liveData.summary.relayDeliveryRate.toFixed(1) : "77.4"}% avg.</strong>
               </div>
             </article>
 
@@ -951,39 +1073,51 @@ export default function Home() {
                 <span className="radar-status"><span className="pulse-dot" /> SCANNING</span>
               </div>
               <div className="radar-list">
-                <div className="radar-item hot">
-                  <div className="radar-icon"><Zap size={17} /></div>
-                  <div>
-                    <strong>FWA callback pending</strong>
-                    <span>Round 372 · request validated</span>
-                  </div>
-                  <div className="radar-value">
-                    <strong>+$11.42</strong>
-                    <span>est. net</span>
-                  </div>
-                </div>
-                <div className="radar-item">
-                  <div className="radar-icon"><Bot size={17} /></div>
-                  <div>
-                    <strong>3 orders approaching</strong>
-                    <span>Funding threshold &lt; 0.4 ETH</span>
-                  </div>
-                  <div className="radar-value">
-                    <strong>~18m</strong>
-                    <span>watch</span>
-                  </div>
-                </div>
-                <div className="radar-item">
-                  <div className="radar-icon"><Layers3 size={17} /></div>
-                  <div>
-                    <strong>Convex epoch window</strong>
-                    <span>19 pools currently profitable</span>
-                  </div>
-                  <div className="radar-value">
-                    <strong>+$4.08</strong>
-                    <span>best net</span>
-                  </div>
-                </div>
+                {liveData ? (
+                  <>
+                    <div className={`radar-item ${liveData.execution.viable > 0 ? "hot" : ""}`}>
+                      <div className="radar-icon"><Zap size={17} /></div>
+                      <div>
+                        <strong>Latest planner result</strong>
+                        <span>Block {liveData.execution.lastBlock || "—"}</span>
+                      </div>
+                      <div className="radar-value">
+                        <strong>{liveData.execution.viable}</strong>
+                        <span>viable</span>
+                      </div>
+                    </div>
+                    <div className="radar-item">
+                      <div className="radar-icon"><Bot size={17} /></div>
+                      <div>
+                        <strong>Private relay delivery</strong>
+                        <span>{liveData.summary.relayAttempts} attempts · last 7d</span>
+                      </div>
+                      <div className="radar-value">
+                        <strong>{liveData.summary.relayDeliveryRate.toFixed(1)}%</strong>
+                        <span>accepted</span>
+                      </div>
+                    </div>
+                    <div className="radar-item">
+                      <div className="radar-icon"><Layers3 size={17} /></div>
+                      <div>
+                        <strong>Latest execution</strong>
+                        <span>{liveData.transactions[0]?.lane ?? "No recent transaction"}</span>
+                      </div>
+                      <div className="radar-value">
+                        <strong>{liveData.transactions[0]?.relative ?? "—"}</strong>
+                        <span>{liveData.transactions[0]?.status ?? "idle"}</span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="radar-item hot">
+                      <div className="radar-icon"><Zap size={17} /></div>
+                      <div><strong>Snapshot example</strong><span>Waiting for live telemetry</span></div>
+                      <div className="radar-value"><strong>—</strong><span>offline</span></div>
+                    </div>
+                  </>
+                )}
               </div>
             </article>
 
@@ -993,10 +1127,10 @@ export default function Home() {
                   <span className="section-kicker">SYSTEM PULSE</span>
                   <h2>Execution health</h2>
                 </div>
-                <div className="health-score"><ShieldCheck size={15} /> 100%</div>
+                <div className="health-score"><ShieldCheck size={15} /> {(healthScore * 100).toFixed(0)}%</div>
               </div>
               <div className="health-events">
-                {healthEvents.map((event) => (
+                {displayHealthEvents.map((event) => (
                   <div className="health-event" key={`${event.time}-${event.title}`}>
                     <span className={`event-dot ${event.tone}`} />
                     <time>{event.time}</time>
@@ -1149,7 +1283,7 @@ export default function Home() {
             <p>
               {liveData
                 ? "Lane P&L is attributed from successful on-chain receipts."
-                : "Profit is verified against successful receipts and wallet balance deltas."}
+                : "Telemetry unavailable; illustrative layout data is shown."}
             </p>
             <span>Block {liveData?.transactions[0]?.block ?? "24,092,323"}</span>
           </footer>

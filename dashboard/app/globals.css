@@ -949,6 +949,7 @@ nav {
 
 .event-dot.good { background: var(--lime); }
 .event-dot.accent { background: var(--blue); }
+.event-dot.warning { background: var(--orange); }
 
 .health-event time {
   color: var(--faint);

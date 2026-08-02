@@ -44,6 +44,33 @@ interface ProfitRow {
   readonly profit_eth: string;
 }
 
+interface LaneProfitRow {
+  readonly job_kind: string | null;
+  readonly profit_eth: string;
+}
+
+interface ExecutionSummaryRow {
+  readonly batch_attempts: string;
+  readonly batch_wins: string;
+  readonly last_pass_at: Date | null;
+  readonly last_block: string | null;
+  readonly last_viable: string | null;
+  readonly last_sent: string | null;
+  readonly last_confirmed: string | null;
+}
+
+interface RelaySummaryRow {
+  readonly relay_index: string;
+  readonly attempted: string;
+  readonly accepted: string;
+}
+
+interface HealthSummaryRow {
+  readonly active_runs: string;
+  readonly signer_leases: string;
+  readonly pass_failures_24h: string;
+}
+
 const mimeTypes: Readonly<Record<string, string>> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -191,11 +218,19 @@ function shortenedHash(hash: string): string {
   return hash.length <= 14 ? hash : `${hash.slice(0, 6)}…${hash.slice(-4)}`;
 }
 
-async function dashboardData(
+export async function buildDashboardData(
   pool: Pool,
   ethUsd: number,
 ): Promise<Record<string, unknown>> {
-  const [recentResult, profitResult, totalResult] = await Promise.all([
+  const [
+    recentResult,
+    profitResult,
+    totalResult,
+    laneProfitResult,
+    executionResult,
+    relayResult,
+    healthResult,
+  ] = await Promise.all([
     pool.query<EventRow>(
       `
         SELECT
@@ -234,6 +269,79 @@ async function dashboardData(
         FROM keeper_events
         WHERE event_name = 'keeper_receipt'
           AND payload->>'realizedProfit' ~ '^-?[0-9]+([.][0-9]+)? ETH$'
+      `,
+    ),
+    pool.query<LaneProfitRow>(
+      `
+        SELECT
+          job_kind,
+          COALESCE(SUM(REPLACE(payload->>'realizedProfit', ' ETH', '')::numeric), 0)::text AS profit_eth
+        FROM keeper_events
+        WHERE event_name = 'keeper_receipt'
+          AND payload->>'realizedProfit' ~ '^-?[0-9]+([.][0-9]+)? ETH$'
+        GROUP BY job_kind
+      `,
+    ),
+    pool.query<ExecutionSummaryRow>(
+      `
+        WITH latest_pass AS (
+          SELECT
+            occurred_at,
+            payload->>'observedBlock' AS block,
+            payload->>'viable' AS viable,
+            payload->>'sent' AS sent,
+            payload->>'confirmed' AS confirmed
+          FROM keeper_events
+          WHERE event_name = 'pass_complete'
+          ORDER BY occurred_at DESC
+          LIMIT 1
+        ), batches AS (
+          SELECT
+            COUNT(*) AS attempts,
+            COUNT(*) FILTER (
+              WHERE COALESCE((payload->>'confirmedTransactions')::integer, 0) > 0
+            ) AS wins
+          FROM keeper_events
+          WHERE event_name = 'keeper_batch_result'
+            AND occurred_at >= NOW() - INTERVAL '7 days'
+        )
+        SELECT
+          batches.attempts::text AS batch_attempts,
+          batches.wins::text AS batch_wins,
+          latest_pass.occurred_at AS last_pass_at,
+          latest_pass.block AS last_block,
+          latest_pass.viable AS last_viable,
+          latest_pass.sent AS last_sent,
+          latest_pass.confirmed AS last_confirmed
+        FROM batches
+        LEFT JOIN latest_pass ON TRUE
+      `,
+    ),
+    pool.query<RelaySummaryRow>(
+      `
+        SELECT
+          payload->>'relayIndex' AS relay_index,
+          COUNT(*)::text AS attempted,
+          COUNT(*) FILTER (WHERE payload->>'status' = 'accepted')::text AS accepted
+        FROM keeper_events
+        WHERE event_name = 'relay_submission_result'
+          AND occurred_at >= NOW() - INTERVAL '7 days'
+          AND payload->>'relayIndex' ~ '^[0-9]+$'
+        GROUP BY payload->>'relayIndex'
+        ORDER BY (payload->>'relayIndex')::integer
+      `,
+    ),
+    pool.query<HealthSummaryRow>(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM keeper_runs WHERE stopped_at IS NULL)::text AS active_runs,
+          (SELECT COUNT(*) FROM pg_locks WHERE locktype = 'advisory' AND granted)::text AS signer_leases,
+          (
+            SELECT COUNT(*)
+            FROM keeper_events
+            WHERE event_name = 'keeper_pass_failed'
+              AND occurred_at >= NOW() - INTERVAL '24 hours'
+          )::text AS pass_failures_24h
       `,
     ),
   ]);
@@ -327,6 +435,40 @@ async function dashboardData(
   });
 
   const total = totalResult.rows[0];
+  const laneTotals = new Map<
+    ReturnType<typeof laneForKind>["laneKey"],
+    number
+  >();
+  for (const row of laneProfitResult.rows) {
+    const laneKey = laneForKind(row.job_kind ?? "").laneKey;
+    laneTotals.set(
+      laneKey,
+      (laneTotals.get(laneKey) ?? 0) + Number(row.profit_eth) * ethUsd,
+    );
+  }
+  const lanes = (["orders", "lifecycle", "fwa", "pull", "other"] as const)
+    .map((key) => ({
+      key,
+      value: Number((laneTotals.get(key) ?? 0).toFixed(2)),
+      chartValue: Number(Math.max(0, laneTotals.get(key) ?? 0).toFixed(2)),
+    }));
+  const execution = executionResult.rows[0];
+  const batchAttempts = Number(execution?.batch_attempts ?? 0);
+  const batchWins = Number(execution?.batch_wins ?? 0);
+  const relays = relayResult.rows.map((row) => ({
+    relayIndex: Number(row.relay_index),
+    attempted: Number(row.attempted),
+    accepted: Number(row.accepted),
+  }));
+  const relayAttempts = relays.reduce(
+    (totalAttempts, relay) => totalAttempts + relay.attempted,
+    0,
+  );
+  const relayAccepted = relays.reduce(
+    (totalAccepted, relay) => totalAccepted + relay.accepted,
+    0,
+  );
+  const health = healthResult.rows[0];
   return {
     generatedAt: new Date().toISOString(),
     ethUsd,
@@ -334,7 +476,31 @@ async function dashboardData(
       receiptProfitUsd: Number((Number(total?.total_profit_eth ?? 0) * ethUsd).toFixed(2)),
       receiptProfitEth: Number(total?.total_profit_eth ?? 0),
       receiptCount: Number(total?.receipt_count ?? 0),
+      batchAttempts,
+      batchWins,
+      batchWinRate:
+        batchAttempts === 0
+          ? 0
+          : Number(((batchWins / batchAttempts) * 100).toFixed(1)),
+      relayAttempts,
+      relayAccepted,
+      relayDeliveryRate:
+        relayAttempts === 0
+          ? 0
+          : Number(((relayAccepted / relayAttempts) * 100).toFixed(1)),
     },
+    execution: {
+      lastPassAt: execution?.last_pass_at?.toISOString() ?? "",
+      lastBlock: execution?.last_block ?? "",
+      viable: Number(execution?.last_viable ?? 0),
+      sent: Number(execution?.last_sent ?? 0),
+      confirmed: Number(execution?.last_confirmed ?? 0),
+      activeRuns: Number(health?.active_runs ?? 0),
+      signerLeases: Number(health?.signer_leases ?? 0),
+      passFailures24h: Number(health?.pass_failures_24h ?? 0),
+    },
+    lanes,
+    relays,
     pnl,
     transactions,
   };
@@ -549,7 +715,7 @@ export async function startDashboardServer(
         if (cachedData === undefined || cachedData.expiresAt <= Date.now()) {
           cachedData = {
             body: JSON.stringify(
-              await dashboardData(pool, await currentEthUsd()),
+              await buildDashboardData(pool, await currentEthUsd()),
             ),
             expiresAt: Date.now() + 15_000,
           };
