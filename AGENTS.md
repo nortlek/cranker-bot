@@ -642,7 +642,11 @@ These constraints prevent expensive or unsafe regressions:
   exact target parent; never use the relay's lagging `"latest"` state. A
   classified Flashbots `-32001 block not found` response may retry against the
   same relay, target, and exact parent for at most one second, then fails
-  closed.
+  closed. A typed Flashbots `-32000 max fee per gas less than block base fee`
+  response may retry against that same relay and target for at most 500 ms when
+  the locally derived target base fee is already covered. Do not apply this
+  retry to any other `-32000` response, and never let it outlive the target-head
+  deadline.
 - Private one-block bundles are the default. A missed bundle expires and must
   not leak into the public mempool.
 - Pool lifecycle, pool pull, standing orders, the default-off LiveBid sweep,

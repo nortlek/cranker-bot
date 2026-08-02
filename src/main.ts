@@ -1103,6 +1103,17 @@ async function main(): Promise<void> {
             relays[0]!,
             preliminaryTransactions,
             targetBlock,
+            (wait) => {
+              log("info", "bundle_simulation_state_availability_waited", {
+                relayIndex: 0,
+                targetBlock: wait.targetBlock.toString(),
+                stateBlockNumber: (wait.targetBlock - 1n).toString(),
+                attempts: wait.attempts,
+                waitMs: wait.waitMs,
+                reason: "relay_future_base_fee_publication_skew",
+                stage: "preliminary_simulation",
+              });
+            },
           );
         const prefixLength = prefixSimulation.prefixLength;
         log("info", "bundle_stage_timing", {
@@ -1517,6 +1528,17 @@ async function main(): Promise<void> {
             relays[0]!,
             competitiveTransactions,
             targetBlock,
+            (wait) => {
+              log("info", "bundle_simulation_state_availability_waited", {
+                relayIndex: 0,
+                targetBlock: wait.targetBlock.toString(),
+                stateBlockNumber: (wait.targetBlock - 1n).toString(),
+                attempts: wait.attempts,
+                waitMs: wait.waitMs,
+                reason: "relay_future_base_fee_publication_skew",
+                stage: "competitive_simulation",
+              });
+            },
           );
         const competitivePrefixLength =
           competitivePrefixSimulation.prefixLength;

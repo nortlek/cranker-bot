@@ -4,6 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
 
 import {
+  FlashbotsRpcError,
   FlashbotsRelay,
   simulateLongestValidBundlePrefix,
   simulatedGasUsed,
@@ -196,6 +197,48 @@ describe("simulateLongestValidBundlePrefix", () => {
       100_000n,
       200_000n,
     ]);
+  });
+
+  it("retries a transient future-base-fee response without probing prefixes", async () => {
+    let calls = 0;
+    const waits: Array<{
+      targetBlock: bigint;
+      attempts: number;
+      waitMs: number;
+    }> = [];
+    const simulation = {
+      results: [{ gasUsed: 100_000 }, { gasUsed: 200_000 }],
+    };
+    const relay = {
+      callBundle: async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw new FlashbotsRpcError("eth_callBundle", {
+            code: -32_000,
+            message: "max fee per gas less than block base fee",
+          });
+        }
+        return simulation;
+      },
+    } as unknown as FlashbotsRelay;
+
+    const result = await simulateLongestValidBundlePrefix(
+      relay,
+      ["0x01", "0x02"],
+      42n,
+      (wait) => waits.push(wait),
+    );
+
+    expect(calls).toBe(2);
+    expect(result).toEqual({ prefixLength: 2, simulation });
+    expect(waits).toEqual([
+      {
+        targetBlock: 42n,
+        attempts: 2,
+        waitMs: expect.any(Number),
+      },
+    ]);
+    expect(waits[0]!.waitMs).toBeGreaterThan(0);
   });
 });
 

@@ -17,7 +17,7 @@ interface JsonRpcResponse<T> {
   readonly error?: JsonRpcError;
 }
 
-class FlashbotsRpcError extends Error {
+export class FlashbotsRpcError extends Error {
   readonly code: number;
 
   constructor(method: string, error: JsonRpcError) {
@@ -29,12 +29,25 @@ class FlashbotsRpcError extends Error {
 
 const CALL_BUNDLE_STATE_RETRY_WINDOW_MS = 1_000;
 const CALL_BUNDLE_STATE_RETRY_INTERVAL_MS = 100;
+const CALL_BUNDLE_FUTURE_BASE_FEE_RETRY_WINDOW_MS = 500;
 
 function isCallBundleStateUnavailable(error: unknown): boolean {
   return (
     error instanceof FlashbotsRpcError &&
     error.code === -32_001 &&
     error.message.includes("block not found")
+  );
+}
+
+function isCallBundleFutureBaseFeeUnavailable(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof FlashbotsRpcError &&
+    error.code === -32_000 &&
+    error.message.includes(
+      "max fee per gas less than block base fee",
+    )
   );
 }
 
@@ -87,6 +100,12 @@ export interface FlashbotsSubmission {
 export interface BundlePrefixSimulation {
   readonly prefixLength: number;
   readonly simulation: CallBundleResult | undefined;
+}
+
+export interface FutureBaseFeeAvailabilityWait {
+  readonly targetBlock: bigint;
+  readonly attempts: number;
+  readonly waitMs: number;
 }
 
 export interface RelaySubmissionAttempt {
@@ -403,7 +422,7 @@ export function validateEmbeddedCoinbasePaymentSimulation(parameters: {
   return { totalCoinbasePayment, embeddedCoinbasePayment };
 }
 
-export async function simulateLongestValidBundlePrefix(
+async function simulateLongestValidBundlePrefixOnce(
   relay: FlashbotsRelay,
   transactions: readonly Hex[],
   targetBlock: bigint,
@@ -440,6 +459,11 @@ export async function simulateLongestValidBundlePrefix(
       transactions.length,
     );
   } catch (fullBundleError) {
+    // A fee-vs-base-fee response rejects every prefix equally. Let the outer
+    // bounded publication-skew retry handle it instead of probing prefixes.
+    if (isCallBundleFutureBaseFeeUnavailable(fullBundleError)) {
+      throw fullBundleError;
+    }
     let prefixLength = 0;
     let simulation: CallBundleResult | undefined;
     for (let length = 1; length <= transactions.length; length += 1) {
@@ -457,6 +481,57 @@ export async function simulateLongestValidBundlePrefix(
     }
     if (prefixLength === 0) throw fullBundleError;
     return { prefixLength, simulation };
+  }
+}
+
+export async function simulateLongestValidBundlePrefix(
+  relay: FlashbotsRelay,
+  transactions: readonly Hex[],
+  targetBlock: bigint,
+  reportFutureBaseFeeWait?: (
+    wait: FutureBaseFeeAvailabilityWait,
+  ) => void,
+): Promise<BundlePrefixSimulation> {
+  const startedAt = Date.now();
+  let attempts = 0;
+  for (;;) {
+    try {
+      attempts += 1;
+      const result = await simulateLongestValidBundlePrefixOnce(
+        relay,
+        transactions,
+        targetBlock,
+      );
+      if (attempts > 1) {
+        try {
+          reportFutureBaseFeeWait?.({
+            targetBlock,
+            attempts,
+            waitMs: Date.now() - startedAt,
+          });
+        } catch {
+          // Simulation telemetry is fail-open.
+        }
+      }
+      return result;
+    } catch (error) {
+      if (
+        !isCallBundleFutureBaseFeeUnavailable(error) ||
+        Date.now() - startedAt >=
+          CALL_BUNDLE_FUTURE_BASE_FEE_RETRY_WINDOW_MS
+      ) {
+        throw error;
+      }
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, CALL_BUNDLE_STATE_RETRY_INTERVAL_MS),
+      );
+      if (
+        Date.now() - startedAt >=
+        CALL_BUNDLE_FUTURE_BASE_FEE_RETRY_WINDOW_MS
+      ) {
+        throw error;
+      }
+    }
   }
 }
 

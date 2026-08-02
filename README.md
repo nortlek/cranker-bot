@@ -329,7 +329,11 @@ successful `crank` fees are sent to that keeper address.
   The first must support `eth_callBundle` and is used for simulation; remaining
   endpoints receive the already-simulated bundle. The default also submits
   directly to Quasar because it has recently built competing pool cycles.
-  A bundle is submitted concurrently to every configured endpoint.
+  A bundle is submitted concurrently to every configured endpoint. The
+  simulation client tolerates only two bounded exact-target publication races:
+  a typed `-32001 block not found` response for one second, or Flashbots'
+  exact `-32000 max fee per gas less than block base fee` response for 500 ms.
+  Every retry stays on the same relay, target, and parent state.
 - `FLASHBOTS_BUILDERS`: registered builder names for relay multiplexing. The
   defaults cover Flashbots, builder0x69, Beaver, Titan, rsync, and
   `bobthebuilder`, plus Bombora and Eureka. Bob was added after a recurring
