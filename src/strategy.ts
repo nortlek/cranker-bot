@@ -32,6 +32,7 @@ import {
   firmMarketAbi,
   fwaAbi,
   fwaTokenAbi,
+  groupPullAbi,
   liquityPriceFeedAbi,
   liquityTroveManagerAbi,
   liveBidAdapterAbi,
@@ -86,6 +87,7 @@ import {
   type FirmReceiptAccounting,
 } from "./firm.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
+import { planGroupPullJob } from "./group-pull.js";
 import { retryTransientRead } from "./heads.js";
 import {
   ACQUISITION_STATUS,
@@ -134,6 +136,8 @@ export type KeeperJobKind =
   | "pool_sync"
   | "pool_settle"
   | "pool_settle_forced_eth"
+  | "group_pull_close"
+  | "group_pull_submit"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -4635,6 +4639,19 @@ async function planJobs(parameters: {
   readonly headBlockNumber: bigint;
   readonly headTimestamp: bigint;
 }): Promise<PlannedJobs> {
+  const groupPullPromise = parameters.config.enableGroupPull
+    ? planGroupPullJob({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        maxFeePerGas: parameters.maxFeePerGas,
+        gasLimitMultiplierBps:
+          parameters.config.gasLimitMultiplierBps,
+        minProfitWei: parameters.config.minProfitWei,
+        builderBidBps:
+          parameters.config.groupPullBuilderBidBps,
+      })
+    : Promise.resolve(undefined);
   const {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
@@ -4681,6 +4698,39 @@ async function planJobs(parameters: {
     plans,
     maxJobs: maxJobs(parameters.config),
   });
+  const groupPullPlan = await groupPullPromise;
+  const groupPullJob = groupPullPlan?.job;
+  const mergedProfit = merged.jobs.reduce(
+    (total, job) =>
+      total +
+      estimatedJobReward({
+        job,
+        gasUsed: job.gas,
+        baseFeePerGas: parameters.bountyBaseFeePerGas,
+        poolBountyEstimateBps:
+          parameters.config.poolBountyEstimateBps,
+        poolPullBountyEstimateBps:
+          parameters.config.poolPullBountyEstimateBps,
+      }) -
+      job.gas * parameters.maxFeePerGas,
+    0n,
+  );
+  const groupPullProfit =
+    groupPullJob?.reward.kind === "fixed"
+      ? groupPullJob.reward.amountWei -
+        groupPullJob.gas * parameters.maxFeePerGas
+      : undefined;
+  const selected =
+    groupPullJob !== undefined &&
+    groupPullProfit !== undefined &&
+    (merged.jobs.length === 0 || groupPullProfit > mergedProfit)
+      ? {
+          jobs: [groupPullJob],
+          minimumViablePrefix: 1,
+          orders: merged.orders,
+          skipped: merged.skipped,
+        }
+      : merged;
   log("info", "pull_pool_adapter_plans_merged", {
     enabledVersions: JSON.stringify(
       configs.map((config) => config.poolVersion),
@@ -4703,9 +4753,21 @@ async function planJobs(parameters: {
       (total, { plan }) => total + plan.jobs.length,
       0,
     ),
-    selectedJobs: merged.jobs.length,
+    selectedJobs: selected.jobs.length,
+    groupPullEnabled: parameters.config.enableGroupPull,
+    groupPullPaused: groupPullPlan?.paused ?? "",
+    groupPullDeprecated: groupPullPlan?.deprecated ?? "",
+    groupPullRoundCount:
+      groupPullPlan?.roundCount.toString() ?? "",
+    groupPullLiveRound:
+      groupPullPlan?.liveRound.toString() ?? "",
+    groupPullBuyingRounds:
+      groupPullPlan?.buyingRounds.toString() ?? "",
+    groupPullSelected:
+      selected.jobs[0]?.kind === "group_pull_close" ||
+      selected.jobs[0]?.kind === "group_pull_submit",
   });
-  return merged;
+  return selected;
 }
 
 export function estimatedJobReward(parameters: {
@@ -4927,6 +4989,33 @@ function actualJobReward(
   batchAccounting?: StandingOrderBatchReceiptAccounting,
 ): bigint {
   if (request.kind === "builder_payment") return 0n;
+  if (
+    request.kind === "group_pull_close" ||
+    request.kind === "group_pull_submit"
+  ) {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
+        continue;
+      }
+      try {
+        const decoded = decodeEventLog({
+          abi: groupPullAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (
+          decoded.eventName === "BountyPaid" &&
+          decoded.args.roundId === request.roundId
+        ) {
+          total += decoded.args.amount;
+        }
+      } catch {
+        // GroupPull emits pool and round events in the same receipt.
+      }
+    }
+    return total;
+  }
   if (request.kind === "standing_order_batch") {
     return batchAccounting?.valid === true
       ? batchAccounting.ownerReturn

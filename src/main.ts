@@ -51,6 +51,7 @@ import {
   DIRECT_COINBASE_PAYMENT_HELPER_ADDRESS,
   DIRECT_COINBASE_PAYMENT_HELPER_CODE_HASH,
   ETH_USD_FEED_ADDRESS,
+  GROUP_PULL_ADDRESS,
 } from "./constants.js";
 import {
   loadConfig,
@@ -112,6 +113,7 @@ import {
   type ValidatedPendingFwaFulfillment,
 } from "./pending-fwa-fulfillment.js";
 import { executePendingFundingBackrun } from "./pending-funding-backrun.js";
+import { executePendingGroupPullBackrun } from "./pending-group-pull-backrun.js";
 import { executePendingPoolPullBackrun } from "./pending-pool-pull-backrun.js";
 import {
   PendingFundingReplacementTracker,
@@ -1375,6 +1377,16 @@ async function main(): Promise<void> {
             requestBidPolicy = "live_bid_sweep";
             requestMinimumPriorityFeePerGas =
               config.liveBidSweepMinPriorityFeePerGas;
+          } else if (
+            request.kind === "group_pull_close" ||
+            request.kind === "group_pull_submit"
+          ) {
+            requestBidBps =
+              request.configuredBuilderBidBps ??
+              config.groupPullBuilderBidBps;
+            requestBidPolicy = "group_pull";
+            requestMinimumPriorityFeePerGas =
+              config.poolMinPriorityFeePerGas;
           } else if (request.kind === "liquity_liquidation") {
             requestBidBps = config.liquityBuilderBidBps;
             requestBidPolicy = "liquity";
@@ -1601,6 +1613,8 @@ async function main(): Promise<void> {
             config.poolPullBuilderBidBps.toString(),
           configuredPoolFulfilledBuilderBidBps:
             config.poolFulfilledBuilderBidBps.toString(),
+          configuredGroupPullBuilderBidBps:
+            config.groupPullBuilderBidBps.toString(),
           configuredLiveBidSweepBuilderBidBps:
             config.liveBidSweepBuilderBidBps.toString(),
           configuredLiquityBuilderBidBps:
@@ -2552,6 +2566,7 @@ async function main(): Promise<void> {
               ...orders,
               ...vaults,
               config.expectedPoolAddress,
+              ...(config.enableGroupPull ? [GROUP_PULL_ADDRESS] : []),
             ].map((address) => getAddress(address)),
           ),
         ];
@@ -2584,9 +2599,52 @@ async function main(): Promise<void> {
                 );
               try {
                 const result =
-                  prerequisite.action ===
-                  "pool_ticket_purchase"
-                    ? await executePendingPoolPullBackrun({
+                  prerequisite.action === "group_pull_entry"
+                    ? await executePendingGroupPullBackrun({
+                        publicClient: exactStateClient,
+                        pendingClient: discoveryClient,
+                        signer,
+                        prerequisite,
+                        relays,
+                        builders: config.flashbotsBuilders,
+                        config,
+                        builderBidBps:
+                          config.groupPullBuilderBidBps,
+                        coordinator: signerCoordinator,
+                        assertSignerLeaseHeld,
+                        isPrerequisiteCurrent: () =>
+                          replacementTracker.isCurrent({
+                            hash: prerequisite.hash,
+                            sender: prerequisite.sender,
+                            nonce: prerequisite.nonce,
+                          }),
+                        readPlanningHead: () =>
+                          latestSubscribedHead?.number,
+                        targetBlockArrived: (targetBlock) =>
+                          headSignal.latestAfter(
+                            targetBlock - 1n,
+                          ) !== undefined,
+                        waitForTargetBlock: async (
+                          targetBlock,
+                          timeoutMs,
+                        ) => {
+                          const afterBlock = targetBlock - 1n;
+                          if (
+                            headSignal.latestAfter(afterBlock) !==
+                            undefined
+                          ) {
+                            return true;
+                          }
+                          return headSignal.waitForNewer(
+                            afterBlock,
+                            timeoutMs,
+                          );
+                        },
+                        signal,
+                      })
+                    : prerequisite.action ===
+                        "pool_ticket_purchase"
+                      ? await executePendingPoolPullBackrun({
                         publicClient,
                         pendingClient: discoveryClient,
                         signer,
@@ -2674,23 +2732,32 @@ async function main(): Promise<void> {
                         signal,
                       });
                 const transactionHash =
-                  "pullHash" in result
+                  "submitHash" in result
+                    ? result.submitHash
+                    : "pullHash" in result
                     ? result.pullHash
                     : "crankHash" in result
                       ? result.crankHash
                       : undefined;
                 log(
                   "info",
-                  prerequisite.action ===
-                    "pool_ticket_purchase"
-                    ? "pending_pool_pull_backrun_complete"
-                    : "pending_funding_backrun_complete",
+                  prerequisite.action === "group_pull_entry"
+                    ? "pending_group_pull_backrun_complete"
+                    : prerequisite.action ===
+                        "pool_ticket_purchase"
+                      ? "pending_pool_pull_backrun_complete"
+                      : "pending_funding_backrun_complete",
                   {
                     prerequisiteHash: prerequisite.hash,
                     action: prerequisite.action,
                     target: prerequisite.target,
-                    ...(prerequisite.action ===
-                    "pool_ticket_purchase"
+                    ...(prerequisite.action === "group_pull_entry"
+                      ? {
+                          round: prerequisite.roundId.toString(),
+                          quantity: prerequisite.quantity,
+                        }
+                      : prerequisite.action ===
+                          "pool_ticket_purchase"
                           ? {
                               round:
                                 prerequisite.roundId?.toString() ??
@@ -2712,10 +2779,12 @@ async function main(): Promise<void> {
               } catch (error) {
                 log(
                   "warn",
-                  prerequisite.action ===
-                    "pool_ticket_purchase"
-                    ? "pending_pool_pull_backrun_failed"
-                    : "pending_funding_backrun_failed",
+                  prerequisite.action === "group_pull_entry"
+                    ? "pending_group_pull_backrun_failed"
+                    : prerequisite.action ===
+                        "pool_ticket_purchase"
+                      ? "pending_pool_pull_backrun_failed"
+                      : "pending_funding_backrun_failed",
                   {
                     prerequisiteHash: prerequisite.hash,
                     action: prerequisite.action,
@@ -2848,6 +2917,12 @@ async function main(): Promise<void> {
                           canonicalTargets,
                           poolTarget:
                             config.expectedPoolAddress,
+                          ...(config.enableGroupPull
+                            ? {
+                                groupPullTarget:
+                                  GROUP_PULL_ADDRESS,
+                              }
+                            : {}),
                         });
                       log(
                         "info",
@@ -2860,7 +2935,17 @@ async function main(): Promise<void> {
                           nonce: prerequisite.nonce,
                           value: eth(prerequisite.value),
                           ...(prerequisite.action ===
-                          "pool_ticket_purchase"
+                          "group_pull_entry"
+                            ? {
+                                round:
+                                  prerequisite.roundId.toString(),
+                                quantity:
+                                  prerequisite.quantity,
+                                beneficiary:
+                                  prerequisite.beneficiary,
+                              }
+                            : prerequisite.action ===
+                                "pool_ticket_purchase"
                             ? {
                                 round:
                                   prerequisite.roundId?.toString() ??
@@ -3758,6 +3843,8 @@ async function main(): Promise<void> {
         : "exact_profitability_only",
     configuredPoolFulfilledBuilderBidBps:
       config.poolFulfilledBuilderBidBps.toString(),
+    configuredGroupPullBuilderBidBps:
+      config.groupPullBuilderBidBps.toString(),
     activeV2PoolFulfilledBuilderBidBps:
       v2Config === undefined
         ? ""
@@ -3792,6 +3879,7 @@ async function main(): Promise<void> {
       config.builderBidBps.toString(),
     adaptiveBidding: adaptiveBidController !== undefined,
     poolLifecycle: config.enablePoolLifecycle,
+    groupPull: config.enableGroupPull,
     vaults: config.enableVaults,
     buyback: config.enableBuyback,
     liveBidSweep: config.enableLiveBidSweep,

@@ -2757,3 +2757,43 @@ every telemetry/adaptive-bid key, and an independent nonce gate. Start with a
 read-only observer. Public submission, signer funding, helper deployment, and
 any contract that temporarily receives reward tokens require separate review
 and explicit authorization.
+
+## Implemented — PullPool GroupPull packs
+
+Status: verified new contract and separate keeper bounty lane; confirmed-head
+and pending-final-entry execution implemented on 2026-08-02.
+
+The canonical deployer created verified `GroupPull` at
+`0xD170B7e75B2D658098aB8b53F5914E1C4804BA93` in block `25,668,977`.
+Its runtime hash is pinned to
+`0x0da3c8c1ea77e6e4e5d9927b0ceaed5382f279d36b9fcce230a492811229f339`,
+and every plan also requires its live `pool()` relationship to remain the
+canonical PullPool V2. The reversible `deprecated` launch hold does not disarm
+already-selling or already-buying rounds; exact contract state and simulation
+remain authoritative.
+
+The two public test rounds paid `submit` callers `0.00375 ETH` and `0.010 ETH`.
+After exact receipt gas and the first winner's direct beneficiary payment, the
+combined observed net opportunity was `0.010554119428338197 ETH`. One winner
+landed immediately after the final entry in the same block, so confirmed-head
+polling alone is insufficient. The implementation therefore includes both
+exact-head `close`/`submit` planning and a hash-only pending lane for signed
+`enter` calls. A pending entry is bundled only when its exact value and current
+round state prove it closes the sale; the exact pair
+`[public enter, keeper submit]` must simulate twice, only the keeper receipt is
+priced/accounted, replacements are suppressed, and the signer lease, nonce,
+balance, target-head, runtime, pool relationship, and raw prerequisite are
+revalidated immediately before private submission.
+
+The independent `GROUP_PULL_BUILDER_BID_BPS` starts at `3000`, just above the
+larger observed test clearing payment (about 28%). Exact retained-profit and
+fee caps still bound every quote. Add lane-specific durable competitor learning
+after live losses provide exact payment evidence; do not feed GroupPull results
+into standing-order or PullPool lifecycle controllers.
+
+The same deployer also created `PullStandingOrderBatcher` at
+`0x63Cf8340f90a8CCb52325A17eAC695421b1230e9`. It exposes no new bounty: it only
+aggregates existing standing-order `crank()` fees. The keeper's existing
+deterministic batch executor is stricter, preserves per-order bidding and an
+owner-return floor, and remains the selected implementation. No production
+change is warranted for the deployer batcher.

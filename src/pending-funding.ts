@@ -14,7 +14,7 @@ import {
   type TransactionSerialized,
 } from "viem";
 
-import { poolAbi } from "./abi.js";
+import { groupPullAbi, poolAbi } from "./abi.js";
 
 const ETHEREUM_CHAIN_ID = 1;
 const EMPTY_INPUT = "0x";
@@ -166,6 +166,12 @@ export type ValidatedPendingFundingPrerequisite =
       readonly roundId?: bigint;
       readonly tickets: number;
       readonly recipient: Address;
+    })
+  | (ValidatedPendingPrerequisiteBase & {
+      readonly action: "group_pull_entry";
+      readonly roundId: bigint;
+      readonly quantity: number;
+      readonly beneficiary: Address;
     });
 
 function validationFailure(
@@ -418,6 +424,7 @@ export async function validatePendingFundingPrerequisite(parameters: {
   readonly rpcTransaction: PendingFundingRpcTransaction;
   readonly canonicalTargets: Iterable<Address>;
   readonly poolTarget?: Address;
+  readonly groupPullTarget?: Address;
 }): Promise<ValidatedPendingFundingPrerequisite> {
   const rpcTargetsPool =
     parameters.poolTarget !== undefined &&
@@ -460,7 +467,10 @@ export async function validatePendingFundingPrerequisite(parameters: {
   const isPoolTarget =
     parameters.poolTarget !== undefined &&
     isAddressEqual(target, parameters.poolTarget);
-  if (!isPoolTarget) {
+  const isGroupPullTarget =
+    parameters.groupPullTarget !== undefined &&
+    isAddressEqual(target, parameters.groupPullTarget);
+  if (!isPoolTarget && !isGroupPullTarget) {
     if (input !== EMPTY_INPUT) {
       validationFailure(
         "input_not_empty",
@@ -477,6 +487,59 @@ export async function validatePendingFundingPrerequisite(parameters: {
       type,
       target,
       value,
+    };
+  }
+  if (isGroupPullTarget) {
+    let decoded: ReturnType<typeof decodeFunctionData>;
+    try {
+      decoded = decodeFunctionData({
+        abi: groupPullAbi,
+        data: input,
+      });
+    } catch {
+      validationFailure(
+        "input_unsupported",
+        "Pending GroupPull transaction calldata is not recognized",
+      );
+    }
+    if (
+      decoded.functionName !== "enter" ||
+      !Array.isArray(decoded.args) ||
+      decoded.args.length !== 3
+    ) {
+      validationFailure(
+        "input_unsupported",
+        "Pending GroupPull transaction is not an entry",
+      );
+    }
+    const [roundId, quantity, beneficiary] = decoded.args;
+    if (
+      typeof roundId !== "bigint" ||
+      roundId <= 0n ||
+      typeof quantity !== "number" ||
+      !Number.isSafeInteger(quantity) ||
+      quantity <= 0 ||
+      typeof beneficiary !== "string" ||
+      !isAddress(beneficiary, { strict: false })
+    ) {
+      validationFailure(
+        "ticket_purchase_invalid",
+        "Pending GroupPull entry arguments are invalid",
+      );
+    }
+    return {
+      action: "group_pull_entry",
+      rawTransaction,
+      hash: computedHash,
+      sender,
+      nonce,
+      chainId: ETHEREUM_CHAIN_ID,
+      type,
+      target,
+      value,
+      roundId,
+      quantity,
+      beneficiary: getAddress(beneficiary),
     };
   }
   let decoded: ReturnType<typeof decodeFunctionData>;

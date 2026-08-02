@@ -35,6 +35,7 @@ export interface KeeperConfig {
   readonly poolBuilderBidBps: bigint;
   readonly poolPullBuilderBidBps: bigint;
   readonly poolFulfilledBuilderBidBps: bigint;
+  readonly groupPullBuilderBidBps: bigint;
   readonly liveBidSweepBuilderBidBps: bigint;
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
@@ -66,6 +67,7 @@ export interface KeeperConfig {
   readonly enablePendingFundingBackruns: boolean;
   readonly enablePendingFwaFulfillmentBackruns: boolean;
   readonly enablePoolLifecycle: boolean;
+  readonly enableGroupPull: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
   readonly enableLiveBidSweep: boolean;
@@ -375,6 +377,14 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const groupPullBuilderBidBps = integerEnv(
+    "GROUP_PULL_BUILDER_BID_BPS",
+    3_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const liveBidSweepBuilderBidBps = integerEnv(
     "LIVE_BID_SWEEP_BUILDER_BID_BPS",
     100,
@@ -475,6 +485,7 @@ export function loadConfig(): KeeperConfig {
     poolPullBuilderBidBps: BigInt(poolPullBuilderBidBps),
     poolFulfilledBuilderBidBps:
       BigInt(poolFulfilledBuilderBidBps),
+    groupPullBuilderBidBps: BigInt(groupPullBuilderBidBps),
     liveBidSweepBuilderBidBps:
       BigInt(liveBidSweepBuilderBidBps),
     liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
@@ -552,6 +563,7 @@ export function loadConfig(): KeeperConfig {
     enablePendingFundingBackruns,
     enablePendingFwaFulfillmentBackruns,
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
+    enableGroupPull: booleanEnv("ENABLE_GROUP_PULL", true),
     enableVaults: booleanEnv("ENABLE_VAULTS", true),
     enableBuyback: booleanEnv("ENABLE_BUYBACK", true),
     enableLiveBidSweep: booleanEnv(

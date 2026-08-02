@@ -612,6 +612,20 @@ These constraints prevent expensive or unsafe regressions:
   that do not finish coverage. Revalidate the prerequisite immediately before
   private submission, price only the pull under the independent pool-pull bid,
   account only the pull receipt, and never submit the public purchase alone.
+- GroupPull execution is limited to the pinned runtime at
+  `0xD170B7e75B2D658098aB8b53F5914E1C4804BA93` while its live `pool()` remains
+  the canonical V2 pool. Confirmed-head planning may call only bounty-paying
+  `close(round)` and `submit(round,maxPoolRounds)` variants that pass exact
+  fixed-block estimation and retained-profit checks. A pending GroupPull
+  backrun is always the exact pair `[public enter, keeper submit]`: prove the
+  raw signed mainnet transaction decodes to `enter(uint256,uint32,address)`,
+  has the exact current-round payment, and makes the live selling round covered
+  at the authoritative parent. Revalidate its raw bytes, pending status,
+  replacement identity, runtime, pool relationship, signer nonce/balance,
+  lease, and target deadline immediately before submission. Simulate the whole
+  pair twice, price and account only the keeper `submit`, never offer the entry
+  or a partial submit prefix, and keep its builder policy independent from
+  standing orders and ordinary PullPool lifecycle work.
 - A pending FWA fulfillment backrun is always one exact bounded bundle:
   `[contiguous public coordinator nonce prefix ending in the target
   fulfillRandomWords, keeper syncFwaResult, keeper settle]`, or

@@ -18,7 +18,7 @@ import {
   vi,
 } from "vitest";
 
-import { poolAbi } from "../src/abi.js";
+import { groupPullAbi, poolAbi } from "../src/abi.js";
 import {
   PendingFundingReplacementTracker,
   PendingFundingValidationError,
@@ -43,6 +43,9 @@ const otherTarget = getAddress(
 );
 const poolTarget = getAddress(
   "0x3000000000000000000000000000000000000003",
+);
+const groupPullTarget = getAddress(
+  "0x4000000000000000000000000000000000000004",
 );
 
 async function signFunding(
@@ -244,6 +247,38 @@ describe("validatePendingFundingPrerequisite", () => {
         ? result.roundId
         : undefined,
     ).toBeUndefined();
+  });
+
+  it("accepts an exact signed GroupPull entry prerequisite", async () => {
+    const data = encodeFunctionData({
+      abi: groupPullAbi,
+      functionName: "enter",
+      args: [9n, 3, account.address],
+    });
+    const rawTransaction = await signFunding("eip1559", {
+      to: groupPullTarget,
+      value: 15_900_000_000_000_000n,
+      data,
+    });
+    const hash = keccak256(rawTransaction);
+
+    await expect(
+      validatePendingFundingPrerequisite({
+        rawTransaction,
+        expectedHash: hash,
+        rpcTransaction: rpcTransaction(rawTransaction),
+        canonicalTargets: [groupPullTarget],
+        groupPullTarget,
+      }),
+    ).resolves.toMatchObject({
+      action: "group_pull_entry",
+      hash,
+      target: groupPullTarget,
+      roundId: 9n,
+      quantity: 3,
+      beneficiary: account.address,
+      value: 15_900_000_000_000_000n,
+    });
   });
 
   it("rejects another pool function as a prerequisite", async () => {

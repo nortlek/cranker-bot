@@ -142,6 +142,23 @@ export const poolV2LifecycleAbi = parseAbi([
   "event RoundVoided(uint256 indexed roundId, uint256 refundPool)",
 ]);
 
+export const groupPullAbi = parseAbi([
+  "function pool() view returns (address)",
+  "function paused() view returns (bool)",
+  "function deprecated() view returns (bool)",
+  "function roundCount() view returns (uint256)",
+  "function liveRound() view returns (uint256)",
+  "function buyingRounds() view returns (uint256)",
+  "function currentTarget(uint256 roundId) view returns (uint256)",
+  "function getRound(uint256 roundId) view returns ((uint96 entryPrice, uint96 incentivePerTicket, uint32 pullsPerRound, uint32 maxParticipants, uint64 sellsFrom, uint64 sellsUntil, uint64 entryDuration, uint64 submitWindow, uint32 ticketsSold, uint256 escrow, uint256 bountyPot, uint256 stakeRefundPool, uint256 ethPool, uint256 ethPaid, uint32 bought, uint32 poolTicketsAllocated, uint32 bountyShares, uint64 submitDeadline, uint8 state))",
+  "function close(uint256 roundId)",
+  "function submit(uint256 roundId, uint256 maxPoolRounds)",
+  "function enter(uint256 roundId, uint32 quantity, address beneficiary) payable returns (uint32 bought)",
+  "event BountyPaid(uint256 indexed roundId, address indexed caller, uint256 amount)",
+  "event RoundClosed(uint256 indexed roundId, uint32 ticketsSold, uint256 raised, uint64 submitDeadline)",
+  "event RoundComplete(uint256 indexed roundId, uint256[] poolRoundIds)",
+]);
+
 export const fwaAbi = parseAbi([
   "function acquisitions(uint256 requestId) view returns (address purchaser, uint256 requestBlock, uint256 priceEscrowed, uint256 listingId, uint8 status)",
   "function nextSequenceToProcess() view returns (uint64)",

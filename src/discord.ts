@@ -46,6 +46,8 @@ const FAILURE_EVENTS = new Set([
   "pending_funding_backrun_failed",
   "pending_fwa_backrun_failed",
   "pending_fwa_resolution_saturated",
+  "pending_group_pull_accounting_failed",
+  "pending_group_pull_backrun_failed",
   "pending_pool_pull_accounting_failed",
   "pending_pool_pull_backrun_failed",
   "pool_competitor_bid_measurement_failed",
