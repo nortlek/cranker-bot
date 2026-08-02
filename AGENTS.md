@@ -425,10 +425,14 @@ database use `npm run db:migrate:dev`.
 
 ## Discord updates
 
-There are two separate Discord channels:
+There are three separate Discord channels:
 
 - `DISCORD_WEBHOOK_URL`: automatic rich embeds from the running bot for
   important successes, failures, submissions, expirations, and P&L changes.
+- `HOURLY_STATS_DISCORD_WEBHOOK_URL`: top-of-hour rolling 1h/24h receipt P&L,
+  transaction outcomes, gas/reward, lane, and health stats. It is armed only
+  by the live signer lease holder, queries durable PostgreSQL telemetry, and
+  fails open without affecting signing.
 - `CODEX_UPDATES_WEBHOOK`: short manual updates from an agent.
 
 Send an agent update with:

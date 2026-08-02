@@ -49,6 +49,7 @@ export interface KeeperConfig {
   readonly adaptiveBidEvidenceMaxAgeBlocks: bigint;
   readonly adaptiveBidStatePath: string;
   readonly discordWebhookUrl: string | undefined;
+  readonly hourlyStatsDiscordWebhookUrl: string | undefined;
   readonly discordWebhookTimeoutMs: number;
   readonly databaseUrl: string | undefined;
   readonly telemetryBatchSize: number;
@@ -216,10 +217,17 @@ function privateKeyEnv(): Hex | undefined {
   return raw as Hex;
 }
 
-function discordWebhookUrlEnv(): string | undefined {
-  const raw = process.env.DISCORD_WEBHOOK_URL;
+function discordWebhookUrlEnv(name: string): string | undefined {
+  const raw = process.env[name];
   if (raw === undefined || raw === "") return undefined;
-  const url = new URL(raw);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `${name} must be a Discord HTTPS webhook URL`,
+    );
+  }
   if (
     url.protocol !== "https:" ||
     (url.hostname !== "discord.com" &&
@@ -227,7 +235,7 @@ function discordWebhookUrlEnv(): string | undefined {
     !/^\/api\/webhooks\/[^/]+\/[^/]+$/.test(url.pathname)
   ) {
     throw new Error(
-      "DISCORD_WEBHOOK_URL must be a Discord HTTPS webhook URL",
+      `${name} must be a Discord HTTPS webhook URL`,
     );
   }
   return raw;
@@ -503,7 +511,12 @@ export function loadConfig(): KeeperConfig {
     adaptiveBidStatePath:
       process.env.ADAPTIVE_BID_STATE_PATH ||
       ".keeper-bid-state.json",
-    discordWebhookUrl: discordWebhookUrlEnv(),
+    discordWebhookUrl: discordWebhookUrlEnv(
+      "DISCORD_WEBHOOK_URL",
+    ),
+    hourlyStatsDiscordWebhookUrl: discordWebhookUrlEnv(
+      "HOURLY_STATS_DISCORD_WEBHOOK_URL",
+    ),
     discordWebhookTimeoutMs: integerEnv(
       "DISCORD_WEBHOOK_TIMEOUT_MS",
       5_000,

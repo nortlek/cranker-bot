@@ -35,6 +35,8 @@ const originalFlashbotsRelayUrls =
   process.env.FLASHBOTS_RELAY_URLS;
 const originalFlashbotsBuilders =
   process.env.FLASHBOTS_BUILDERS;
+const originalHourlyStatsDiscordWebhookUrl =
+  process.env.HOURLY_STATS_DISCORD_WEBHOOK_URL;
 
 afterEach(() => {
   if (originalFwaProcessGasLimit === undefined) {
@@ -124,6 +126,31 @@ afterEach(() => {
     process.env.FLASHBOTS_BUILDERS =
       originalFlashbotsBuilders;
   }
+  if (originalHourlyStatsDiscordWebhookUrl === undefined) {
+    delete process.env.HOURLY_STATS_DISCORD_WEBHOOK_URL;
+  } else {
+    process.env.HOURLY_STATS_DISCORD_WEBHOOK_URL =
+      originalHourlyStatsDiscordWebhookUrl;
+  }
+});
+
+describe("hourly stats Discord webhook", () => {
+  it("is optional and accepts only Discord HTTPS webhook URLs", () => {
+    delete process.env.HOURLY_STATS_DISCORD_WEBHOOK_URL;
+    expect(loadConfig().hourlyStatsDiscordWebhookUrl).toBeUndefined();
+
+    process.env.HOURLY_STATS_DISCORD_WEBHOOK_URL =
+      "https://discord.com/api/webhooks/example/token";
+    expect(loadConfig().hourlyStatsDiscordWebhookUrl).toBe(
+      process.env.HOURLY_STATS_DISCORD_WEBHOOK_URL,
+    );
+
+    process.env.HOURLY_STATS_DISCORD_WEBHOOK_URL =
+      "https://example.com/api/webhooks/example/token";
+    expect(() => loadConfig()).toThrow(
+      "HOURLY_STATS_DISCORD_WEBHOOK_URL",
+    );
+  });
 });
 
 describe("LiveBid sweep", () => {

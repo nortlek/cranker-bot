@@ -59,6 +59,11 @@ import {
 } from "./config.js";
 import { DiscordWebhookNotifier } from "./discord.js";
 import {
+  DiscordHourlyStatsSender,
+  HourlyStatsReporter,
+  PostgresHourlyStatsSource,
+} from "./hourly-stats.js";
+import {
   startDashboardServer,
   type DashboardRuntime,
 } from "./dashboard.js";
@@ -162,6 +167,7 @@ function relayFailureClass(reason: string | undefined): string {
 }
 
 let discordNotifier: DiscordWebhookNotifier | undefined;
+let hourlyStatsReporter: HourlyStatsReporter | undefined;
 let telemetrySink: BatchedEventSink | undefined;
 let signerLease: SignerLease | undefined;
 let adaptiveBidController: AdaptiveBidController | undefined;
@@ -221,17 +227,21 @@ async function closeRuntimeResources(): Promise<void> {
     ]);
   } finally {
     try {
-      await Promise.all([
-        closeHeadSubscription?.(),
-        adaptiveBidController?.close(),
-        v2PoolPullBidController?.close(),
-        v2PoolFulfilledBidController?.close(),
-        telemetrySink?.close(),
-        discordNotifier?.flush(),
-        dashboardRuntime?.close(),
-      ]);
+      await hourlyStatsReporter?.close();
     } finally {
-      await signerLease?.release();
+      try {
+        await Promise.all([
+          closeHeadSubscription?.(),
+          adaptiveBidController?.close(),
+          v2PoolPullBidController?.close(),
+          v2PoolFulfilledBidController?.close(),
+          telemetrySink?.close(),
+          discordNotifier?.flush(),
+          dashboardRuntime?.close(),
+        ]);
+      } finally {
+        await signerLease?.release();
+      }
     }
   }
 }
@@ -363,32 +373,32 @@ async function main(): Promise<void> {
       timeout: 20_000,
     }),
   });
+  const readCurrentEthUsd = async (): Promise<number> => {
+    const round = await publicClient.readContract({
+      address: ETH_USD_FEED_ADDRESS,
+      abi: chainlinkPriceFeedAbi,
+      functionName: "latestRoundData",
+    });
+    const [roundId, answer, , updatedAt, answeredInRound] =
+      round;
+    const ageSeconds =
+      BigInt(Math.floor(Date.now() / 1_000)) - updatedAt;
+    if (
+      answer <= 0n ||
+      updatedAt === 0n ||
+      answeredInRound < roundId ||
+      ageSeconds < 0n ||
+      ageSeconds > BigInt(config.firmEthOracleMaxAgeSeconds)
+    ) {
+      throw new Error("ETH/USD oracle round is incomplete or stale");
+    }
+    return Number(formatUnits(answer, 8));
+  };
   dashboardRuntime = await startDashboardServer({
     ...(config.databaseUrl === undefined
       ? {}
       : { databaseUrl: config.databaseUrl }),
-    ethUsd: async () => {
-      const round = await publicClient.readContract({
-        address: ETH_USD_FEED_ADDRESS,
-        abi: chainlinkPriceFeedAbi,
-        functionName: "latestRoundData",
-      });
-      const [roundId, answer, , updatedAt, answeredInRound] =
-        round;
-      const ageSeconds =
-        BigInt(Math.floor(Date.now() / 1_000)) - updatedAt;
-      if (
-        answer <= 0n ||
-        updatedAt === 0n ||
-        answeredInRound < roundId ||
-        ageSeconds < 0n ||
-        ageSeconds >
-          BigInt(config.firmEthOracleMaxAgeSeconds)
-      ) {
-        throw new Error("ETH/USD oracle round is incomplete or stale");
-      }
-      return Number(formatUnits(answer, 8));
-    },
+    ethUsd: readCurrentEthUsd,
   });
   let exactStateClient: StrategyContext["publicClient"] =
     publicClient;
@@ -3660,6 +3670,26 @@ async function main(): Promise<void> {
     });
     activatePendingFundingExecution?.();
     activatePendingFwaExecution?.();
+    if (
+      config.hourlyStatsDiscordWebhookUrl !== undefined &&
+      config.databaseUrl !== undefined
+    ) {
+      hourlyStatsReporter = new HourlyStatsReporter({
+        source: new PostgresHourlyStatsSource(
+          config.databaseUrl,
+        ),
+        sender: new DiscordHourlyStatsSender({
+          url: config.hourlyStatsDiscordWebhookUrl,
+          timeoutMs: config.discordWebhookTimeoutMs,
+        }),
+        beforeReport: async () => {
+          await telemetrySink?.flush();
+        },
+        ethUsd: readCurrentEthUsd,
+        report: log,
+      });
+      hourlyStatsReporter.start();
+    }
   }
 
   const accountAddress =
@@ -3778,6 +3808,8 @@ async function main(): Promise<void> {
     fwaProcessGasLimit: config.fwaProcessGasLimit.toString(),
     fwaProcessMaxCount: config.fwaProcessMaxCount,
     discordNotifications: discordNotifier !== undefined,
+    hourlyStatsNotifications:
+      hourlyStatsReporter !== undefined,
     durableTelemetry: telemetrySink !== undefined,
     exactStateTransport,
     sourceRevision: sourceRevision ?? "",
