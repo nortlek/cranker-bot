@@ -643,13 +643,7 @@ async function main(): Promise<void> {
               ourTransactionHashes: outcome.attempts.map(
                 (attempt) => attempt.hash,
               ),
-              traceConfig: {
-                url: config.competitorTraceUrl,
-                timeoutMs: config.competitorTraceTimeoutMs,
-                retries: config.competitorTraceRetries,
-                retryDelayMs:
-                  config.competitorTraceRetryDelayMs,
-              },
+              traceClient: discoveryClient,
             }),
           shouldRetry: (error) =>
             isFreshBlockReadUnavailable(error) ||
@@ -851,13 +845,7 @@ async function main(): Promise<void> {
               ourTransactionHashes: outcome.attempts.map(
                 (attempt) => attempt.hash,
               ),
-              traceConfig: {
-                url: config.competitorTraceUrl,
-                timeoutMs: config.competitorTraceTimeoutMs,
-                retries: config.competitorTraceRetries,
-                retryDelayMs:
-                  config.competitorTraceRetryDelayMs,
-              },
+              traceClient: discoveryClient,
             }),
           shouldRetry: (error) =>
             isFreshBlockReadUnavailable(error) ||
@@ -2136,15 +2124,8 @@ async function main(): Promise<void> {
                 read: () =>
                   observeWinningCrankBids(
                     publicClient,
+                    discoveryClient,
                     outcome,
-                    {
-                      url: config.competitorTraceUrl,
-                      timeoutMs:
-                        config.competitorTraceTimeoutMs,
-                      retries: config.competitorTraceRetries,
-                      retryDelayMs:
-                        config.competitorTraceRetryDelayMs,
-                    },
                     {
                       factoryAddresses:
                         outcome.factoryAddresses ??

@@ -28,15 +28,12 @@ const crankBountyPaidEvent = parseAbiItem(
 );
 const BPS = 10_000n;
 
-export interface InternalOperation {
-  readonly txHash?: string;
-  readonly to?: string;
-  readonly value?: string;
-  readonly status?: boolean;
-}
-
-interface InternalOperationsResponse {
-  readonly items?: readonly InternalOperation[];
+export interface RpcTransactionTrace {
+  readonly action?: {
+    readonly to?: string;
+    readonly value?: string;
+  };
+  readonly error?: string | null;
 }
 
 export interface WinningBidObservation {
@@ -92,13 +89,6 @@ export interface WinningPoolLifecycleBidObservation {
    * standing-order, or other reward outside the pool lifecycle calls.
    */
   readonly winningBidBpsUpperBound: bigint;
-}
-
-export interface CompetitionTraceConfig {
-  readonly url: string;
-  readonly timeoutMs: number;
-  readonly retries: number;
-  readonly retryDelayMs: number;
 }
 
 export interface CompetitionRegistryConfig {
@@ -395,78 +385,52 @@ export function calculateWinningBidBps(parameters: {
   };
 }
 
-async function delay(milliseconds: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-export function directBeneficiaryPaymentFromOperations(parameters: {
-  readonly operations: readonly InternalOperation[];
-  readonly transactionHash: Hash;
+export function directBeneficiaryPaymentFromTraces(parameters: {
+  readonly traces: readonly RpcTransactionTrace[];
   readonly beneficiary: Address;
-}): bigint | undefined {
-  const requestedHash = parameters.transactionHash.toLowerCase();
-  const relevant = parameters.operations.filter(
-    (operation) =>
-      operation.txHash?.toLowerCase() === requestedHash,
-  );
-  if (relevant.length === 0) return undefined;
-  return relevant.reduce((total, operation) => {
+}): bigint {
+  return parameters.traces.reduce((total, trace) => {
     if (
-      operation.status !== false &&
-      operation.to?.toLowerCase() ===
+      trace.error == null &&
+      trace.action?.to?.toLowerCase() ===
         parameters.beneficiary.toLowerCase() &&
-      operation.value !== undefined
+      trace.action.value !== undefined
     ) {
-      return total + BigInt(operation.value);
+      return total + BigInt(trace.action.value);
     }
     return total;
   }, 0n);
 }
 
 async function directBeneficiaryPayment(
+  traceClient: PublicClient<Transport, Chain>,
   transactionHash: Hash,
   beneficiary: Address,
-  config: CompetitionTraceConfig,
 ): Promise<bigint> {
-  const url = new URL(config.url);
-  url.searchParams.set("txHash", transactionHash);
-  url.searchParams.set("sort", "asc");
-
-  for (let attempt = 1; attempt <= config.retries; attempt += 1) {
-    const response = await fetch(url, {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(config.timeoutMs),
+  let traces: readonly RpcTransactionTrace[];
+  try {
+    traces = (await traceClient.request({
+      method: "trace_transaction",
+      params: [transactionHash],
+    } as never)) as readonly RpcTransactionTrace[];
+  } catch (error) {
+    throw new Error("competitor RPC trace failed", {
+      cause: error,
     });
-    if (!response.ok) {
-      throw new Error(
-        `competitor trace returned HTTP ${response.status}`,
-      );
-    }
-    const payload =
-      (await response.json()) as InternalOperationsResponse;
-    const items = payload.items;
-    if (items !== undefined && items.length > 0) {
-      const payment =
-        directBeneficiaryPaymentFromOperations({
-          operations: items,
-          transactionHash,
-          beneficiary,
-        });
-      if (payment !== undefined) return payment;
-    }
-    if (attempt < config.retries) {
-      await delay(config.retryDelayMs);
-    }
   }
-  throw new Error(
-    `competitor trace was not indexed after ${config.retries} attempts`,
-  );
+  if (traces.length === 0) {
+    throw new Error("competitor RPC trace returned no frames");
+  }
+  return directBeneficiaryPaymentFromTraces({
+    traces,
+    beneficiary,
+  });
 }
 
 export async function observeWinningCrankBids(
   publicClient: PublicClient<Transport, Chain>,
+  traceClient: PublicClient<Transport, Chain>,
   outcome: PrivateBatchOutcome,
-  traceConfig: CompetitionTraceConfig,
   registryConfig: CompetitionRegistryConfig,
 ): Promise<readonly WinningBidObservation[]> {
   const lostOrderAddresses = new Map(
@@ -564,9 +528,9 @@ export async function observeWinningCrankBids(
           hash: transactionHash,
         }),
         directBeneficiaryPayment(
+          traceClient,
           transactionHash,
           block.miner,
-          traceConfig,
         ),
       ]);
       const aggregate = aggregateKnownCrankFees(
@@ -618,7 +582,7 @@ export async function observeWinningPoolPullBids(
     readonly pool: Address;
     readonly lostRoundIds: readonly bigint[];
     readonly ourTransactionHashes: readonly Hash[];
-    readonly traceConfig: CompetitionTraceConfig;
+    readonly traceClient: PublicClient<Transport, Chain>;
   },
 ): Promise<readonly WinningPoolPullBidObservation[]> {
   if (parameters.lostRoundIds.length === 0) return [];
@@ -649,9 +613,9 @@ export async function observeWinningPoolPullBids(
           hash: entry.transactionHash,
         }),
         directBeneficiaryPayment(
+          parameters.traceClient,
           entry.transactionHash,
           block.miner,
-          parameters.traceConfig,
         ),
       ]);
       const grossPoolReward = aggregatePoolCrankBounties(
@@ -692,7 +656,7 @@ export async function observeWinningPoolLifecycleBids(
     readonly pool: Address;
     readonly lostRoundIds: readonly bigint[];
     readonly ourTransactionHashes: readonly Hash[];
-    readonly traceConfig: CompetitionTraceConfig;
+    readonly traceClient: PublicClient<Transport, Chain>;
   },
 ): Promise<readonly WinningPoolLifecycleBidObservation[]> {
   if (parameters.lostRoundIds.length === 0) return [];
@@ -723,9 +687,9 @@ export async function observeWinningPoolLifecycleBids(
           hash: candidate.transactionHash,
         }),
         directBeneficiaryPayment(
+          parameters.traceClient,
           candidate.transactionHash,
           block.miner,
-          parameters.traceConfig,
         ),
       ]);
       if (candidate.grossPoolReward <= 0n) {

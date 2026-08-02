@@ -48,10 +48,6 @@ export interface KeeperConfig {
   readonly adaptiveBidDecayBps: bigint;
   readonly adaptiveBidEvidenceMaxAgeBlocks: bigint;
   readonly adaptiveBidStatePath: string;
-  readonly competitorTraceUrl: string;
-  readonly competitorTraceTimeoutMs: number;
-  readonly competitorTraceRetries: number;
-  readonly competitorTraceRetryDelayMs: number;
   readonly discordWebhookUrl: string | undefined;
   readonly discordWebhookTimeoutMs: number;
   readonly databaseUrl: string | undefined;
@@ -431,12 +427,6 @@ export function loadConfig(): KeeperConfig {
       "ADAPTIVE_BID_MAX_BPS must be >= BUILDER_BID_BPS",
     );
   }
-  const competitorTraceUrl =
-    process.env.COMPETITOR_TRACE_URL ||
-    "https://api.routescan.io/v2/network/mainnet/evm/1/internal-operations";
-  if (new URL(competitorTraceUrl).protocol !== "https:") {
-    throw new Error("COMPETITOR_TRACE_URL must use HTTPS");
-  }
   const gasLimitMultiplierBps = integerEnv(
     "GAS_LIMIT_MULTIPLIER_BPS",
     12_000,
@@ -513,22 +503,6 @@ export function loadConfig(): KeeperConfig {
     adaptiveBidStatePath:
       process.env.ADAPTIVE_BID_STATE_PATH ||
       ".keeper-bid-state.json",
-    competitorTraceUrl,
-    competitorTraceTimeoutMs: integerEnv(
-      "COMPETITOR_TRACE_TIMEOUT_MS",
-      5_000,
-      { min: 1_000, max: 30_000 },
-    ),
-    competitorTraceRetries: integerEnv(
-      "COMPETITOR_TRACE_RETRIES",
-      5,
-      { min: 1, max: 20 },
-    ),
-    competitorTraceRetryDelayMs: integerEnv(
-      "COMPETITOR_TRACE_RETRY_DELAY_MS",
-      1_000,
-      { min: 100, max: 10_000 },
-    ),
     discordWebhookUrl: discordWebhookUrlEnv(),
     discordWebhookTimeoutMs: integerEnv(
       "DISCORD_WEBHOOK_TIMEOUT_MS",

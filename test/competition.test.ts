@@ -15,7 +15,7 @@ import {
   aggregatePoolCrankBounties,
   calculateWinningBidBps,
   competitionRegistryBlockNumber,
-  directBeneficiaryPaymentFromOperations,
+  directBeneficiaryPaymentFromTraces,
   filterRelevantPoolPulls,
   groupRelevantPoolLifecycleBounties,
   isTransientCompetitionObservationError,
@@ -146,69 +146,62 @@ describe("calculateWinningBidBps", () => {
   });
 });
 
-describe("directBeneficiaryPaymentFromOperations", () => {
-  const transactionHash =
-    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
-  const unrelatedHash =
-    "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as Hash;
-
-  it("ignores an unrelated near-head trace response", () => {
+describe("directBeneficiaryPaymentFromTraces", () => {
+  it("ignores transfers to another beneficiary", () => {
     expect(
-      directBeneficiaryPaymentFromOperations({
-        transactionHash,
+      directBeneficiaryPaymentFromTraces({
         beneficiary: CALLER,
-        operations: [
+        traces: [
           {
-            txHash: unrelatedHash,
-            to: CALLER,
-            value: "900",
-            status: true,
+            action: {
+              to: ORDER_A,
+              value: "0x384",
+            },
           },
         ],
       }),
-    ).toBeUndefined();
+    ).toBe(0n);
   });
 
   it("sums only successful matching-transaction payments", () => {
     expect(
-      directBeneficiaryPaymentFromOperations({
-        transactionHash,
+      directBeneficiaryPaymentFromTraces({
         beneficiary: CALLER,
-        operations: [
+        traces: [
           {
-            txHash: transactionHash.toUpperCase(),
-            to: CALLER.toLowerCase(),
-            value: "500",
-            status: true,
+            action: {
+              to: CALLER.toLowerCase(),
+              value: "0x1f4",
+            },
           },
           {
-            txHash: transactionHash,
-            to: CALLER,
-            value: "400",
-            status: false,
+            action: {
+              to: CALLER,
+              value: "0x190",
+            },
+            error: "Reverted",
           },
           {
-            txHash: unrelatedHash,
-            to: CALLER,
-            value: "800",
-            status: true,
+            action: {
+              to: ORDER_A,
+              value: "0x320",
+            },
           },
         ],
       }),
     ).toBe(500n);
   });
 
-  it("accepts an indexed matching transaction with no payment", () => {
+  it("returns zero when no trace pays the beneficiary", () => {
     expect(
-      directBeneficiaryPaymentFromOperations({
-        transactionHash,
+      directBeneficiaryPaymentFromTraces({
         beneficiary: CALLER,
-        operations: [
+        traces: [
           {
-            txHash: transactionHash,
-            to: ORDER_A,
-            value: "0",
-            status: true,
+            action: {
+              to: ORDER_A,
+              value: "0x0",
+            },
           },
         ],
       }),

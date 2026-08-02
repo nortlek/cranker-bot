@@ -357,6 +357,12 @@ and the exact counterfactual retained profit. Use
 decisions; do not compare `winningBidBpsUpperBound` with the configured bid in
 isolation.
 
+Competitor direct-beneficiary payments come from the discovery RPC's exact
+`trace_transaction` result. This avoids delayed explorer indexing on the hot
+post-block learning path; a trace failure is held rather than interpreted as a
+zero payment. Keep `DISCOVERY_RPC_URL` on a provider that supports the Parity
+trace method, and do not restore the retired asynchronous trace-indexer path.
+
 After a missed pool sync or settlement,
 `pool_lifecycle_competitor_bid_observed` aggregates every
 `CrankBountyPaid` event for the lost round and winning transaction, then stores
