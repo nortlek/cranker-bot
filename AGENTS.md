@@ -281,6 +281,7 @@ jq -c 'select(
   .event == "keeper_pass_timing" or
   .event == "bundle_stage_timing" or
   .event == "bundle_simulation_state_availability_waited" or
+  .event == "private_target_block_delivery" or
   .event == "keeper_receipt_availability_waited" or
   .event == "relay_submission_result" or
   .event == "convex_candidate_cache_refreshed" or
@@ -291,6 +292,12 @@ jq -c 'select(
 Every event emitted inside a keeper pass includes the same `passId` and
 `observedBlock`. Relay events use a numeric alias and categorized error, never
 the potentially credential-bearing URL.
+
+`private_target_block_delivery` records the exact target block hash, fee
+recipient, extra data, and aggregate inclusion outcome after receipt
+classification. Correlate it with the pass's numeric relay acceptance events
+to distinguish price competition from a builder-reach, timing, or block
+construction miss without another historical block lookup.
 
 `keeper_pass_failed` also retains the attempted block, pass ID, head source,
 and a secret-free error-name/code chain after leaving the pass context. Use

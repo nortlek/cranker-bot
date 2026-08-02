@@ -5563,6 +5563,13 @@ export async function runKeeperPass(
     });
   }
 
+  let privateTargetBlockContext:
+    | {
+        readonly blockHash: Hash | null;
+        readonly feeRecipient: Address;
+        readonly extraData: Hex;
+      }
+    | undefined;
   if (
     privateTargetBlock !== undefined &&
     submitted.length > 0
@@ -5605,6 +5612,11 @@ export async function runKeeperPass(
       maxAttempts: 11,
       retryDelayMs: 100,
     });
+    privateTargetBlockContext = {
+      blockHash: targetBlockRead.value.hash,
+      feeRecipient: targetBlockRead.value.miner,
+      extraData: targetBlockRead.value.extraData,
+    };
     log("info", "bundle_stage_timing", {
       stage: "target_block_availability",
       durationMs:
@@ -5899,6 +5911,46 @@ export async function runKeeperPass(
       }
     }),
   );
+
+  if (
+    privateTargetBlock !== undefined &&
+    privateTargetBlockContext !== undefined &&
+    submitted.length > 0
+  ) {
+    const includedTransactions = receiptResults.filter(
+      (result) => result.outcome === "confirmed",
+    ).length;
+    const successfulTransactions = receiptResults.filter(
+      (result) =>
+        result.outcome === "confirmed" && result.successful,
+    ).length;
+    const revertedTransactions =
+      includedTransactions - successfulTransactions;
+    const expiredTransactions =
+      receiptResults.length - includedTransactions;
+    const outcome =
+      successfulTransactions === submitted.length
+        ? "full_success"
+        : includedTransactions === 0
+          ? "miss"
+          : "partial_inclusion";
+    log(
+      outcome === "full_success" ? "info" : "warn",
+      "private_target_block_delivery",
+      {
+        targetBlock: privateTargetBlock.toString(),
+        blockHash: privateTargetBlockContext.blockHash ?? "",
+        feeRecipient: privateTargetBlockContext.feeRecipient,
+        extraData: privateTargetBlockContext.extraData,
+        attemptedTransactions: submitted.length,
+        includedTransactions,
+        successfulTransactions,
+        revertedTransactions,
+        expiredTransactions,
+        outcome,
+      },
+    );
+  }
 
   if (
     privateTargetBlock !== undefined &&
