@@ -61,6 +61,28 @@ describe("adjustAdaptiveBid", () => {
     expect(adjustment.currentBidBps).toBe(7_525n);
   });
 
+  it("crosses an observed clearing price hidden below the minimum tip floor", () => {
+    const floorPolicy: AdaptiveBidPolicy = {
+      ...policy,
+      baselineBidBps: 1_000n,
+      maximumBidBps: 10_000n,
+    };
+    const adjustment = adjustAdaptiveBid(
+      initialAdaptiveBidState(floorPolicy),
+      floorPolicy,
+      {
+        kind: "miss",
+        blockNumber: 25_665_769n,
+        effectiveBidBps: 1_461n,
+        observedWinningBidBps: 1_547n,
+      },
+    );
+
+    expect(adjustment.action).toBe("increased");
+    expect(adjustment.reason).toBe("observed_competitor_price");
+    expect(adjustment.currentBidBps).toBe(1_572n);
+  });
+
   it("does not increase after a cheaper winner or an unmeasured miss", () => {
     const raised = {
       currentBidBps: 8_622n,

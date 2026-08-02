@@ -233,16 +233,26 @@ export function adjustAdaptiveBid(
     const observedTarget =
       outcome.observedWinningBidBps === undefined
         ? undefined
-        : clampToPolicy(
-            previousBidBps +
+        : (() => {
+            const competitorBoundary =
+              outcome.observedWinningBidBps +
+              policy.lossStepBps;
+            const translatedTarget =
+              previousBidBps +
               maximum(
                 0n,
-                outcome.observedWinningBidBps +
-                  policy.lossStepBps -
-                  effectiveBidBps,
-              ),
-            policy,
-          );
+                competitorBoundary - effectiveBidBps,
+              );
+            // A minimum gas-tip floor can make the measured effective bid
+            // larger than the stored request without responding to small
+            // request increases. Cross both the translated delta and the
+            // absolute clearing boundary so one observed price loss changes
+            // the next signed transaction.
+            return clampToPolicy(
+              maximum(competitorBoundary, translatedTarget),
+              policy,
+            );
+          })();
     const wasProbe =
       state.activeProbeBidBps !== undefined &&
       state.activeProbeBidBps === previousBidBps;

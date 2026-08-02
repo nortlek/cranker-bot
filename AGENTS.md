@@ -673,6 +673,10 @@ These constraints prevent expensive or unsafe regressions:
   loop. A measured, profitable higher competitor raises the target. Sustained
   full wins eventually probe below old competitor evidence, while retaining
   that evidence as the immediate recovery boundary for a price-losing probe.
+  A measured price loss must cross the competitor's absolute clearing boundary
+  as well as correcting any requested-versus-effective payment gap; a minimum
+  gas-tip floor can otherwise make a small requested increase economically
+  inert.
   A probe miss with no competitor or a cheaper measured winner must hold the
   probe; raising payment cannot repair builder reach, timing, or state conflict.
   Never feed ambiguous wrapper economics into the controller.
