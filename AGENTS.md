@@ -632,7 +632,15 @@ These constraints prevent expensive or unsafe regressions:
   lease, and target deadline immediately before submission. Simulate the whole
   pair twice, price and account only the keeper `submit`, never offer the entry
   or a partial submit prefix, and keep its builder policy independent from
-  standing orders and ordinary PullPool lifecycle work.
+  standing orders and ordinary PullPool lifecycle work. When an exact V2 pool
+  lifecycle settlement makes one of the GroupPull's underlying rounds
+  collectable, append `collect` immediately after that settlement and extend
+  the mandatory private prefix through it. Price only the one bounty share
+  guaranteed by the bundled settlement; earlier ready shares are unpriced
+  upside because a public transaction may take them before the bundle. Use a
+  funded Ethereum-valid gas envelope, require complete signed-bundle
+  simulation for actual gas and retained profit, and keep the collect bid
+  independent from close/submit bidding.
 - A pending FWA fulfillment backrun is always one exact bounded bundle:
   `[contiguous public coordinator nonce prefix ending in the target
   fulfillRandomWords, keeper syncFwaResult, keeper settle]`, or

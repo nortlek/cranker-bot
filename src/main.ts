@@ -1616,6 +1616,8 @@ async function main(): Promise<void> {
             config.poolFulfilledBuilderBidBps.toString(),
           configuredGroupPullBuilderBidBps:
             config.groupPullBuilderBidBps.toString(),
+          configuredGroupPullCollectBuilderBidBps:
+            config.groupPullCollectBuilderBidBps.toString(),
           configuredLiveBidSweepBuilderBidBps:
             config.liveBidSweepBuilderBidBps.toString(),
           configuredLiquityBuilderBidBps:
@@ -3846,6 +3848,8 @@ async function main(): Promise<void> {
       config.poolFulfilledBuilderBidBps.toString(),
     configuredGroupPullBuilderBidBps:
       config.groupPullBuilderBidBps.toString(),
+    configuredGroupPullCollectBuilderBidBps:
+      config.groupPullCollectBuilderBidBps.toString(),
     activeV2PoolFulfilledBuilderBidBps:
       v2Config === undefined
         ? ""

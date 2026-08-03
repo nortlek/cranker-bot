@@ -158,6 +158,13 @@ async function readFirstCollectablePulls(parameters: {
 }): Promise<{
   readonly poolRoundCount: number;
   readonly firstCollections: number;
+  readonly poolRoundIds: readonly bigint[];
+  readonly collected: readonly boolean[];
+  readonly rounds: readonly {
+    readonly state: number;
+    readonly tokenPot: bigint;
+  }[];
+  readonly canPayTokens: boolean;
 }> {
   const [pool, poolRoundIds] = await Promise.all([
     parameters.client.readContract({
@@ -218,7 +225,80 @@ async function readFirstCollectablePulls(parameters: {
       firstCollections += 1;
     }
   }
-  return { poolRoundCount: poolRoundIds.length, firstCollections };
+  return {
+    poolRoundCount: poolRoundIds.length,
+    firstCollections,
+    poolRoundIds,
+    collected,
+    rounds: rounds.map((round) => ({
+      state: round.state,
+      tokenPot: round.tokenPot,
+    })),
+    canPayTokens,
+  };
+}
+
+export interface GroupPullCollectContext {
+  readonly roundId: bigint;
+  readonly bountyPot: bigint;
+  readonly bountyShares: number;
+  readonly poolRoundIds: readonly bigint[];
+  readonly collected: readonly boolean[];
+  readonly rounds: readonly {
+    readonly state: number;
+    readonly tokenPot: bigint;
+  }[];
+  readonly canPayTokens: boolean;
+  readonly firstCollections: number;
+}
+
+export const GROUP_PULL_DEPENDENT_COLLECT_GAS_LIMIT = 5_000_000n;
+
+export function groupPullCollectAfterSettlement(parameters: {
+  readonly contexts: readonly GroupPullCollectContext[];
+  readonly poolRoundId: bigint;
+  readonly builderBidBps: bigint;
+}): KeeperJob | undefined {
+  for (const context of parameters.contexts) {
+    const index = context.poolRoundIds.findIndex(
+      (roundId) => roundId === parameters.poolRoundId,
+    );
+    if (index < 0 || context.collected[index] === true) continue;
+    const poolRound = context.rounds[index];
+    if (
+      poolRound === undefined ||
+      (poolRound.state !== ROUND_STATE.pulling &&
+        poolRound.state !== ROUND_STATE.claimable) ||
+      (poolRound.tokenPot !== 0n && !context.canPayTokens)
+    ) {
+      continue;
+    }
+    // Only the pool round settled by our mandatory prefix is guaranteed.
+    // Earlier collectable rounds may be taken by public transactions ordered
+    // before the bundle, so treat them as unpriced upside.
+    const calls = 1;
+    const reward = groupPullBountyForCalls({
+      bountyPot: context.bountyPot,
+      bountyShares: context.bountyShares,
+      calls,
+    });
+    return {
+      kind: "group_pull_collect",
+      label: `group_pull_collect:${context.roundId}:${calls}:after_settle`,
+      target: GROUP_PULL_ADDRESS,
+      data: encodeFunctionData({
+        abi: groupPullAbi,
+        functionName: "collect",
+        args: [context.roundId, BigInt(context.poolRoundIds.length)],
+      }),
+      gas: GROUP_PULL_DEPENDENT_COLLECT_GAS_LIMIT,
+      reward: { kind: "fixed", amountWei: reward },
+      configuredBuilderBidBps: parameters.builderBidBps,
+      requiresBundleSimulation: true,
+      roundId: context.roundId,
+    };
+  }
+  return undefined;
 }
 
 export interface GroupPullPlan {
@@ -228,6 +308,7 @@ export interface GroupPullPlan {
   readonly roundCount: bigint;
   readonly liveRound: bigint;
   readonly buyingRounds: bigint;
+  readonly collectContexts: readonly GroupPullCollectContext[];
 }
 
 export async function planGroupPullJob(parameters: {
@@ -238,6 +319,7 @@ export async function planGroupPullJob(parameters: {
   readonly gasLimitMultiplierBps: bigint;
   readonly minProfitWei: bigint;
   readonly builderBidBps: bigint;
+  readonly collectBuilderBidBps: bigint;
 }): Promise<GroupPullPlan> {
   await verifyGroupPullRuntime(parameters);
   const [paused, deprecated, roundCount, liveRound, buyingRounds] =
@@ -274,6 +356,7 @@ export async function planGroupPullJob(parameters: {
       }),
     ]);
   const candidates: KeeperJob[] = [];
+  const collectContexts: GroupPullCollectContext[] = [];
   if (liveRound > 0n) {
     const round = await readGroupPullRound({
       client: parameters.client,
@@ -391,12 +474,23 @@ export async function planGroupPullJob(parameters: {
     const remaining = round.bought - round.pullsCollected;
     if (remaining <= 0 || round.bountyShares <= 0) continue;
     try {
-      const { poolRoundCount, firstCollections } =
+      const collectable =
         await readFirstCollectablePulls({
           client: parameters.client,
           blockNumber: parameters.blockNumber,
           roundId,
         });
+      const { poolRoundCount, firstCollections } = collectable;
+      collectContexts.push({
+        roundId,
+        bountyPot: round.bountyPot,
+        bountyShares: round.bountyShares,
+        poolRoundIds: collectable.poolRoundIds,
+        collected: collectable.collected,
+        rounds: collectable.rounds,
+        canPayTokens: collectable.canPayTokens,
+        firstCollections,
+      });
       if (poolRoundCount === 0 || firstCollections === 0) continue;
       const data = encodeFunctionData({
         abi: groupPullAbi,
@@ -432,7 +526,8 @@ export async function planGroupPullJob(parameters: {
           data,
           gas,
           reward: { kind: "fixed", amountWei: reward },
-          configuredBuilderBidBps: parameters.builderBidBps,
+          configuredBuilderBidBps:
+            parameters.collectBuilderBidBps,
           roundId,
         });
       }
@@ -463,5 +558,6 @@ export async function planGroupPullJob(parameters: {
     roundCount,
     liveRound,
     buyingRounds,
+    collectContexts,
   };
 }

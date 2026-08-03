@@ -2916,3 +2916,20 @@ the block fee recipient: 9,085 bps of the `0.001111111111111112 ETH` bounty,
 still counterfactually profitable for us. GroupPull therefore needs its own
 durable competitor controller, plus profitable cross-lane suffix composition;
 the current static 3,000-bps quote is not competitive in this lane.
+
+Implemented follow-up: GroupPull collection now has an independent 9,100-bps
+starting bid, just above the exact Pack 004 clearing payment while retained
+profit remains the final boundary. More importantly, an exact V2 pool
+lifecycle plan now detects when its settlement unlocks an associated
+GroupPull round and appends `collect` immediately after `settle`; the mandatory
+relay prefix extends through the collect so production cannot expose the new
+bounty with a lifecycle-only prefix. The planner conservatively prices only
+the single bounty share guaranteed by its own settlement and treats any older
+ready shares as unpriced upside. Historical replay at parent block
+`25,676,309` reconstructed GroupPull round 4 with underlying rounds 247-250,
+round 250 still Pulling, and the new dependent suffix selected round 250; at
+parent block `25,676,310`, after settlement, the dependent path correctly no
+longer armed and ordinary confirmed-head collection remained responsible.
+The dependent call uses a funded Ethereum-valid envelope and requires complete
+signed-bundle simulation to determine actual gas and enforce exact retained
+profit before submission.

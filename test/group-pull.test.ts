@@ -7,7 +7,11 @@ import {
   GROUP_PULL_DEPLOYMENT_BLOCK,
   GROUP_PULL_RUNTIME_CODE_HASH,
 } from "../src/constants.js";
-import { groupPullBountyForCalls } from "../src/group-pull.js";
+import {
+  GROUP_PULL_DEPENDENT_COLLECT_GAS_LIMIT,
+  groupPullBountyForCalls,
+  groupPullCollectAfterSettlement,
+} from "../src/group-pull.js";
 import {
   groupPullSubmitRewardAfterFinalEntry,
   pendingGroupPullGasUsed,
@@ -76,6 +80,59 @@ describe("GroupPull bounty accounting", () => {
         calls: 2,
       }),
     ).toBe(6n);
+  });
+
+  it("builds an exact-simulation collect unlocked by a pool settlement", () => {
+    const job = groupPullCollectAfterSettlement({
+      contexts: [
+        {
+          roundId: 12n,
+          bountyPot: parseEther("0.003"),
+          bountyShares: 3,
+          poolRoundIds: [285n, 286n],
+          collected: [false, false],
+          rounds: [
+            { state: 4, tokenPot: 0n },
+            { state: 2, tokenPot: 0n },
+          ],
+          canPayTokens: false,
+          firstCollections: 1,
+        },
+      ],
+      poolRoundId: 286n,
+      builderBidBps: 9_100n,
+    });
+
+    expect(job).toMatchObject({
+      kind: "group_pull_collect",
+      label: "group_pull_collect:12:1:after_settle",
+      gas: GROUP_PULL_DEPENDENT_COLLECT_GAS_LIMIT,
+      configuredBuilderBidBps: 9_100n,
+      requiresBundleSimulation: true,
+      roundId: 12n,
+      reward: { kind: "fixed", amountWei: parseEther("0.001") },
+    });
+  });
+
+  it("does not speculate on unavailable token settlement proceeds", () => {
+    expect(
+      groupPullCollectAfterSettlement({
+        contexts: [
+          {
+            roundId: 12n,
+            bountyPot: parseEther("0.001"),
+            bountyShares: 1,
+            poolRoundIds: [286n],
+            collected: [false],
+            rounds: [{ state: 3, tokenPot: 1n }],
+            canPayTokens: false,
+            firstCollections: 0,
+          },
+        ],
+        poolRoundId: 286n,
+        builderBidBps: 9_100n,
+      }),
+    ).toBeUndefined();
   });
 
   it("excludes the final entrant's close bounty from the keeper submit reward", () => {

@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CONVEX_KICK_CANDIDATES } from "../src/constants.js";
 import {
+  appendGroupPullCollectAfterSettlement,
   exactSimulationPlanIsAdmissible,
   fwaProcessJob,
   highestPositiveClaimableIndexes,
@@ -776,7 +777,11 @@ describe("orderStandaloneStandingJobsForAuction", () => {
 
 describe("mergeConcurrentPoolPlans", () => {
   const job = (
-    kind: "standing_order" | "pool_sync" | "pool_settle",
+    kind:
+      | "standing_order"
+      | "fwa_process"
+      | "pool_sync"
+      | "pool_settle",
     poolVersion: "v1" | "v2",
     reward: bigint,
   ) =>
@@ -864,5 +869,92 @@ describe("mergeConcurrentPoolPlans", () => {
         ),
       ),
     ).toEqual(new Set(["v2"]));
+  });
+
+  it("makes an unlocked GroupPull collect part of the mandatory lifecycle core", () => {
+    const process = {
+      ...job("fwa_process", "v2", 0n),
+      requiresBundleSimulation: true,
+    } as const;
+    const sync = {
+      ...job("pool_sync", "v2", 1n),
+      roundId: 286n,
+    } as const;
+    const settle = {
+      ...job("pool_settle", "v2", 1n),
+      roundId: 286n,
+    } as const;
+    const optional = job("standing_order", "v1", 1n);
+    const result = appendGroupPullCollectAfterSettlement({
+      plan: {
+        jobs: [process, sync, settle, optional],
+        minimumViablePrefix: 2,
+        orders: 1,
+        skipped: new Map(),
+      },
+      contexts: [
+        {
+          roundId: 12n,
+          bountyPot: 3_000n,
+          bountyShares: 3,
+          poolRoundIds: [286n],
+          collected: [false],
+          rounds: [{ state: 2, tokenPot: 0n }],
+          canPayTokens: false,
+          firstCollections: 0,
+        },
+      ],
+      maxJobs: 6,
+      builderBidBps: 9_100n,
+    });
+
+    expect(result.jobs.map(({ kind }) => kind)).toEqual([
+      "fwa_process",
+      "pool_sync",
+      "pool_settle",
+      "group_pull_collect",
+      "standing_order",
+    ]);
+    expect(result.minimumViablePrefix).toBe(4);
+    expect(result.jobs[3]).toMatchObject({
+      configuredBuilderBidBps: 9_100n,
+      requiresBundleSimulation: true,
+    });
+  });
+
+  it("evicts an optional suffix when the collect fills the job limit", () => {
+    const result = appendGroupPullCollectAfterSettlement({
+      plan: {
+        jobs: [
+          { ...job("pool_sync", "v2", 1n), roundId: 286n },
+          { ...job("pool_settle", "v2", 1n), roundId: 286n },
+          job("standing_order", "v1", 1n),
+        ],
+        minimumViablePrefix: 2,
+        orders: 1,
+        skipped: new Map(),
+      },
+      contexts: [
+        {
+          roundId: 12n,
+          bountyPot: 1_000n,
+          bountyShares: 1,
+          poolRoundIds: [286n],
+          collected: [false],
+          rounds: [{ state: 2, tokenPot: 0n }],
+          canPayTokens: false,
+          firstCollections: 0,
+        },
+      ],
+      maxJobs: 3,
+      builderBidBps: 9_100n,
+    });
+
+    expect(result.jobs.map(({ kind }) => kind)).toEqual([
+      "pool_sync",
+      "pool_settle",
+      "group_pull_collect",
+    ]);
+    expect(result.minimumViablePrefix).toBe(3);
   });
 });

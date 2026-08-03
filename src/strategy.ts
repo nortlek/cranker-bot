@@ -87,7 +87,11 @@ import {
   type FirmReceiptAccounting,
 } from "./firm.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
-import { planGroupPullJob } from "./group-pull.js";
+import {
+  groupPullCollectAfterSettlement,
+  planGroupPullJob,
+  type GroupPullCollectContext,
+} from "./group-pull.js";
 import { retryTransientRead } from "./heads.js";
 import {
   ACQUISITION_STATUS,
@@ -4623,6 +4627,50 @@ export function mergeConcurrentPoolPlans(parameters: {
   };
 }
 
+export function appendGroupPullCollectAfterSettlement(parameters: {
+  readonly plan: PlannedJobs;
+  readonly contexts: readonly GroupPullCollectContext[];
+  readonly maxJobs: number;
+  readonly builderBidBps: bigint;
+}): PlannedJobs {
+  const settleIndex = parameters.plan.jobs.findIndex(
+    (job) =>
+      (job.kind === "pool_settle" ||
+        job.kind === "pool_settle_forced_eth") &&
+      job.poolVersion === "v2" &&
+      job.roundId !== undefined,
+  );
+  const settlement = parameters.plan.jobs[settleIndex];
+  if (settlement?.roundId === undefined) return parameters.plan;
+  const collect = groupPullCollectAfterSettlement({
+    contexts: parameters.contexts,
+    poolRoundId: settlement.roundId,
+    builderBidBps: parameters.builderBidBps,
+  });
+  if (collect === undefined) return parameters.plan;
+  const jobs = [...parameters.plan.jobs];
+  if (jobs.length >= parameters.maxJobs) {
+    const removableIndex = jobs.length - 1;
+    if (removableIndex < parameters.plan.minimumViablePrefix) {
+      return parameters.plan;
+    }
+    jobs.pop();
+  }
+  const retainedSettleIndex = jobs.indexOf(settlement);
+  if (retainedSettleIndex < 0) return parameters.plan;
+  jobs.splice(retainedSettleIndex + 1, 0, collect);
+  return {
+    ...parameters.plan,
+    jobs,
+    // The relay must never receive a lifecycle-only prefix that unlocks the
+    // collect bounty for a competing transaction later in the same block.
+    minimumViablePrefix: Math.max(
+      parameters.plan.minimumViablePrefix,
+      retainedSettleIndex + 2,
+    ),
+  };
+}
+
 async function planJobs(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly discoveryClient: PublicClient<Transport, Chain>;
@@ -4651,6 +4699,8 @@ async function planJobs(parameters: {
         minProfitWei: parameters.config.minProfitWei,
         builderBidBps:
           parameters.config.groupPullBuilderBidBps,
+        collectBuilderBidBps:
+          parameters.config.groupPullCollectBuilderBidBps,
       })
     : Promise.resolve(undefined);
   const {
@@ -4700,8 +4750,20 @@ async function planJobs(parameters: {
     maxJobs: maxJobs(parameters.config),
   });
   const groupPullPlan = await groupPullPromise;
+  const mergedWithGroupPullCollect =
+    groupPullPlan === undefined
+      ? merged
+      : appendGroupPullCollectAfterSettlement({
+          plan: merged,
+          contexts: groupPullPlan.collectContexts,
+          maxJobs: maxJobs(parameters.config),
+          builderBidBps:
+            parameters.config.groupPullCollectBuilderBidBps,
+        });
+  const groupPullCollectAppended =
+    mergedWithGroupPullCollect.jobs.length > merged.jobs.length;
   const groupPullJob = groupPullPlan?.job;
-  const mergedProfit = merged.jobs.reduce(
+  const mergedProfit = mergedWithGroupPullCollect.jobs.reduce(
     (total, job) =>
       total +
       estimatedJobReward({
@@ -4722,6 +4784,7 @@ async function planJobs(parameters: {
         groupPullJob.gas * parameters.maxFeePerGas
       : undefined;
   const selected =
+    !groupPullCollectAppended &&
     groupPullJob !== undefined &&
     groupPullProfit !== undefined &&
     (merged.jobs.length === 0 || groupPullProfit > mergedProfit)
@@ -4731,7 +4794,7 @@ async function planJobs(parameters: {
           orders: merged.orders,
           skipped: merged.skipped,
         }
-      : merged;
+      : mergedWithGroupPullCollect;
   log("info", "pull_pool_adapter_plans_merged", {
     enabledVersions: JSON.stringify(
       configs.map((config) => config.poolVersion),
@@ -4764,10 +4827,13 @@ async function planJobs(parameters: {
       groupPullPlan?.liveRound.toString() ?? "",
     groupPullBuyingRounds:
       groupPullPlan?.buyingRounds.toString() ?? "",
-    groupPullSelected:
-      selected.jobs[0]?.kind === "group_pull_close" ||
-      selected.jobs[0]?.kind === "group_pull_submit" ||
-      selected.jobs[0]?.kind === "group_pull_collect",
+    groupPullSelected: selected.jobs.some(
+      (job) =>
+        job.kind === "group_pull_close" ||
+        job.kind === "group_pull_submit" ||
+        job.kind === "group_pull_collect",
+    ),
+    groupPullCollectAppended,
   });
   return selected;
 }
