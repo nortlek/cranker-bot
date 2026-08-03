@@ -2901,3 +2901,18 @@ pool lifecycle bundle when the settled round belongs to an active GroupPull;
 keep its reward, gas, and builder bidding attributable to the GroupPull lane.
 The separately owned Pack Pull work should implement this rather than creating
 a competing integration here.
+
+Pack 004 confirmed both gaps. Production won all four submit bounties for
+`0.002419776154691820 ETH` net and the first two collect bounties for
+`0.001467724288976397 ETH` net. It then selected profitable pool lifecycle
+work ahead of the newly available round-249 collect, which a competitor took,
+and lost the round-250 collect in Eureka-built block `25,676,311`. Our exact
+quote paid `0.000333333333433870 ETH` (3,001 effective bps) and retained an
+expected `0.000703506956956090 ETH`. Exact receipt and trace evidence for
+competitor transaction
+`0xcc112c065433d849eaf437e0814336f1fededcce84b313ed37210f0d0ffbea0d`
+shows zero priority payment and `0.001009465855395564 ETH` direct payment to
+the block fee recipient: 9,085 bps of the `0.001111111111111112 ETH` bounty,
+still counterfactually profitable for us. GroupPull therefore needs its own
+durable competitor controller, plus profitable cross-lane suffix composition;
+the current static 3,000-bps quote is not competitive in this lane.
