@@ -2831,3 +2831,17 @@ The same release is now publicly scheduled: ripe0x post
 require the canonical successor to unpause and expose an exact live round, and
 require the separately owned integration and deployment checks to pass before
 production can act.
+
+Release watch, 2026-08-03 09:48 ET: successor round 1 launched, sold all 100
+entries, and completed four PullPool rounds before the contract was deprecated
+again. The winning `submit` transaction
+`0x1a3e2f3677775da5c2b7d3ddd8358f46c004ea8493f7e5ac79d5ff31197f4fb0`
+received four `BountyPaid` transfers of `0.001111111111111111 ETH`, for
+`0.004444444444444444 ETH` gross. Its receipt used 3,806,292 gas for
+`0.000943850756727480 ETH`, and an exact trace proves a
+`0.000186547028587379 ETH` direct builder payment, leaving the winner about
+`0.003314046659129585 ETH` before any off-chain costs. Production did not
+compete because deployed revision `9fa00f1` still pins the deprecated test
+GroupPull. The successor is now deprecated with no live or buying round, so
+there is no safe current call to send; prioritize the separately owned
+successor integration before the next activation or successor deployment.
