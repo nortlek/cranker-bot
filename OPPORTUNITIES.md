@@ -2797,3 +2797,16 @@ aggregates existing standing-order `crank()` fees. The keeper's existing
 deterministic batch executor is stricter, preserves per-order bidding and an
 owner-return floor, and remains the selected implementation. No production
 change is warranted for the deployer batcher.
+
+Release watch, 2026-08-02: the canonical deployer created another verified
+`GroupPull` at `0xd23dCBFd47e849DAc946689E264aAD3C6BbD4187` in block
+`25,671,215` (transaction
+`0xe4e70c01d7ad309f491e54f7336bb083d8ecf62d59d7a33b3bb0d55047a6ea0a`).
+It targets the same canonical V2 pool, has runtime hash
+`0x3c53349d2d4b4c59cab54e3844c17ad6dc4c1967c0329801076923fb0e1957a7`,
+and was still paused with zero rounds at block `25,671,496`; the original test
+deployment was deprecated and had no live or buying rounds. This is a future
+GroupPull release, not a current missed keeper lane. Preserve the existing
+healthy deployment until the separately owned Pack Pull integration validates
+the successor's exact launch state, runtime, configuration, economics, and
+pending-entry path; do not switch merely because the contract exists.
