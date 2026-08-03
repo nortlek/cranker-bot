@@ -2810,3 +2810,17 @@ GroupPull release, not a current missed keeper lane. Preserve the existing
 healthy deployment until the separately owned Pack Pull integration validates
 the successor's exact launch state, runtime, configuration, economics, and
 pending-entry path; do not switch merely because the contract exists.
+
+Release watch, 2026-08-03: the deployer configured the successor with a
+successful `setTerms` transaction
+`0x57dbcf6a31f5a06708a6f0f99c050eee2ce20ce8df3055f9271ff4f568ee41c4`
+at block `25,672,816`. Sourcify now reports exact creation and runtime matches,
+and the decoded/current terms are `0.005 ETH` entry price, `0.0001 ETH`
+incentive per ticket, four pulls per GroupPull round, one-hour entry duration,
+no round gap, a four-hour submit window, a 2,000 bps escalation threshold, and
+zero escalation rate. At block `25,672,965` the contract still targeted the
+canonical V2 pool and remained paused, non-deprecated, with zero rounds and no
+live or buying round. This is concrete pre-launch configuration evidence, not
+authorization to switch production; the separately owned successor integration
+must retain the pinned runtime and fail-closed launch-state checks before it is
+deployed.
