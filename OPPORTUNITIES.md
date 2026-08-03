@@ -2852,3 +2852,13 @@ runtime/pool-relationship checks, confirmed-head `close`/`submit` planner, and
 pending final-entry pair remain unchanged. A deprecated successor produces no
 job; if the same contract is reactivated, exact live state and simulation can
 arm it without another deployment.
+
+Release watch, 2026-08-03 13:57 ET: ripe reported that the first round went
+well but that new rounds are temporarily paused while UI bugs and reveal-flow
+sequencing are corrected. Exact mainnet state at block `25,674,906`
+corroborated the operational pause: the pinned successor was deprecated with
+`roundCount=1`, `liveRound=0`, and `buyingRounds=0`. The canonical PullPool V2
+remained independently active and healthy (`paused=false`, `deprecated=false`,
+`roundCount=226`, `currentOpenRound=226`). No keeper change is warranted; keep
+watching the successor for reactivation or replacement by the canonical
+deployer.
