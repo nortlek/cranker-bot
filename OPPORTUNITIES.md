@@ -2824,3 +2824,10 @@ live or buying round. This is concrete pre-launch configuration evidence, not
 authorization to switch production; the separately owned successor integration
 must retain the pinned runtime and fail-closed launch-state checks before it is
 deployed.
+
+The same release is now publicly scheduled: ripe0x post
+`2084172796544827511` says the first four-pull group pack opens at 09:00 ET on
+2026-08-03. Treat that time as a monitoring lead, not an activation signal;
+require the canonical successor to unpause and expose an exact live round, and
+require the separately owned integration and deployment checks to pass before
+production can act.
