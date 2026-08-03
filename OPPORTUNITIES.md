@@ -2862,3 +2862,14 @@ remained independently active and healthy (`paused=false`, `deprecated=false`,
 `roundCount=226`, `currentOpenRound=226`). No keeper change is warranted; keep
 watching the successor for reactivation or replacement by the canonical
 deployer.
+
+Release watch, 2026-08-03 12:37 ET: ripe announced Pack 002 for 1:00 PM ET.
+The canonical deployer corroborated the launch on the already pinned successor:
+transaction `0x8e9dc95671259464757d872d9f28706c3129bae3440a7d9a549a043aa9120ebe`
+called `setDeprecated(false)`, followed by transaction
+`0x769783037e66a9bd4e6fa45c92bc2bb9510e08b8a2a3f893ec2c6667c8bca30d`
+calling `openRound()` and returning round 2. At block `25,675,611`, the runtime
+hash and canonical V2 pool relationship still matched, `deprecated=false`,
+`liveRound=2`, and the round's `sellsFrom` was `2026-08-03T17:00:23Z`.
+Production revision `f827f06` has GroupPull and pending-entry backruns enabled
+and is already observing this exact round on every pass. No rollout is needed.
