@@ -1,6 +1,11 @@
 import { parseEther } from "viem";
 import { describe, expect, it } from "vitest";
 
+import {
+  GROUP_PULL_ADDRESS,
+  GROUP_PULL_DEPLOYMENT_BLOCK,
+  GROUP_PULL_RUNTIME_CODE_HASH,
+} from "../src/constants.js";
 import { groupPullBountyForCalls } from "../src/group-pull.js";
 import {
   groupPullSubmitRewardAfterFinalEntry,
@@ -8,6 +13,16 @@ import {
 } from "../src/pending-group-pull-backrun.js";
 
 describe("GroupPull bounty accounting", () => {
+  it("pins the canonical successor deployment", () => {
+    expect(GROUP_PULL_ADDRESS).toBe(
+      "0xd23DCbfD47E849DAC946689E264AaD3c6bbD4187",
+    );
+    expect(GROUP_PULL_DEPLOYMENT_BLOCK).toBe(25_671_215n);
+    expect(GROUP_PULL_RUNTIME_CODE_HASH).toBe(
+      "0x3c53349d2d4b4c59cab54e3844c17ad6dc4c1967c0329801076923fb0e1957a7",
+    );
+  });
+
   it("mirrors the contract's shrinking-pot and shrinking-share division", () => {
     expect(
       groupPullBountyForCalls({

@@ -2845,3 +2845,10 @@ compete because deployed revision `9fa00f1` still pins the deprecated test
 GroupPull. The successor is now deprecated with no live or buying round, so
 there is no safe current call to send; prioritize the separately owned
 successor integration before the next activation or successor deployment.
+
+Integration update: the keeper's pinned GroupPull identity now targets this
+successor address, deployment block, and runtime hash. The existing exact
+runtime/pool-relationship checks, confirmed-head `close`/`submit` planner, and
+pending final-entry pair remain unchanged. A deprecated successor produces no
+job; if the same contract is reactivated, exact live state and simulation can
+arm it without another deployment.

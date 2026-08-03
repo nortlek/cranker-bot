@@ -612,8 +612,8 @@ These constraints prevent expensive or unsafe regressions:
   that do not finish coverage. Revalidate the prerequisite immediately before
   private submission, price only the pull under the independent pool-pull bid,
   account only the pull receipt, and never submit the public purchase alone.
-- GroupPull execution is limited to the pinned runtime at
-  `0xD170B7e75B2D658098aB8b53F5914E1C4804BA93` while its live `pool()` remains
+- GroupPull execution is limited to the pinned successor runtime at
+  `0xd23DCbfD47E849DAC946689E264AaD3c6bbD4187` while its live `pool()` remains
   the canonical V2 pool. Confirmed-head planning may call only bounty-paying
   `close(round)` and `submit(round,maxPoolRounds)` variants that pass exact
   fixed-block estimation and retained-profit checks. A pending GroupPull
