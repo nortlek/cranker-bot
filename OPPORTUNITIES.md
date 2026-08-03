@@ -2799,7 +2799,7 @@ owner-return floor, and remains the selected implementation. No production
 change is warranted for the deployer batcher.
 
 Release watch, 2026-08-02: the canonical deployer created another verified
-`GroupPull` at `0xd23dCBFd47e849DAc946689E264aAD3C6BbD4187` in block
+`GroupPull` at `0xd23DCbfD47E849DAC946689E264AaD3c6bbD4187` in block
 `25,671,215` (transaction
 `0xe4e70c01d7ad309f491e54f7336bb083d8ecf62d59d7a33b3bb0d55047a6ea0a`).
 It targets the same canonical V2 pool, has runtime hash
