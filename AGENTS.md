@@ -615,8 +615,12 @@ These constraints prevent expensive or unsafe regressions:
 - GroupPull execution is limited to the pinned successor runtime at
   `0xd23DCbfD47E849DAC946689E264AaD3c6bbD4187` while its live `pool()` remains
   the canonical V2 pool. Confirmed-head planning may call only bounty-paying
-  `close(round)` and `submit(round,maxPoolRounds)` variants that pass exact
-  fixed-block estimation and retained-profit checks. A pending GroupPull
+  `close(round)`, `submit(round,maxPoolRounds)`, and
+  `collect(round,maxPoolRounds)` variants that pass exact fixed-block
+  estimation and retained-profit checks. The successor initializes its bounty
+  shares only when a selling round closes; pre-close planning must derive the
+  `1 + 2 * pullsPerRound` share count rather than require a stored nonzero
+  value. `buyingRounds` counts both Buying and Collecting rounds. A pending GroupPull
   backrun is always the exact pair `[public enter, keeper submit]`: prove the
   raw signed mainnet transaction decodes to `enter(uint256,uint32,address)`,
   has the exact current-round payment, and makes the live selling round covered

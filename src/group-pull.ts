@@ -9,7 +9,7 @@ import {
   type Transport,
 } from "viem";
 
-import { groupPullAbi } from "./abi.js";
+import { groupPullAbi, poolV2Abi } from "./abi.js";
 import {
   GROUP_PULL_ADDRESS,
   GROUP_PULL_RUNTIME_CODE_HASH,
@@ -17,15 +17,16 @@ import {
 } from "./constants.js";
 import { bufferedGas, requiredProfit } from "./economics.js";
 import { errorMessage, log } from "./format.js";
+import { ROUND_STATE } from "./lifecycle.js";
 import type { KeeperJob } from "./strategy.js";
 
 export const GROUP_PULL_ROUND_STATE = {
   NONE: 0,
   SELLING: 1,
   BUYING: 2,
-  DISTRIBUTING: 3,
-  EXPIRED: 4,
-  ABORTED: 5,
+  COLLECTING: 3,
+  DISTRIBUTING: 4,
+  EXPIRED: 5,
 } as const;
 
 export type GroupPullRound = Awaited<
@@ -104,7 +105,7 @@ export async function readGroupPullRound(parameters: {
   });
 }
 
-async function readBuyingRounds(parameters: {
+async function readActiveRounds(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly blockNumber: bigint;
   readonly roundCount: bigint;
@@ -134,17 +135,90 @@ async function readBuyingRounds(parameters: {
     );
     for (let index = 0; index < ids.length; index += 1) {
       const round = rounds[index];
-      if (round?.state === GROUP_PULL_ROUND_STATE.BUYING) {
+      if (
+        round?.state === GROUP_PULL_ROUND_STATE.BUYING ||
+        round?.state === GROUP_PULL_ROUND_STATE.COLLECTING
+      ) {
         found.push({ roundId: ids[index]!, round });
       }
     }
   }
   if (found.length !== expected) {
     throw new Error(
-      `GroupPull buying-round index mismatch: expected ${expected}, found ${found.length}`,
+      `GroupPull active-round index mismatch: expected ${expected}, found ${found.length}`,
     );
   }
   return found;
+}
+
+async function readFirstCollectablePulls(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly blockNumber: bigint;
+  readonly roundId: bigint;
+}): Promise<{
+  readonly poolRoundCount: number;
+  readonly firstCollections: number;
+}> {
+  const [pool, poolRoundIds] = await Promise.all([
+    parameters.client.readContract({
+      address: GROUP_PULL_ADDRESS,
+      abi: groupPullAbi,
+      functionName: "roundPool",
+      args: [parameters.roundId],
+      blockNumber: parameters.blockNumber,
+    }),
+    parameters.client.readContract({
+      address: GROUP_PULL_ADDRESS,
+      abi: groupPullAbi,
+      functionName: "poolRoundsOf",
+      args: [parameters.roundId],
+      blockNumber: parameters.blockNumber,
+    }),
+  ]);
+  const [canPayTokens, rounds, collected] = await Promise.all([
+    parameters.client.readContract({
+      address: pool,
+      abi: poolV2Abi,
+      functionName: "canPayTokens",
+      blockNumber: parameters.blockNumber,
+    }),
+    Promise.all(
+      poolRoundIds.map((poolRoundId) =>
+        parameters.client.readContract({
+          address: pool,
+          abi: poolV2Abi,
+          functionName: "getRound",
+          args: [poolRoundId],
+          blockNumber: parameters.blockNumber,
+        }),
+      ),
+    ),
+    Promise.all(
+      poolRoundIds.map((poolRoundId) =>
+        parameters.client.readContract({
+          address: GROUP_PULL_ADDRESS,
+          abi: groupPullAbi,
+          functionName: "pullCollected",
+          args: [parameters.roundId, poolRoundId],
+          blockNumber: parameters.blockNumber,
+        }),
+      ),
+    ),
+  ]);
+  let firstCollections = 0;
+  for (let index = 0; index < poolRoundIds.length; index += 1) {
+    if (collected[index]) continue;
+    const round = rounds[index]!;
+    if (round.state === ROUND_STATE.refunding) {
+      firstCollections += 1;
+    } else if (
+      round.state === ROUND_STATE.settled &&
+      (round.tokenPot === 0n || canPayTokens)
+    ) {
+      firstCollections += 1;
+    }
+  }
+  return { poolRoundCount: poolRoundIds.length, firstCollections };
 }
 
 export interface GroupPullPlan {
@@ -208,7 +282,7 @@ export async function planGroupPullJob(parameters: {
     });
     if (
       round.state === GROUP_PULL_ROUND_STATE.SELLING &&
-      round.bountyShares > 0
+      round.pullsPerRound > 0
     ) {
       const data = encodeFunctionData({
         abi: groupPullAbi,
@@ -228,7 +302,7 @@ export async function planGroupPullJob(parameters: {
         );
         const reward = groupPullBountyForCalls({
           bountyPot: round.bountyPot,
-          bountyShares: round.bountyShares,
+          bountyShares: 1 + 2 * round.pullsPerRound,
           calls: 1,
         });
         if (
@@ -254,13 +328,14 @@ export async function planGroupPullJob(parameters: {
       }
     }
   }
-  const buying = await readBuyingRounds({
+  const active = await readActiveRounds({
     client: parameters.client,
     blockNumber: parameters.blockNumber,
     roundCount,
     buyingRounds,
   });
-  for (const { roundId, round } of buying) {
+  for (const { roundId, round } of active) {
+    if (round.state !== GROUP_PULL_ROUND_STATE.BUYING) continue;
     const remaining = round.pullsPerRound - round.bought;
     if (remaining <= 0 || round.bountyShares <= 0) continue;
     for (let calls = remaining; calls >= 1; calls -= 1) {
@@ -309,6 +384,63 @@ export async function planGroupPullJob(parameters: {
           });
         }
       }
+    }
+  }
+  for (const { roundId, round } of active) {
+    if (round.state !== GROUP_PULL_ROUND_STATE.COLLECTING) continue;
+    const remaining = round.bought - round.pullsCollected;
+    if (remaining <= 0 || round.bountyShares <= 0) continue;
+    try {
+      const { poolRoundCount, firstCollections } =
+        await readFirstCollectablePulls({
+          client: parameters.client,
+          blockNumber: parameters.blockNumber,
+          roundId,
+        });
+      if (poolRoundCount === 0 || firstCollections === 0) continue;
+      const data = encodeFunctionData({
+        abi: groupPullAbi,
+        functionName: "collect",
+        // A previously collected pull with a late delta consumes a work slot.
+        // Scan the complete bounded round so every priced first collection is
+        // guaranteed to be reached.
+        args: [roundId, BigInt(poolRoundCount)],
+      });
+      const estimatedGas = await parameters.client.estimateGas({
+        account: parameters.account,
+        to: GROUP_PULL_ADDRESS,
+        data,
+        blockNumber: parameters.blockNumber,
+      });
+      const gas = bufferedGas(
+        estimatedGas,
+        parameters.gasLimitMultiplierBps,
+      );
+      const reward = groupPullBountyForCalls({
+        bountyPot: round.bountyPot,
+        bountyShares: round.bountyShares,
+        calls: firstCollections,
+      });
+      if (
+        reward - gas * parameters.maxFeePerGas >=
+        requiredProfit(parameters.minProfitWei)
+      ) {
+        candidates.push({
+          kind: "group_pull_collect",
+          label: `group_pull_collect:${roundId}:${firstCollections}`,
+          target: GROUP_PULL_ADDRESS,
+          data,
+          gas,
+          reward: { kind: "fixed", amountWei: reward },
+          configuredBuilderBidBps: parameters.builderBidBps,
+          roundId,
+        });
+      }
+    } catch (error) {
+      log("debug", "group_pull_collect_not_ready", {
+        round: roundId.toString(),
+        reason: errorMessage(error),
+      });
     }
   }
   candidates.sort((left, right) => {

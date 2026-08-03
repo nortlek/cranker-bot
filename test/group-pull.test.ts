@@ -1,6 +1,7 @@
 import { parseEther } from "viem";
 import { describe, expect, it } from "vitest";
 
+import { groupPullAbi } from "../src/abi.js";
 import {
   GROUP_PULL_ADDRESS,
   GROUP_PULL_DEPLOYMENT_BLOCK,
@@ -21,6 +22,43 @@ describe("GroupPull bounty accounting", () => {
     expect(GROUP_PULL_RUNTIME_CODE_HASH).toBe(
       "0x3c53349d2d4b4c59cab54e3844c17ad6dc4c1967c0329801076923fb0e1957a7",
     );
+  });
+
+  it("pins the successor round layout and collecting call", () => {
+    const getRound = groupPullAbi.find(
+      (entry) => entry.type === "function" && entry.name === "getRound",
+    );
+    expect(getRound?.outputs[0]?.components?.map(({ name }) => name)).toEqual([
+      "entryPrice",
+      "incentivePerTicket",
+      "pullsPerRound",
+      "maxParticipants",
+      "sellsFrom",
+      "sellsUntil",
+      "entryDuration",
+      "submitWindow",
+      "ticketsSold",
+      "escrow",
+      "bountyPot",
+      "ethPool",
+      "ethPaid",
+      "fwaPot",
+      "fwaPaid",
+      "surchargePot",
+      "escalationThreshold",
+      "escalationRateBps",
+      "bought",
+      "pullsCollected",
+      "bountyShares",
+      "submitDeadline",
+      "aborted",
+      "state",
+    ]);
+    expect(
+      groupPullAbi.some(
+        (entry) => entry.type === "function" && entry.name === "collect",
+      ),
+    ).toBe(true);
   });
 
   it("mirrors the contract's shrinking-pot and shrinking-share division", () => {
@@ -44,7 +82,7 @@ describe("GroupPull bounty accounting", () => {
     expect(
       groupPullSubmitRewardAfterFinalEntry({
         bountyPot: parseEther("0.0018"),
-        bountyShares: 3,
+        pullsPerRound: 1,
         incentivePerTicket: parseEther("0.0003"),
         quantity: 4,
         submitCalls: 2,

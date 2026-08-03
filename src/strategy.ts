@@ -138,6 +138,7 @@ export type KeeperJobKind =
   | "pool_settle_forced_eth"
   | "group_pull_close"
   | "group_pull_submit"
+  | "group_pull_collect"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -4765,7 +4766,8 @@ async function planJobs(parameters: {
       groupPullPlan?.buyingRounds.toString() ?? "",
     groupPullSelected:
       selected.jobs[0]?.kind === "group_pull_close" ||
-      selected.jobs[0]?.kind === "group_pull_submit",
+      selected.jobs[0]?.kind === "group_pull_submit" ||
+      selected.jobs[0]?.kind === "group_pull_collect",
   });
   return selected;
 }
@@ -4991,7 +4993,8 @@ function actualJobReward(
   if (request.kind === "builder_payment") return 0n;
   if (
     request.kind === "group_pull_close" ||
-    request.kind === "group_pull_submit"
+    request.kind === "group_pull_submit" ||
+    request.kind === "group_pull_collect"
   ) {
     let total = 0n;
     for (const entry of logs) {

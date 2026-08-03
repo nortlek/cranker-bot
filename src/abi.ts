@@ -110,6 +110,7 @@ export const poolV2Abi = parseAbi([
   "function firstOpenRound() view returns (uint256)",
   "function currentOpenRound() view returns (uint256)",
   "function pendingPullCount() view returns (uint256)",
+  "function canPayTokens() view returns (bool)",
   "function ticketsNeeded(uint256 roundId) view returns (uint256)",
   "function getRound(uint256 roundId) view returns ((uint96 ticketPrice, uint16 feeBps, uint16 headroomBps, uint16 feeCapBps, uint96 crankBountyCap, uint96 vrfAllowance, uint64 bountyTipWei, uint64 stallTimeout, uint64 fundingDeadline, uint32 ticketsSold, uint32 maxTickets, uint16 referralBps, uint32 referredTickets, uint256 minPoolWeightedValue, uint256 escrow, uint256 feeOwed, uint256 refundPool, uint256 ethPot, uint256 tokenPot, uint256 fwaRequestId, uint256 acquisitionSpent, uint256 bidValue, uint256 listingId, uint64 allocatedAt, uint64 pullingAt, uint8 state, uint8 outcome, bool fwaResolved, bool feeClaimed, bool nftHeld, bool rewardCredited, uint128 creditTaken, uint256 backingAtAlloc, uint128 forcedEthTaken, uint256 referralPool, uint128 rewardAmount))",
   "function config() view returns (uint96 ticketPrice, uint64 fundingDuration, uint16 headroomBps, uint16 feeCapBps, uint96 crankBountyCap, uint96 vrfAllowance, uint64 bountyTipWei, uint64 stallTimeout, uint32 maxTickets, uint16 maxConcurrentOpen, uint16 maxConcurrentPulls, uint16 referralBps)",
@@ -150,13 +151,18 @@ export const groupPullAbi = parseAbi([
   "function liveRound() view returns (uint256)",
   "function buyingRounds() view returns (uint256)",
   "function currentTarget(uint256 roundId) view returns (uint256)",
-  "function getRound(uint256 roundId) view returns ((uint96 entryPrice, uint96 incentivePerTicket, uint32 pullsPerRound, uint32 maxParticipants, uint64 sellsFrom, uint64 sellsUntil, uint64 entryDuration, uint64 submitWindow, uint32 ticketsSold, uint256 escrow, uint256 bountyPot, uint256 stakeRefundPool, uint256 ethPool, uint256 ethPaid, uint32 bought, uint32 poolTicketsAllocated, uint32 bountyShares, uint64 submitDeadline, uint8 state))",
+  "function getRound(uint256 roundId) view returns ((uint96 entryPrice, uint96 incentivePerTicket, uint32 pullsPerRound, uint32 maxParticipants, uint64 sellsFrom, uint64 sellsUntil, uint64 entryDuration, uint64 submitWindow, uint32 ticketsSold, uint256 escrow, uint256 bountyPot, uint256 ethPool, uint256 ethPaid, uint256 fwaPot, uint256 fwaPaid, uint256 surchargePot, uint32 escalationThreshold, uint16 escalationRateBps, uint32 bought, uint32 pullsCollected, uint32 bountyShares, uint64 submitDeadline, bool aborted, uint8 state))",
   "function close(uint256 roundId)",
   "function submit(uint256 roundId, uint256 maxPoolRounds)",
+  "function collect(uint256 roundId, uint256 maxPoolRounds)",
+  "function roundPool(uint256 roundId) view returns (address)",
+  "function poolRoundsOf(uint256 roundId) view returns (uint256[])",
+  "function pullCollected(uint256 roundId, uint256 poolRoundId) view returns (bool)",
   "function enter(uint256 roundId, uint32 quantity, address beneficiary) payable returns (uint32 bought)",
   "event BountyPaid(uint256 indexed roundId, address indexed caller, uint256 amount)",
   "event RoundClosed(uint256 indexed roundId, uint32 ticketsSold, uint256 raised, uint64 submitDeadline)",
   "event RoundComplete(uint256 indexed roundId, uint256[] poolRoundIds)",
+  "event PoolRoundCollected(uint256 indexed roundId, uint256 indexed poolRoundId, uint256 ethCollected, uint256 fwaCollected)",
 ]);
 
 export const fwaAbi = parseAbi([

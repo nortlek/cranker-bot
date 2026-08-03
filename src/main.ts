@@ -1379,7 +1379,8 @@ async function main(): Promise<void> {
               config.liveBidSweepMinPriorityFeePerGas;
           } else if (
             request.kind === "group_pull_close" ||
-            request.kind === "group_pull_submit"
+            request.kind === "group_pull_submit" ||
+            request.kind === "group_pull_collect"
           ) {
             requestBidBps =
               request.configuredBuilderBidBps ??

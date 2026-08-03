@@ -85,21 +85,22 @@ export function pendingGroupPullGasUsed(parameters: {
 
 export function groupPullSubmitRewardAfterFinalEntry(parameters: {
   readonly bountyPot: bigint;
-  readonly bountyShares: number;
+  readonly pullsPerRound: number;
   readonly incentivePerTicket: bigint;
   readonly quantity: number;
   readonly submitCalls: number;
 }): bigint {
-  if (parameters.bountyShares < 1) {
-    throw new Error("GroupPull final entry has no close bounty share");
+  if (parameters.pullsPerRound < 1) {
+    throw new Error("GroupPull final entry has no pull rounds");
   }
+  const bountyShares = 1 + 2 * parameters.pullsPerRound;
   const potAfterEntry =
     parameters.bountyPot +
     parameters.incentivePerTicket * BigInt(parameters.quantity);
-  const closeBounty = potAfterEntry / BigInt(parameters.bountyShares);
+  const closeBounty = potAfterEntry / BigInt(bountyShares);
   return groupPullBountyForCalls({
     bountyPot: potAfterEntry - closeBounty,
-    bountyShares: parameters.bountyShares - 1,
+    bountyShares: bountyShares - 1,
     calls: parameters.submitCalls,
   });
 }
@@ -124,7 +125,7 @@ async function exactPricedGroupPullSubmit(parameters: {
   readonly baseFeeAllowancePerGas: bigint;
   readonly remainingPulls: number;
   readonly bountyPot: bigint;
-  readonly bountyShares: number;
+  readonly pullsPerRound: number;
   readonly incentivePerTicket: bigint;
   readonly builderBidBps: bigint;
   readonly config: KeeperConfig;
@@ -174,7 +175,7 @@ async function exactPricedGroupPullSubmit(parameters: {
       });
       const grossReward = groupPullSubmitRewardAfterFinalEntry({
         bountyPot: parameters.bountyPot,
-        bountyShares: parameters.bountyShares,
+        pullsPerRound: parameters.pullsPerRound,
         incentivePerTicket: parameters.incentivePerTicket,
         quantity: parameters.prerequisite.quantity,
         submitCalls: calls,
@@ -446,7 +447,7 @@ export async function executePendingGroupPullBackrun(parameters: {
       currentTarget === 0n ||
       round.escrow + stakeAdded < currentTarget ||
       remainingPulls <= 0 ||
-      round.bountyShares <= 1
+      round.pullsPerRound <= 0
     ) {
       return {
         status: "skipped",
@@ -469,7 +470,7 @@ export async function executePendingGroupPullBackrun(parameters: {
       baseFeeAllowancePerGas,
       remainingPulls,
       bountyPot: round.bountyPot,
-      bountyShares: round.bountyShares,
+      pullsPerRound: round.pullsPerRound,
       incentivePerTicket: round.incentivePerTicket,
       builderBidBps: parameters.builderBidBps,
       config: parameters.config,

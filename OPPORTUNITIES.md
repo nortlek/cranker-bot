@@ -2873,3 +2873,16 @@ hash and canonical V2 pool relationship still matched, `deprecated=false`,
 `liveRound=2`, and the round's `sellsFrom` was `2026-08-03T17:00:23Z`.
 Production revision `f827f06` has GroupPull and pending-entry backruns enabled
 and is already observing this exact round on every pass. No rollout is needed.
+
+Pack 002 incident, 2026-08-03: the pinned successor does not share the original
+test deployment's `Round` ABI or lifecycle. The stale tuple decoded the
+successor's live `Selling` value as `None`, and the old planner also assumed
+`bountyShares` existed before close. Pack 002's final `enter` closed round 2 in
+block `25,675,783`; a competitor submitted its four underlying pulls in block
+`25,675,784`, then collected all four before the repair could be deployed.
+Round 2 was verified at `Distributing`, with `bought=4`, `pullsCollected=4`,
+and no remaining bounty. The keeper now pins the successor's exact 24-field
+round tuple and six-state enum, derives the pre-close share count, and supports
+the missing bounty-paying `collect(round,maxPoolRounds)` phase. Exact
+fixed-block estimation, retained-profit checks, independent GroupPull bidding,
+and receipt-derived `BountyPaid` accounting apply to close, submit, and collect.
