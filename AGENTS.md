@@ -312,8 +312,9 @@ state.
 
 Multi-transaction private bundles retain one durable
 `keeper_transaction_sent`, `keeper_receipt`, or `keeper_transaction_expired`
-event per member, but Discord groups them into one `keeper_batch_submitted`
-embed and one aggregate `keeper_batch_result` embed. Evaluate the batch's
+event per member, but Discord suppresses the intermediate submission and
+member embeds and sends one aggregate `keeper_batch_result` embed. Evaluate
+the batch's
 `totalReward`, `totalGasCost`, and `realizedProfit`; individual members can
 have negative receipt-level attribution because all members share one
 gas-normalized priority fee.
@@ -428,7 +429,9 @@ database use `npm run db:migrate:dev`.
 There are three separate Discord channels:
 
 - `DISCORD_WEBHOOK_URL`: automatic rich embeds from the running bot for
-  important successes, failures, submissions, expirations, and P&L changes.
+  terminal outcomes such as confirmations, expirations, competitor wins,
+  realized P&L changes, and actionable failures. Intermediate planning and
+  submission events remain in structured telemetry but are not posted.
 - `HOURLY_STATS_DISCORD_WEBHOOK_URL`: top-of-hour rolling 1h/24h receipt P&L,
   transaction outcomes, gas/reward, supported account balance, lane, and
   health stats. It is armed only by the live signer lease holder, queries

@@ -398,10 +398,11 @@ successful `crank` fees are sent to that keeper address.
   keyless Ethereum endpoint.
 - `COMPETITOR_TRACE_TIMEOUT_MS`, `COMPETITOR_TRACE_RETRIES`, and
   `COMPETITOR_TRACE_RETRY_DELAY_MS`: indexing-lag and request controls.
-- `DISCORD_WEBHOOK_URL`: optional Discord webhook receiving embeds for keeper
-  starts/stops, submissions, confirmed receipts, realized P&L changes,
-  competitor wins, rejected economics, and operational failures. Keep it only
-  in the gitignored `.env`.
+- `DISCORD_WEBHOOK_URL`: optional Discord webhook receiving embeds for terminal
+  keeper outcomes such as confirmed receipts, expirations, realized P&L
+  changes, competitor wins, and operational failures. Intermediate planning
+  and submission events remain in structured telemetry but are not posted.
+  Keep it only in the gitignored `.env`.
 - `HOURLY_STATS_DISCORD_WEBHOOK_URL`: optional separate Discord webhook for a
   top-of-hour rolling report. The active signer lease holder queries durable
   PostgreSQL telemetry for 1-hour and 24-hour receipt P&L, transaction

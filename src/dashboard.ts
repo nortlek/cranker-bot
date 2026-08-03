@@ -115,7 +115,13 @@ function optionalInteger(value: unknown): number | undefined {
 }
 
 function laneForKind(kind: string): {
-  readonly laneKey: "orders" | "lifecycle" | "fwa" | "pull" | "other";
+  readonly laneKey:
+    | "orders"
+    | "lifecycle"
+    | "fwa"
+    | "pull"
+    | "group_pull"
+    | "other";
   readonly lane: string;
   readonly contract: string;
   readonly strategy: string;
@@ -163,6 +169,30 @@ function laneForKind(kind: string): {
         strategy: "pull",
         accent: "#c5a7ff",
       };
+    case "group_pull_close":
+      return {
+        laneKey: "group_pull",
+        lane: "GroupPull",
+        contract: "GroupPull",
+        strategy: "close",
+        accent: "#ffb35c",
+      };
+    case "group_pull_submit":
+      return {
+        laneKey: "group_pull",
+        lane: "GroupPull",
+        contract: "GroupPull",
+        strategy: "submit",
+        accent: "#ffb35c",
+      };
+    case "group_pull_collect":
+      return {
+        laneKey: "group_pull",
+        lane: "GroupPull",
+        contract: "GroupPull",
+        strategy: "collect",
+        accent: "#ffb35c",
+      };
     case "convex_earmark":
       return {
         laneKey: "other",
@@ -209,13 +239,99 @@ function laneForKind(kind: string): {
 function relativeTime(date: Date): string {
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1_000));
   if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
-  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
-  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`;
-  return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
+  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)} min ago`;
+  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)} hr ago`;
+  return `${Math.floor(elapsedSeconds / 86_400)} d ago`;
 }
 
 function shortenedHash(hash: string): string {
   return hash.length <= 14 ? hash : `${hash.slice(0, 6)}…${hash.slice(-4)}`;
+}
+
+function emptyProfitValues(): Record<string, number> {
+  return {
+    orders: 0,
+    lifecycle: 0,
+    fwa: 0,
+    pull: 0,
+    group_pull: 0,
+    other: 0,
+  };
+}
+
+function buildProfitSeries(
+  rows: readonly ProfitRow[],
+  ethUsd: number,
+  granularity: "day" | "hour",
+): Record<string, unknown>[] {
+  const buckets = new Map<string, Record<string, number>>();
+  for (const row of rows) {
+    const iso = row.bucket.toISOString();
+    const key = granularity === "hour" ? iso.slice(0, 13) : iso.slice(0, 10);
+    const current = buckets.get(key) ?? emptyProfitValues();
+    const lane = laneForKind(row.job_kind ?? "").laneKey;
+    current[lane] = (current[lane] ?? 0) + Number(row.profit_eth) * ethUsd;
+    buckets.set(key, current);
+  }
+
+  let entries = [...buckets.entries()];
+  if (granularity === "hour") {
+    if (rows.length === 0) return [];
+    const currentHour = new Date();
+    currentHour.setUTCMinutes(0, 0, 0);
+    entries = [];
+    for (let offset = 23; offset >= 0; offset -= 1) {
+      const hour = new Date(currentHour.getTime() - offset * 3_600_000);
+      const key = hour.toISOString().slice(0, 13);
+      entries.push([key, buckets.get(key) ?? emptyProfitValues()]);
+    }
+  }
+
+  let cumulative = 0;
+  return entries.map(([bucket, values]) => {
+    const interval = Object.values(values).reduce((total, value) => total + value, 0);
+    cumulative += interval;
+    const dateValue = new Date(
+      granularity === "hour"
+        ? `${bucket}:00:00Z`
+        : `${bucket}T00:00:00Z`,
+    );
+    const label =
+      granularity === "hour"
+        ? new Intl.DateTimeFormat("en-US", {
+            month: "short",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            timeZone: "UTC",
+          }).format(dateValue)
+        : new Intl.DateTimeFormat("en-US", {
+            month: "short",
+            day: "2-digit",
+            timeZone: "UTC",
+          }).format(dateValue);
+    const short =
+      granularity === "hour"
+        ? new Intl.DateTimeFormat("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+            timeZone: "UTC",
+          }).format(dateValue)
+        : new Intl.DateTimeFormat("en-US", {
+            day: "2-digit",
+            timeZone: "UTC",
+          }).format(dateValue);
+    return {
+      label,
+      short,
+      pnl: Number(cumulative.toFixed(2)),
+      ...Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [key, Number(value.toFixed(2))]),
+      ),
+    };
+  });
 }
 
 export async function buildDashboardData(
@@ -225,6 +341,7 @@ export async function buildDashboardData(
   const [
     recentResult,
     profitResult,
+    hourlyProfitResult,
     totalResult,
     laneProfitResult,
     executionResult,
@@ -256,6 +373,20 @@ export async function buildDashboardData(
         FROM keeper_events
         WHERE event_name = 'keeper_receipt'
           AND occurred_at >= NOW() - INTERVAL '30 days'
+          AND payload->>'realizedProfit' ~ '^-?[0-9]+([.][0-9]+)? ETH$'
+        GROUP BY 1, 2
+        ORDER BY 1
+      `,
+    ),
+    pool.query<ProfitRow>(
+      `
+        SELECT
+          date_trunc('hour', occurred_at) AS bucket,
+          job_kind,
+          SUM(REPLACE(payload->>'realizedProfit', ' ETH', '')::numeric)::text AS profit_eth
+        FROM keeper_events
+        WHERE event_name = 'keeper_receipt'
+          AND occurred_at >= NOW() - INTERVAL '24 hours'
           AND payload->>'realizedProfit' ~ '^-?[0-9]+([.][0-9]+)? ETH$'
         GROUP BY 1, 2
         ORDER BY 1
@@ -383,7 +514,6 @@ export async function buildDashboardData(
       }).format(row.occurred_at),
       relative: relativeTime(row.occurred_at),
       block: targetBlock === "" ? "—" : Number(targetBlock).toLocaleString("en-US"),
-      builder: "Private",
       reward: Number(reward.toFixed(2)),
       cost: Number(cost.toFixed(2)),
       net: Number(net.toFixed(2)),
@@ -406,33 +536,8 @@ export async function buildDashboardData(
     };
   });
 
-  const buckets = new Map<string, Record<string, number>>();
-  for (const row of profitResult.rows) {
-    const key = row.bucket.toISOString().slice(0, 10);
-    const current = buckets.get(key) ?? {
-      orders: 0,
-      lifecycle: 0,
-      fwa: 0,
-      pull: 0,
-      other: 0,
-    };
-    const lane = laneForKind(row.job_kind ?? "").laneKey;
-    current[lane] = (current[lane] ?? 0) + Number(row.profit_eth) * ethUsd;
-    buckets.set(key, current);
-  }
-
-  let cumulative = 0;
-  const pnl = [...buckets.entries()].map(([date, values]) => {
-    const interval = Object.values(values).reduce((total, value) => total + value, 0);
-    cumulative += interval;
-    const dateValue = new Date(`${date}T00:00:00Z`);
-    return {
-      label: new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit", timeZone: "UTC" }).format(dateValue),
-      short: new Intl.DateTimeFormat("en-US", { day: "2-digit", timeZone: "UTC" }).format(dateValue),
-      pnl: Number(cumulative.toFixed(2)),
-      ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Number(value.toFixed(2))])),
-    };
-  });
+  const pnl = buildProfitSeries(profitResult.rows, ethUsd, "day");
+  const pnlHourly = buildProfitSeries(hourlyProfitResult.rows, ethUsd, "hour");
 
   const total = totalResult.rows[0];
   const laneTotals = new Map<
@@ -446,7 +551,14 @@ export async function buildDashboardData(
       (laneTotals.get(laneKey) ?? 0) + Number(row.profit_eth) * ethUsd,
     );
   }
-  const lanes = (["orders", "lifecycle", "fwa", "pull", "other"] as const)
+  const lanes = ([
+    "orders",
+    "lifecycle",
+    "fwa",
+    "pull",
+    "group_pull",
+    "other",
+  ] as const)
     .map((key) => ({
       key,
       value: Number((laneTotals.get(key) ?? 0).toFixed(2)),
@@ -502,6 +614,7 @@ export async function buildDashboardData(
     lanes,
     relays,
     pnl,
+    pnlHourly,
     transactions,
   };
 }

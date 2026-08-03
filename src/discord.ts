@@ -7,9 +7,7 @@ import {
 } from "./format.js";
 
 const COLOR = {
-  blue: 0x3498db,
   green: 0x2ecc71,
-  grey: 0x95a5a6,
   orange: 0xf39c12,
   red: 0xe74c3c,
 } as const;
@@ -59,6 +57,18 @@ const FAILURE_EVENTS = new Set([
   "telemetry_queue_overflow",
   "telemetry_run_stop_failed",
   "telemetry_write_failed",
+]);
+
+// Discord is reserved for terminal outcomes and actionable failures. These
+// intermediate planning and submission events remain available in structured
+// logs and PostgreSQL telemetry.
+const DISCORD_SUPPRESSED_EVENTS = new Set([
+  "builder_bid",
+  "keeper_batch_submitted",
+  "keeper_started",
+  "keeper_stopped",
+  "keeper_transaction_sent",
+  "stakedao_curve_opportunity",
 ]);
 
 function compact(value: LogFieldValue | undefined, maximum = 1_000): string {
@@ -150,109 +160,7 @@ export function buildDiscordEmbed(
   entry: LogEntry,
   cumulativeRealizedPnlWei: bigint,
 ): DiscordEmbed | undefined {
-  if (entry.event === "keeper_started") {
-    return commonEmbed(entry, {
-      title: "Keeper started",
-      color: COLOR.green,
-      fields: [
-        field("Account", entry.account, false),
-        field("Balance", entry.accountBalance),
-        field("Submission", entry.submissionMode),
-        field(
-          "Order starting bid",
-          `${compact(entry.configuredBuilderBidBps)} bps`,
-        ),
-        field(
-          "Order learned minimum",
-          `${compact(entry.adaptiveBidMinimumBps)} bps`,
-        ),
-        field(
-          "Ready-chain bid",
-          `${compact(entry.configuredPoolBuilderBidBps)} bps`,
-        ),
-        field(
-          "Pool pull bid",
-          `${compact(entry.configuredPoolPullBuilderBidBps)} bps`,
-        ),
-        field(
-          "Fulfilled-chain bid",
-          `${compact(entry.configuredPoolFulfilledBuilderBidBps)} bps`,
-        ),
-        field(
-          "Sweep bid",
-          `${compact(entry.configuredLiveBidSweepBuilderBidBps)} bps`,
-        ),
-        field(
-          "Liquity bid",
-          `${compact(entry.configuredLiquityBuilderBidBps)} bps`,
-        ),
-        field(
-          "Convex bid",
-          `${compact(entry.configuredConvexBuilderBidBps)} bps`,
-        ),
-        field(
-          "Stake DAO bid",
-          `${compact(entry.configuredStakeDaoBuilderBidBps)} bps`,
-        ),
-        field(
-          "FiRM bid",
-          `${compact(entry.configuredFirmBuilderBidBps)} bps`,
-        ),
-      ],
-    });
-  }
-
-  if (entry.event === "keeper_stopped") {
-    return commonEmbed(entry, {
-      title: "Keeper stopped",
-      color: COLOR.grey,
-      fields: [
-        field(
-          "Session realized P&L",
-          `${formatEther(cumulativeRealizedPnlWei)} ETH`,
-          false,
-        ),
-      ],
-    });
-  }
-
-  if (entry.event === "keeper_transaction_sent") {
-    if (isGroupedPrivateBatchEntry(entry)) return undefined;
-    return commonEmbed(entry, {
-      title: "Keeper transaction submitted",
-      color: COLOR.blue,
-      ...(transactionDescription(entry) === undefined
-        ? {}
-        : { description: transactionDescription(entry) }),
-      fields: [
-        field("Job", entry.kind),
-        field("Label", entry.label, false),
-        field("Target block", entry.targetBlock),
-        field("Nonce", entry.nonce),
-      ],
-    });
-  }
-
-  if (entry.event === "keeper_batch_submitted") {
-    return commonEmbed(entry, {
-      title: "Keeper batch submitted",
-      color: COLOR.blue,
-      fields: [
-        field("Jobs", entry.kinds, false),
-        field("Transactions", entry.transactionCount),
-        field("Target block", entry.targetBlock),
-        field(
-          "Nonces",
-          `${compact(entry.firstNonce)}–${compact(entry.lastNonce)}`,
-        ),
-        field(
-          "Effective bid",
-          `${compact(entry.effectiveBuilderBidBps)} bps`,
-        ),
-        field("Relays", entry.relayCount),
-      ],
-    });
-  }
+  if (DISCORD_SUPPRESSED_EVENTS.has(entry.event)) return undefined;
 
   if (entry.event === "keeper_receipt") {
     if (isGroupedPrivateBatchEntry(entry)) return undefined;
@@ -365,21 +273,6 @@ export function buildDiscordEmbed(
     });
   }
 
-  if (entry.event === "stakedao_curve_opportunity") {
-    return commonEmbed(entry, {
-      title: "Stake DAO Curve harvest found",
-      color: COLOR.blue,
-      fields: [
-        field("Batch", entry.label, false),
-        field("Gauges", entry.gaugeCount),
-        field("Caller fee", entry.estimatedHarvesterFee),
-        field("Conservative value", entry.conservativeReward),
-        field("Gas limit", entry.gasLimit),
-        field("Submission", "Private Flashbots only"),
-      ],
-    });
-  }
-
   if (entry.event === "competitor_bid_observed") {
     return commonEmbed(entry, {
       title: "Competitor won a crank",
@@ -396,23 +289,6 @@ export function buildDiscordEmbed(
           entry.retainedFromKnownCrankFees,
         ),
         field("Transaction", entry.transactionHash, false),
-      ],
-    });
-  }
-
-  if (
-    entry.event === "builder_bid" &&
-    entry.accepted === false
-  ) {
-    return commonEmbed(entry, {
-      title: "Opportunity rejected by economics",
-      color: COLOR.orange,
-      fields: [
-        field("Jobs", entry.kinds, false),
-        field("Gross reward", entry.grossReward),
-        field("Expected P&L", entry.expectedProfit),
-        field("Required P&L", entry.requiredProfit),
-        field("Reason", entry.reason),
       ],
     });
   }

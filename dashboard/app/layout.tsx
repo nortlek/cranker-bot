@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { headers } from "next/headers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,34 +12,24 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
-  const origin = host ? `${protocol}://${host}` : "http://localhost:3000";
-  const description = "Ethereum keeper profitability, execution quality, and transaction intelligence.";
-
-  return {
+export const metadata: Metadata = {
+  title: "Cranker Keeper Ops",
+  description: "Ethereum keeper profitability, execution quality, and transaction intelligence.",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+  },
+  openGraph: {
     title: "Cranker Keeper Ops",
-    description,
-    icons: {
-      icon: "/favicon.svg",
-      shortcut: "/favicon.svg",
-    },
-    openGraph: {
-      title: "Cranker Keeper Ops",
-      description,
-      type: "website",
-      images: [{ url: `${origin}/og.png`, width: 1731, height: 909, alt: "$253.74 verified net P&L" }],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: "Cranker Keeper Ops",
-      description,
-      images: [`${origin}/og.png`],
-    },
-  };
-}
+    description: "Ethereum keeper profitability, execution quality, and transaction intelligence.",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Cranker Keeper Ops",
+    description: "Ethereum keeper profitability, execution quality, and transaction intelligence.",
+  },
+};
 
 export default function RootLayout({
   children,

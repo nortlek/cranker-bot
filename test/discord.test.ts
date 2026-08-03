@@ -68,26 +68,26 @@ describe("buildDiscordEmbed", () => {
     ).toBe("pass-40744");
   });
 
-  it("renders Stake DAO harvest opportunities with token economics", () => {
-    const embed = buildDiscordEmbed(
-      {
-        time: "2026-07-28T00:00:00.000Z",
-        level: "info",
-        event: "stakedao_curve_opportunity",
-        label: "stakedao_curve_harvest:3:0x1234",
-        gaugeCount: "3",
-        estimatedHarvesterFee: "1.5 CRV",
-        conservativeReward: "0.0002 ETH",
-        gasLimit: "1200000",
-      },
-      0n,
-    );
-
-    expect(embed?.title).toBe("Stake DAO Curve harvest found");
-    expect(
-      embed?.fields?.find((entry) => entry.name === "Caller fee")
-        ?.value,
-    ).toBe("1.5 CRV");
+  it("suppresses non-terminal progress and planning events", () => {
+    for (const event of [
+      "builder_bid",
+      "keeper_batch_submitted",
+      "keeper_started",
+      "keeper_stopped",
+      "keeper_transaction_sent",
+      "stakedao_curve_opportunity",
+    ]) {
+      expect(
+        buildDiscordEmbed(
+          {
+            time: "2026-07-28T00:00:00.000Z",
+            level: "info",
+            event,
+          },
+          0n,
+        ),
+      ).toBeUndefined();
+    }
   });
 
   it("does not spam Discord for repeated FiRM planning opportunities", () => {
@@ -237,10 +237,25 @@ describe("buildDiscordEmbed", () => {
       )?.value,
     ).toBe("0.0022 ETH");
   });
+
+  it("keeps competitor wins as terminal notifications", () => {
+    const embed = buildDiscordEmbed(
+      {
+        time: "2026-07-29T16:00:00.000Z",
+        level: "info",
+        event: "competitor_bid_observed",
+        targetBlock: "25640510",
+        winningBidBps: "5000",
+      },
+      0n,
+    );
+
+    expect(embed?.title).toBe("Competitor won a crank");
+  });
 });
 
 describe("DiscordWebhookNotifier", () => {
-  it("sends embeds and maintains cumulative realized P&L", async () => {
+  it("sends terminal embeds, skips submissions, and maintains cumulative realized P&L", async () => {
     const messages: unknown[] = [];
     const server = createServer((request, response) => {
       let source = "";
@@ -263,6 +278,16 @@ describe("DiscordWebhookNotifier", () => {
       const notifier = new DiscordWebhookNotifier({
         url: `http://127.0.0.1:${address.port}/webhook`,
         timeoutMs: 2_000,
+      });
+      notifier.notify({
+        time: "2026-07-28T00:00:00.000Z",
+        level: "info",
+        event: "keeper_transaction_sent",
+      });
+      notifier.notify({
+        time: "2026-07-28T00:00:00.100Z",
+        level: "info",
+        event: "keeper_batch_submitted",
       });
       notifier.notify({
         time: "2026-07-28T00:00:00.000Z",
