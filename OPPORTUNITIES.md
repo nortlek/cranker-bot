@@ -2886,3 +2886,18 @@ round tuple and six-state enum, derives the pre-close share count, and supports
 the missing bounty-paying `collect(round,maxPoolRounds)` phase. Exact
 fixed-block estimation, retained-profit checks, independent GroupPull bidding,
 and receipt-derived `BountyPaid` accounting apply to close, submit, and collect.
+
+Pack 003 validation, 2026-08-03: repaired production won all four `submit`
+bounties in block `25,676,061` for `0.002577190800843969 ETH` net, then won the
+first two ready `collect` bounties in block `25,676,069` for
+`0.001465100429899859 ETH` net. It also settled underlying pool rounds 243–246.
+A competitor collected rounds 245 and 246 in transaction
+`0x09fe517cb5eb949b1d1e90d1d766f2fe191f1d66d9ed4e8478a256e25fcd0fad`
+in block `25,676,071`, ordered after our same-block sync/settle of round 246.
+This was not an underbid on a confirmed-head collect opportunity: the bounty
+became callable only after lifecycle work inside that block. The concrete next
+Pack Pull improvement is an exactly simulated GroupPull `collect` suffix on a
+pool lifecycle bundle when the settled round belongs to an active GroupPull;
+keep its reward, gas, and builder bidding attributable to the GroupPull lane.
+The separately owned Pack Pull work should implement this rather than creating
+a competing integration here.
