@@ -2960,3 +2960,15 @@ GroupPull was unpaused and non-deprecated with round 13 still Selling
 unpaused and non-deprecated with open round 295 and no pending pull. No
 compatibility or production change is warranted; continue monitoring the
 existing exact `close`/`submit`/`collect` lifecycle.
+
+Release watch, 2026-08-04 02:18-02:57 UTC: three new canonical-deployer
+transactions were ordinary use of already supported contracts, not a release
+or configuration change. The deployer claimed its expired round-13 GroupPull
+entries, created successor-factory standing order
+`0x8b9967cEf76957Ecc54ef31dcbE4102Fc6683c68` for two tickets with a
+`0.0003 ETH` crank fee, and entered five tickets in live GroupPull round 14.
+Production discovered the new order in the first pass at its creation block
+(the candidate count advanced from 213 to 214), so no integration change is
+needed. At block `25,678,719`, round 14 remained Selling with 19 tickets and
+no buying or collection lifecycle; the pinned runtime and canonical V2 pool
+relationship remained valid.
