@@ -33,6 +33,7 @@ import {
   fwaAbi,
   fwaTokenAbi,
   groupPullAbi,
+  groupPullStandingOrderAbi,
   liquityPriceFeedAbi,
   liquityTroveManagerAbi,
   liveBidAdapterAbi,
@@ -95,6 +96,7 @@ import {
 import {
   groupPullCollectAfterSettlement,
   planGroupPullJob,
+  planGroupPullStandingOrderJobs,
   type GroupPullCollectContext,
 } from "./group-pull.js";
 import { retryTransientRead } from "./heads.js";
@@ -149,6 +151,7 @@ export type KeeperJobKind =
   | "group_pull_close"
   | "group_pull_submit"
   | "group_pull_collect"
+  | "group_pull_standing_order"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -4793,6 +4796,19 @@ async function planJobs(parameters: {
           parameters.config.groupPullCollectBuilderBidBps,
       })
     : Promise.resolve(undefined);
+  const groupPullStandingOrderPromise = parameters.config.enableGroupPull
+    ? planGroupPullStandingOrderJobs({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        maxFeePerGas: parameters.maxFeePerGas,
+        gasLimitMultiplierBps:
+          parameters.config.gasLimitMultiplierBps,
+        minProfitWei: parameters.config.minProfitWei,
+        builderBidBps:
+          parameters.config.groupPullStandingOrderBuilderBidBps,
+      })
+    : Promise.resolve([]);
   const {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
@@ -4873,7 +4889,7 @@ async function planJobs(parameters: {
       ? groupPullJob.reward.amountWei -
         groupPullJob.gas * parameters.maxFeePerGas
       : undefined;
-  const selected =
+  const selectedBase =
     !groupPullCollectAppended &&
     groupPullJob !== undefined &&
     groupPullProfit !== undefined &&
@@ -4885,6 +4901,34 @@ async function planJobs(parameters: {
           skipped: merged.skipped,
         }
       : mergedWithGroupPullCollect;
+  const groupPullStandingOrderJobs =
+    await groupPullStandingOrderPromise;
+  const availableGroupPullStandingOrderSlots = Math.max(
+    0,
+    maxJobs(parameters.config) - selectedBase.jobs.length,
+  );
+  const appendedGroupPullStandingOrderJobs =
+    groupPullStandingOrderJobs.slice(
+      0,
+      availableGroupPullStandingOrderSlots,
+    );
+  const selected: PlannedJobs =
+    appendedGroupPullStandingOrderJobs.length === 0
+      ? selectedBase
+      : {
+          ...selectedBase,
+          jobs: [
+            ...selectedBase.jobs,
+            ...appendedGroupPullStandingOrderJobs,
+          ],
+          minimumViablePrefix:
+            selectedBase.minimumViablePrefix === 0
+              ? 1
+              : selectedBase.minimumViablePrefix,
+          orders:
+            selectedBase.orders +
+            appendedGroupPullStandingOrderJobs.length,
+        };
   log("info", "pull_pool_adapter_plans_merged", {
     enabledVersions: JSON.stringify(
       configs.map((config) => config.poolVersion),
@@ -4924,6 +4968,10 @@ async function planJobs(parameters: {
         job.kind === "group_pull_collect",
     ),
     groupPullCollectAppended,
+    groupPullStandingOrderCandidates:
+      groupPullStandingOrderJobs.length,
+    groupPullStandingOrdersAppended:
+      appendedGroupPullStandingOrderJobs.length,
   });
   return selected;
 }
@@ -5147,6 +5195,27 @@ function actualJobReward(
   batchAccounting?: StandingOrderBatchReceiptAccounting,
 ): bigint {
   if (request.kind === "builder_payment") return 0n;
+  if (request.kind === "group_pull_standing_order") {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
+        continue;
+      }
+      try {
+        const decoded = decodeEventLog({
+          abi: groupPullStandingOrderAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (decoded.eventName === "Cranked") {
+          total += decoded.args.fee;
+        }
+      } catch {
+        // Ignore unrelated order logs.
+      }
+    }
+    return total;
+  }
   if (
     request.kind === "group_pull_close" ||
     request.kind === "group_pull_submit" ||

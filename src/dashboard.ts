@@ -193,6 +193,14 @@ function laneForKind(kind: string): {
         strategy: "collect",
         accent: "#ffb35c",
       };
+    case "group_pull_standing_order":
+      return {
+        laneKey: "group_pull",
+        lane: "GroupPull orders",
+        contract: "Standing order",
+        strategy: "crank",
+        accent: "#ffd18a",
+      };
     case "convex_earmark":
       return {
         laneKey: "other",

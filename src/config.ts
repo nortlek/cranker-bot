@@ -37,6 +37,7 @@ export interface KeeperConfig {
   readonly poolFulfilledBuilderBidBps: bigint;
   readonly groupPullBuilderBidBps: bigint;
   readonly groupPullCollectBuilderBidBps: bigint;
+  readonly groupPullStandingOrderBuilderBidBps: bigint;
   readonly liveBidSweepBuilderBidBps: bigint;
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
@@ -394,6 +395,14 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const groupPullStandingOrderBuilderBidBps = integerEnv(
+    "GROUP_PULL_STANDING_ORDER_BUILDER_BID_BPS",
+    1_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const liveBidSweepBuilderBidBps = integerEnv(
     "LIVE_BID_SWEEP_BUILDER_BID_BPS",
     100,
@@ -497,6 +506,9 @@ export function loadConfig(): KeeperConfig {
     groupPullBuilderBidBps: BigInt(groupPullBuilderBidBps),
     groupPullCollectBuilderBidBps: BigInt(
       groupPullCollectBuilderBidBps,
+    ),
+    groupPullStandingOrderBuilderBidBps: BigInt(
+      groupPullStandingOrderBuilderBidBps,
     ),
     liveBidSweepBuilderBidBps:
       BigInt(liveBidSweepBuilderBidBps),

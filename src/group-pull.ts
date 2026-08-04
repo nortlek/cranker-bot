@@ -9,10 +9,17 @@ import {
   type Transport,
 } from "viem";
 
-import { groupPullAbi, poolV2Abi } from "./abi.js";
+import {
+  groupPullAbi,
+  groupPullStandingOrderAbi,
+  groupPullStandingOrderFactoryAbi,
+  poolV2Abi,
+} from "./abi.js";
 import {
   GROUP_PULL_ADDRESS,
   GROUP_PULL_RUNTIME_CODE_HASH,
+  GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+  GROUP_PULL_STANDING_ORDER_FACTORY_RUNTIME_CODE_HASH,
   PULL_POOL_V2_ADDRESS,
 } from "./constants.js";
 import { bufferedGas, requiredProfit } from "./economics.js";
@@ -89,6 +96,148 @@ export async function verifyGroupPullRuntime(parameters: {
   if (!isAddressEqual(pool, PULL_POOL_V2_ADDRESS)) {
     throw new Error("GroupPull no longer targets the canonical PullPool V2");
   }
+}
+
+export async function verifyGroupPullStandingOrderFactory(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly blockNumber: bigint;
+}): Promise<readonly Address[]> {
+  const [code, group, orderCount, orders] = await Promise.all([
+    parameters.client.getCode({
+      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+      blockNumber: parameters.blockNumber,
+    }),
+    parameters.client.readContract({
+      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+      abi: groupPullStandingOrderFactoryAbi,
+      functionName: "GROUP",
+      blockNumber: parameters.blockNumber,
+    }),
+    parameters.client.readContract({
+      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+      abi: groupPullStandingOrderFactoryAbi,
+      functionName: "orderCount",
+      blockNumber: parameters.blockNumber,
+    }),
+    parameters.client.readContract({
+      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+      abi: groupPullStandingOrderFactoryAbi,
+      functionName: "allOrders",
+      blockNumber: parameters.blockNumber,
+    }),
+  ]);
+  if (
+    code === undefined ||
+    code === "0x" ||
+    keccak256(code) !==
+      GROUP_PULL_STANDING_ORDER_FACTORY_RUNTIME_CODE_HASH
+  ) {
+    throw new Error(
+      "GroupPull standing-order factory runtime does not match pinned code",
+    );
+  }
+  if (!isAddressEqual(group, GROUP_PULL_ADDRESS)) {
+    throw new Error(
+      "GroupPull standing-order factory no longer targets the canonical GroupPull",
+    );
+  }
+  if (orderCount > 512n || BigInt(orders.length) !== orderCount) {
+    throw new Error("GroupPull standing-order factory index mismatch");
+  }
+  return orders;
+}
+
+export async function planGroupPullStandingOrderJobs(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly blockNumber: bigint;
+  readonly maxFeePerGas: bigint;
+  readonly gasLimitMultiplierBps: bigint;
+  readonly minProfitWei: bigint;
+  readonly builderBidBps: bigint;
+}): Promise<readonly KeeperJob[]> {
+  const orders = await verifyGroupPullStandingOrderFactory(parameters);
+  const candidates = await Promise.all(
+    orders.map(async (order): Promise<KeeperJob | undefined> => {
+      try {
+        const [isOrder, groupPull, crankFee] = await Promise.all([
+          parameters.client.readContract({
+            address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+            abi: groupPullStandingOrderFactoryAbi,
+            functionName: "isOrder",
+            args: [order],
+            blockNumber: parameters.blockNumber,
+          }),
+          parameters.client.readContract({
+            address: order,
+            abi: groupPullStandingOrderAbi,
+            functionName: "groupPull",
+            blockNumber: parameters.blockNumber,
+          }),
+          parameters.client.readContract({
+            address: order,
+            abi: groupPullStandingOrderAbi,
+            functionName: "crankFee",
+            blockNumber: parameters.blockNumber,
+          }),
+        ]);
+        if (!isOrder || !isAddressEqual(groupPull, GROUP_PULL_ADDRESS)) {
+          return undefined;
+        }
+        const data = encodeFunctionData({
+          abi: groupPullStandingOrderAbi,
+          functionName: "crank",
+        });
+        const estimatedGas = await parameters.client.estimateGas({
+          account: parameters.account,
+          to: order,
+          data,
+          blockNumber: parameters.blockNumber,
+        });
+        const gas = bufferedGas(
+          estimatedGas,
+          parameters.gasLimitMultiplierBps,
+        );
+        if (
+          crankFee - gas * parameters.maxFeePerGas <
+          requiredProfit(parameters.minProfitWei)
+        ) {
+          return undefined;
+        }
+        return {
+          kind: "group_pull_standing_order",
+          label: `group_pull_standing_order:${order}`,
+          target: order,
+          data,
+          gas,
+          reward: { kind: "fixed", amountWei: crankFee },
+          configuredBuilderBidBps: parameters.builderBidBps,
+          order,
+        };
+      } catch (error) {
+        log("debug", "group_pull_standing_order_not_ready", {
+          order,
+          reason: errorMessage(error),
+        });
+        return undefined;
+      }
+    }),
+  );
+  return candidates
+    .filter((job): job is KeeperJob => job !== undefined)
+    .sort((left, right) => {
+      const leftProfit =
+        (left.reward.kind === "fixed" ? left.reward.amountWei : 0n) -
+        left.gas * parameters.maxFeePerGas;
+      const rightProfit =
+        (right.reward.kind === "fixed" ? right.reward.amountWei : 0n) -
+        right.gas * parameters.maxFeePerGas;
+      return leftProfit === rightProfit
+        ? left.label.localeCompare(right.label)
+        : leftProfit > rightProfit
+          ? -1
+          : 1;
+    });
 }
 
 export async function readGroupPullRound(parameters: {

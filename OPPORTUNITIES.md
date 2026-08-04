@@ -140,6 +140,46 @@ before reporting progress or deploying.
 
 ## Immediate engineering queue
 
+### P0 — GroupPull subscription standing orders
+
+Status: canonical release validated and keeper integration included in this
+2026-08-04 revision for the normal production rollout. Canonical deployer
+`0xCB43078C32423F5348Cab5885911C3B5faE217F9` created verified, ownerless
+`GroupPullStandingOrderFactory` at
+`0x2315F319c0E47AFa26c6167e0e3a4DC46585F605` in block `25683290` through
+transaction
+`0xc81a6e271bc35d401df8615e6c4aee63520f5b09a38882eec89cf476ee3392a4`.
+Its runtime hash is
+`0xb2f3058bb25e51e28915a6f0fff1dbbb9adf637a8175bc371d1e220e915b4ba8`
+and immutable `GROUP()` is the pinned live GroupPull
+`0xd23DCbfD47E849DAC946689E264AaD3c6bbD4187`. The factory had zero orders at
+block `25683564`, so no subscription reward had yet been exposed or missed.
+
+Verified source establishes that each permissionless `crank()` enters the
+current GroupPull selling round using user-owned order funds and pays the
+caller-configured `crankFee`; it requires no keeper capital, custody, or token
+approval. An order owner can change that order's `groupPull`, so the keeper
+accepts only factory-indexed orders whose live target still equals the pinned
+canonical GroupPull. Factory runtime, immutable group, index count, and order
+membership are checked fail-closed at the exact planning block. Each candidate
+then receives exact fixed-block gas estimation, retained-profit gating, full
+signed-bundle simulation, receipt-event accounting, and an independent 1000
+bps builder policy.
+
+The release was also publicly corroborated rather than trusted as authority:
+at about 17:00 America/Denver, @ripe0x posted that “group pack subscriptions”
+were coming soon. The deployer and verified on-chain source are the production
+identity evidence. The same deployer subsequently updated GroupPull terms in
+block `25683365`; no successor GroupPull was created.
+
+Acceptance:
+
+- deploy the exact tested source and verify one signer lease and no pass failures
+- observe factory order discovery once the first order is created
+- require the first candidate's exact simulation and canonical target check
+- reconcile the first `Cranked` fee, receipt gas, builder payment, and wallet delta
+- tune only from lane-specific competitor and retained-profit evidence
+
 ### P0 — Backrun a final direct ticket purchase with `pull`
 
 Status: live. The original deployment

@@ -1378,6 +1378,15 @@ async function main(): Promise<void> {
             requestMinimumPriorityFeePerGas =
               config.liveBidSweepMinPriorityFeePerGas;
           } else if (
+            request.kind === "group_pull_standing_order"
+          ) {
+            requestBidBps =
+              request.configuredBuilderBidBps ??
+              config.groupPullStandingOrderBuilderBidBps;
+            requestBidPolicy = "group_pull_standing_order";
+            requestMinimumPriorityFeePerGas =
+              config.poolMinPriorityFeePerGas;
+          } else if (
             request.kind === "group_pull_close" ||
             request.kind === "group_pull_submit" ||
             request.kind === "group_pull_collect"
@@ -1618,6 +1627,8 @@ async function main(): Promise<void> {
             config.groupPullBuilderBidBps.toString(),
           configuredGroupPullCollectBuilderBidBps:
             config.groupPullCollectBuilderBidBps.toString(),
+          configuredGroupPullStandingOrderBuilderBidBps:
+            config.groupPullStandingOrderBuilderBidBps.toString(),
           configuredLiveBidSweepBuilderBidBps:
             config.liveBidSweepBuilderBidBps.toString(),
           configuredLiquityBuilderBidBps:
@@ -3850,6 +3861,8 @@ async function main(): Promise<void> {
       config.groupPullBuilderBidBps.toString(),
     configuredGroupPullCollectBuilderBidBps:
       config.groupPullCollectBuilderBidBps.toString(),
+    configuredGroupPullStandingOrderBuilderBidBps:
+      config.groupPullStandingOrderBuilderBidBps.toString(),
     activeV2PoolFulfilledBuilderBidBps:
       v2Config === undefined
         ? ""

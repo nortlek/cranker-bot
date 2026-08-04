@@ -1,11 +1,17 @@
 import { parseEther } from "viem";
 import { describe, expect, it } from "vitest";
 
-import { groupPullAbi } from "../src/abi.js";
+import {
+  groupPullAbi,
+  groupPullStandingOrderAbi,
+  groupPullStandingOrderFactoryAbi,
+} from "../src/abi.js";
 import {
   GROUP_PULL_ADDRESS,
   GROUP_PULL_DEPLOYMENT_BLOCK,
   GROUP_PULL_RUNTIME_CODE_HASH,
+  GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+  GROUP_PULL_STANDING_ORDER_FACTORY_RUNTIME_CODE_HASH,
 } from "../src/constants.js";
 import {
   GROUP_PULL_DEPENDENT_COLLECT_GAS_LIMIT,
@@ -61,6 +67,26 @@ describe("GroupPull bounty accounting", () => {
     expect(
       groupPullAbi.some(
         (entry) => entry.type === "function" && entry.name === "collect",
+      ),
+    ).toBe(true);
+  });
+
+  it("pins the canonical GroupPull standing-order factory and crank surface", () => {
+    expect(GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS).toBe(
+      "0x2315F319c0E47AFa26c6167e0e3a4DC46585F605",
+    );
+    expect(GROUP_PULL_STANDING_ORDER_FACTORY_RUNTIME_CODE_HASH).toBe(
+      "0xb2f3058bb25e51e28915a6f0fff1dbbb9adf637a8175bc371d1e220e915b4ba8",
+    );
+    expect(
+      groupPullStandingOrderFactoryAbi.some(
+        (entry) =>
+          entry.type === "function" && entry.name === "isOrder",
+      ),
+    ).toBe(true);
+    expect(
+      groupPullStandingOrderAbi.some(
+        (entry) => entry.type === "function" && entry.name === "crank",
       ),
     ).toBe(true);
   });
