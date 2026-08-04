@@ -265,7 +265,7 @@ describe("pending FWA fulfillment backruns", () => {
     expect(
       config.enablePendingFwaFulfillmentBackruns,
     ).toBe(false);
-    expect(config.poolBuilderBidBps).toBe(300n);
+    expect(config.poolBuilderBidBps).toBe(1_705n);
   });
 
   it("requires private submission and a WebSocket source", () => {
@@ -312,12 +312,12 @@ describe("direct coinbase payments", () => {
 });
 
 describe("ready acquisition bidding", () => {
-  it("defaults just above the observed incumbent bid", () => {
+  it("defaults just above the observed conflicting processor payment", () => {
     delete process.env.POOL_BUILDER_BID_BPS;
     delete process.env.POOL_FULFILLED_BUILDER_BID_BPS;
 
     const config = loadConfig();
-    expect(config.poolBuilderBidBps).toBe(300n);
+    expect(config.poolBuilderBidBps).toBe(1_705n);
     expect(config.poolFulfilledBuilderBidBps).toBe(7_250n);
   });
 });

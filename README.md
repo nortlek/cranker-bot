@@ -348,8 +348,10 @@ successful `crank` fees are sent to that keeper address.
   `1000` (10%); exact measured competitors can raise each target independently
   up to the profitability boundary.
 - `POOL_BUILDER_BID_BPS`: builder share for a ready
-  `processAcquisitions → sync → settle` chain. The default is `300` (3%),
-  just above the incumbent's observed 2.5% direct Titan payment.
+  `processAcquisitions → sync → settle` chain. The default is `1705` (17.05%),
+  the exact profitable floor needed to beat the recurring private FWA
+  processor payments observed in Titan block `25,683,096` and Quasar block
+  `25,683,265`. Exact retained profitability remains the final boundary.
 - `POOL_PULL_BUILDER_BID_BPS`: independent builder share for `pull`. The
   default is `1000` (10%). It remains the V1 static policy and is the V2
   controller's starting point/lower bound. V2 learns exact profitable misses

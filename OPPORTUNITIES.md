@@ -3030,3 +3030,29 @@ deployment from the canonical deployer. Production discovered the resulting
 new order automatically (candidate count advanced from 220 to 221). Monitor
 the deployer for a canonical subscription creation and verified source; do not
 integrate a speculative address.
+
+Ready-processor clearing incident, 2026-08-04 17:37 UTC: the newly guarded
+round-310 four-call prefix (executor deployment, exact sequences 121745-121747,
+sync, settle) simulated at target `25,683,096` with `0.001255004251508178 ETH`
+gross, `2,660,164` gas, and `0.000166295998840402 ETH` expected profit. All six
+relays accepted its 301-effective-bps bid, but Titan selected recurring wrapper
+`0xa084c33fb7a467307452898b8d58165ebd2e5d9f`, which processed sequences
+121745-121748 and paid `0.000201995785995584 ETH` of priority fee. Our builder
+payment was only `0.000037650128403004 ETH`; there was no pool lifecycle
+competitor and the block used only `27,520,422 / 60,000,000` gas, so capacity
+was not causal. This is exact price competition for the conflicting processor
+state, not a builder-reach miss. The same conflict repeated at target
+`25,683,265`: all six relays accepted our 301-effective-bps four-call bundle,
+but Quasar selected the same wrapper at a `0.0002040034 ETH` priority payment.
+That block used only `29,066,748 / 60,000,000` gas. The minimum aggregate floor
+that strictly beats both observations is 1,705 bps. It would have paid
+`0.000204052858321555 ETH` against the second clearing payment and retained
+approximately `0.000056649464585296 ETH`, comfortably above the
+`0.000001 ETH` floor; it also beats the first observation. Raise only
+`POOL_BUILDER_BID_BPS` to 1,705. Exact simulation and retained-profit checks
+continue to reject any ready chain that cannot safely afford it. The remaining
+sync/settle prefixes won shortly afterward for `0.000955153431039312 ETH` and
+`0.000943466447715844 ETH` net. Next, teach the ready lane to observe
+processor-only conflicts and maintain its own durable adaptive clearing state;
+the generic pool lifecycle observer currently labels these misses as no
+competitor because the winning transaction never calls the pool.
