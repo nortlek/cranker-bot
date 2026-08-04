@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-03 (America/Denver)
+Last updated: 2026-08-04 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -2998,3 +2998,35 @@ At block `25,679,320`, the pinned GroupPull remained unpaused and
 non-deprecated; live round 15 was Selling with five tickets, no buying rounds,
 and PullPool V2 had open round 300 with no pending pull. No release integration
 or production change is warranted.
+
+FWA FIFO-position incident, 2026-08-04 16:40 UTC: the full round-309
+`processAcquisitions(2) -> syncFwaResult -> settle` bundle landed at target
+`25,682,761` but lost `0.000283480712520420 ETH`, versus an exact-parent
+simulation predicting `0.000143665045835202 ETH` profit. Actual aggregate gas
+was `4,145,038`, `1,480,643` (55.57%) above the simulated `2,664,395`.
+Receipt reconstruction proved the unbound processor call handled sequences
+120983 and 120984; the latter was a new unrelated acquisition whose listing
+was created earlier in the target block. FWA's public
+`processAcquisitions(maxCount)` starts at the inclusion-time FIFO pointer, so
+an earlier block transaction can advance the queue and make the same count
+process newer, unpriced work even though the exact parent simulation passed.
+The bounded repair uses an owner-bound CREATE2 executor that checks the exact
+planned `nextSequenceToProcess` before calling FWA and the exact post-pointer
+afterward. A shifted or incomplete interval reverts the private bundle, so the
+keeper retries from a fresh parent instead of paying for unpriced acquisitions.
+Deployment, processor, and sync form one mandatory private prefix; the pinned
+singleton factory/runtime, canonical FWA constant, complete bundle simulation,
+nonce/lease gates, and retained-profit boundary remain fail closed. Solidity
+tests reproduce the historical pointer-shift failure and prove rollback.
+
+Release watch, 2026-08-04 16:13-16:43 UTC: @ripe0x announced that GroupPull
+subscriptions are coming soon and separately confirmed Pack 0016 completed.
+This is a lead for a future integration boundary, not authority to enable a
+new contract. Canonical-deployer nonces `3424-3426` corroborate only ordinary
+current-product use: entries into the pinned GroupPull for packs 15/16 and one
+`createOrder` call on the already supported successor standing-order factory.
+There was no contract creation, runtime/configuration change, or subscription
+deployment from the canonical deployer. Production discovered the resulting
+new order automatically (candidate count advanced from 220 to 221). Monitor
+the deployer for a canonical subscription creation and verified source; do not
+integrate a speculative address.

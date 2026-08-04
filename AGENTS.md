@@ -584,6 +584,13 @@ These constraints prevent expensive or unsafe regressions:
   simulation must prove processor compatibility with sync, return actual gas
   for pricing, and the competitively priced signed bundle must simulate again
   before submission.
+- A confirmed-head ready processor must call the pinned owner-bound FWA
+  sequence executor, never FWA `processAcquisitions(maxCount)` directly. Bind
+  both the exact parent `nextSequenceToProcess` and its expected post-pointer;
+  if earlier target-block activity moves the FIFO, the whole private prefix
+  must revert and retry from a fresh parent rather than process newer unpriced
+  acquisitions. If the executor is absent, its pinned CREATE2 deployment,
+  exact processor call, and sync are one mandatory private prefix.
 - A fulfilled acquisition is normally `syncFwaResult(round) -> settle(round)`.
 - Standing-order cranks and a pool `pull` may form a cross-subsidized sequence.
   If so, the minimum viable prefix must include every call needed for the

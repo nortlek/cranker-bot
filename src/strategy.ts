@@ -88,6 +88,11 @@ import {
 } from "./firm.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
 import {
+  encodeExactFwaSequenceProcessing,
+  FWA_SEQUENCE_EXECUTOR_DEPLOY_GAS_LIMIT,
+  fwaSequenceExecutorDeployment,
+} from "./fwa-sequence-executor.js";
+import {
   groupPullCollectAfterSettlement,
   planGroupPullJob,
   type GroupPullCollectContext,
@@ -135,6 +140,7 @@ export type KeeperJobKind =
   | "standing_order"
   | "standing_order_batch_deploy"
   | "standing_order_batch"
+  | "fwa_sequence_executor_deploy"
   | "fwa_process"
   | "pool_pull"
   | "pool_sync"
@@ -2012,6 +2018,31 @@ export function fwaProcessJob(parameters: {
   };
 }
 
+export function exactFwaProcessJob(parameters: {
+  readonly executor: Address;
+  readonly gas: bigint;
+  readonly expectedNext: bigint;
+  readonly count: bigint;
+  readonly config: KeeperConfig;
+}): KeeperJob {
+  return {
+    kind: "fwa_process",
+    label: `fwa_process_exact:${parameters.expectedNext}:${parameters.count}`,
+    target: parameters.executor,
+    data: encodeExactFwaSequenceProcessing(
+      parameters.expectedNext,
+      parameters.count,
+    ),
+    gas: parameters.gas,
+    reward: { kind: "fixed", amountWei: 0n },
+    poolVersion: parameters.config.poolVersion,
+    configuredBuilderBidBps:
+      parameters.config.poolBuilderBidBps,
+    poolBuilderBidPolicy: "pool_ready",
+    requiresBundleSimulation: true,
+  };
+}
+
 export function exactSimulationPlanIsAdmissible(parameters: {
   readonly jobs: readonly KeeperJob[];
   readonly minimumViablePrefix: number;
@@ -2141,13 +2172,6 @@ async function planPrimaryJobs(parameters: {
         );
         return { jobs: [], minimumViablePrefix: 0 };
       }
-      if (limit < 2) {
-        incrementReason(
-          skipped,
-          "acquisition_ready_transaction_limit",
-        );
-        return { jobs: [], minimumViablePrefix: 0 };
-      }
       try {
         const [nextSequence, lastIssuedSequence] =
           await Promise.all([
@@ -2204,10 +2228,75 @@ async function planPrimaryJobs(parameters: {
           );
           return { jobs: [], minimumViablePrefix: 0 };
         }
-        const jobs = [
-          fwaProcessJob({
-            fwa,
+        const accountAddress =
+          typeof account === "string" ? account : account.address;
+        const deployment =
+          fwaSequenceExecutorDeployment(accountAddress);
+        const executorCode = await client.getCode({
+          address: deployment.address,
+          ...(parameters.blockNumber === undefined
+            ? {}
+            : { blockNumber: parameters.blockNumber }),
+        });
+        const executorDeployed =
+          executorCode !== undefined && executorCode !== "0x";
+        if (
+          executorDeployed &&
+          keccak256(executorCode) !==
+            deployment.expectedRuntimeCodeHash
+        ) {
+          incrementReason(
+            skipped,
+            "fwa_sequence_executor_runtime_mismatch",
+          );
+          return { jobs: [], minimumViablePrefix: 0 };
+        }
+        const minimumViablePrefix = executorDeployed ? 2 : 3;
+        if (limit < minimumViablePrefix) {
+          incrementReason(
+            skipped,
+            "acquisition_ready_transaction_limit",
+          );
+          return { jobs: [], minimumViablePrefix: 0 };
+        }
+        const jobs: KeeperJob[] = [];
+        if (!executorDeployed) {
+          const singletonCode = await client.getCode({
+            address: SINGLETON_FACTORY_ADDRESS,
+            ...(parameters.blockNumber === undefined
+              ? {}
+              : { blockNumber: parameters.blockNumber }),
+          });
+          if (
+            singletonCode === undefined ||
+            singletonCode === "0x" ||
+            keccak256(singletonCode) !==
+              SINGLETON_FACTORY_CODE_HASH
+          ) {
+            incrementReason(
+              skipped,
+              "singleton_factory_runtime_mismatch",
+            );
+            return { jobs: [], minimumViablePrefix: 0 };
+          }
+          jobs.push({
+            kind: "fwa_sequence_executor_deploy",
+            label: "fwa_sequence_executor_deploy",
+            target: SINGLETON_FACTORY_ADDRESS,
+            data: deployment.deployData,
+            gas: FWA_SEQUENCE_EXECUTOR_DEPLOY_GAS_LIMIT,
+            reward: { kind: "fixed", amountWei: 0n },
+            poolVersion: config.poolVersion,
+            configuredBuilderBidBps: config.poolBuilderBidBps,
+            poolBuilderBidPolicy: "pool_ready",
+            requiresBundleSimulation: true,
+          });
+        }
+        jobs.push(
+          exactFwaProcessJob({
+            executor: deployment.address,
             gas: config.fwaProcessGasLimit,
+            expectedNext: nextSequence,
             count: processCount,
             config,
           }),
@@ -2220,7 +2309,7 @@ async function planPrimaryJobs(parameters: {
             bidPolicy: "pool_ready",
             config,
           }),
-        ];
+        );
         if (jobs.length < limit) {
           jobs.push(
             poolJob({
@@ -2234,7 +2323,7 @@ async function planPrimaryJobs(parameters: {
             }),
           );
         }
-        return { jobs, minimumViablePrefix: 2 };
+        return { jobs, minimumViablePrefix };
       } catch (error) {
         incrementReason(
           skipped,
