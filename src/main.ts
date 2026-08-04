@@ -1377,6 +1377,11 @@ async function main(): Promise<void> {
             requestBidPolicy = "live_bid_sweep";
             requestMinimumPriorityFeePerGas =
               config.liveBidSweepMinPriorityFeePerGas;
+          } else if (request.kind === "fwa_buyback") {
+            requestBidBps = config.buybackBuilderBidBps;
+            requestBidPolicy = "fwa_buyback";
+            requestMinimumPriorityFeePerGas =
+              config.minPriorityFeePerGas;
           } else if (
             request.kind === "group_pull_standing_order"
           ) {
@@ -1619,6 +1624,8 @@ async function main(): Promise<void> {
           builderBidBps: builderBidBps.toString(),
           configuredPoolBuilderBidBps:
             config.poolBuilderBidBps.toString(),
+          configuredBuybackBuilderBidBps:
+            config.buybackBuilderBidBps.toString(),
           configuredPoolPullBuilderBidBps:
             config.poolPullBuilderBidBps.toString(),
           configuredPoolFulfilledBuilderBidBps:
@@ -3832,6 +3839,8 @@ async function main(): Promise<void> {
     relayCount: config.flashbotsRelayUrls.length,
     builderCount: config.flashbotsBuilders.length,
     configuredBuilderBidBps: config.builderBidBps.toString(),
+    configuredBuybackBuilderBidBps:
+      config.buybackBuilderBidBps.toString(),
     configuredPendingFundingBuilderBidBps:
       config.pendingFundingBuilderBidBps.toString(),
     adaptiveBidMinimumBps:

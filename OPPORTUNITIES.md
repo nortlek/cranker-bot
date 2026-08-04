@@ -140,6 +140,34 @@ before reporting progress or deploying.
 
 ## Immediate engineering queue
 
+### P0 — Independent FWA buyback bidding
+
+Status: exact loss reconstructed and 4250-bps independent lane implemented on
+2026-08-04; awaiting the normal validated production rollout. At parent block
+`25683817`, the keeper exact-simulated an FWA token `buyback()` with
+`0.003740206223983917 ETH` caller reward and `159622` gas. It offered
+`0.000374020622494774 ETH` (effectively 1001 bps), all six private paths
+accepted within 252 ms, and Titan block `25683818` omitted it.
+
+Transaction
+`0xed81fe5eeee24e02c32d91fba3b853df0aea87c5dd044aed509954bd6701307e`
+captured the same reward through wrapper
+`0x5B5A0580bcfd3673820Bb249514234aFAD33e209`, paid zero priority fee and
+`0.001575408195862322 ETH` directly to the block beneficiary. That is 4212.08
+bps of our exact planned gross. One wei above the observed payment normalizes
+to 4213 bps and leaves a counterfactual
+`0.002137573040588198 ETH` after the incremental builder payment, still far
+above the retained-profit floor. This is price competition, not builder reach
+or timing. The new 4250-bps target is a narrow 37-bps cushion and no longer
+shares the standing-order controller.
+
+Acceptance:
+
+- replay the exact payment comparison in tests
+- deploy with one signer lease and latest nonce equal to pending
+- on the next buyback, reconcile reward, gas, builder payment, and wallet delta
+- change the target again only from new buyback-specific clearing evidence
+
 ### P0 — GroupPull subscription standing orders
 
 Status: canonical release validated and keeper integration included in this
@@ -171,6 +199,12 @@ at about 17:00 America/Denver, @ripe0x posted that “group pack subscriptions�
 were coming soon. The deployer and verified on-chain source are the production
 identity evidence. The same deployer subsequently updated GroupPull terms in
 block `25683365`; no successor GroupPull was created.
+
+The next deployer transaction, nonce `3431` in block `25683617`, was a normal
+five-ticket `enter(18,5,...)` with `0.025 ETH`, not another deployment or
+configuration change. A later post said pulls per pack had been lowered to
+three; that matches the already-observed canonical `setTerms` update and does
+not require another keeper change.
 
 Acceptance:
 

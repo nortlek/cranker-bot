@@ -230,6 +230,24 @@ describe("allocateIndependentPriorityFees", () => {
 });
 
 describe("compareObservedBuilderPayment", () => {
+  it("replays the profitable FWA buyback loss in Titan block 25683818", () => {
+    const comparison = compareObservedBuilderPayment({
+      observedBuilderPayment: 1_575_408_195_862_322n,
+      plannedGrossReward: 3_740_206_223_983_917n,
+      plannedBuilderPayment: 374_020_622_494_774n,
+      plannedExpectedProfit: 3_338_960_613_955_747n,
+      minProfitWei: 1_000_000_000_000n,
+    });
+
+    expect(
+      comparison.requiredBidBpsAgainstPlannedGross,
+    ).toBe(4_213n);
+    expect(comparison.counterfactualExpectedProfit).toBe(
+      2_137_573_040_588_198n,
+    );
+    expect(comparison.profitable).toBe(true);
+  });
+
   it("normalizes the absolute competitor payment against our planned reward", () => {
     const comparison = compareObservedBuilderPayment({
       observedBuilderPayment: 914n,

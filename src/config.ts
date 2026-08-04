@@ -31,6 +31,7 @@ export interface KeeperConfig {
   readonly flashbotsAuthPrivateKey: Hex | undefined;
   readonly relayTimeoutMs: number;
   readonly builderBidBps: bigint;
+  readonly buybackBuilderBidBps: bigint;
   readonly pendingFundingBuilderBidBps: bigint;
   readonly poolBuilderBidBps: bigint;
   readonly poolPullBuilderBidBps: bigint;
@@ -355,6 +356,14 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const buybackBuilderBidBps = integerEnv(
+    "BUYBACK_BUILDER_BID_BPS",
+    4_250,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const poolBuilderBidBps = integerEnv(
     "POOL_BUILDER_BID_BPS",
     1_705,
@@ -497,6 +506,7 @@ export function loadConfig(): KeeperConfig {
       max: 30_000,
     }),
     builderBidBps: BigInt(builderBidBps),
+    buybackBuilderBidBps: BigInt(buybackBuilderBidBps),
     pendingFundingBuilderBidBps:
       BigInt(pendingFundingBuilderBidBps),
     poolBuilderBidBps: BigInt(poolBuilderBidBps),
