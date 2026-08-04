@@ -732,7 +732,7 @@ describe("orderStandaloneStandingJobsForAuction", () => {
     poolVersion: "v2" as const,
   });
 
-  it("puts lower-competition work before a contested suffix", () => {
+  it("puts the strongest-priced work before an underpriced suffix", () => {
     const expensive = standingJob(
       "0x1000000000000000000000000000000000000001",
       300n,
@@ -752,7 +752,7 @@ describe("orderStandaloneStandingJobsForAuction", () => {
         bidBps: (order) => bids.get(order)!,
         maxFeePerGas: 1n,
       }),
-    ).toEqual([cheap, expensive]);
+    ).toEqual([expensive, cheap]);
   });
 
   it("uses profit order when bid targets are equal", () => {

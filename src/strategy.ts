@@ -520,9 +520,10 @@ export interface StandingOrderBatchPlan extends PlannedJobs {
 }
 
 /**
- * A nonce-contiguous bundle can only expose prefixes. Put lower-competition
- * standalone orders first so a contested suffix cannot invalidate otherwise
- * winnable work. Equal-price orders retain profit-first ordering.
+ * A nonce-contiguous bundle can only expose prefixes. Put the strongest-priced
+ * standalone orders first so an underpriced probe can fail only as a suffix
+ * instead of invalidating every otherwise winnable transaction after it.
+ * Equal-price orders retain profit-first ordering.
  */
 export function orderStandaloneStandingJobsForAuction(parameters: {
   readonly jobs: readonly KeeperJob[];
@@ -543,7 +544,7 @@ export function orderStandaloneStandingJobsForAuction(parameters: {
   return [...parameters.jobs].sort((left, right) => {
     const leftBid = parameters.bidBps(left.order!);
     const rightBid = parameters.bidBps(right.order!);
-    if (leftBid !== rightBid) return leftBid < rightBid ? -1 : 1;
+    if (leftBid !== rightBid) return leftBid > rightBid ? -1 : 1;
     const leftReward =
       left.reward.kind === "fixed" ? left.reward.amountWei : 0n;
     const rightReward =
@@ -5374,7 +5375,7 @@ export async function runKeeperPass(
               context.standingOrderBidBps!(job.order!).toString(),
             ),
           ),
-          policy: "lower_competition_prefix_first",
+          policy: "strongest_price_prefix_first",
         });
       }
     }

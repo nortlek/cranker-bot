@@ -2933,3 +2933,18 @@ longer armed and ordinary confirmed-head collection remained responsible.
 The dependent call uses a funded Ethereum-valid envelope and requires complete
 signed-bundle simulation to determine actual gas and enforce exact retained
 profit before submission.
+
+Standing-order prefix incident, 2026-08-04: target block `25,678,086` exposed a
+construction flaw in the direct nonce-contiguous auction. The planner sorted
+nine independently profitable orders from the lowest active bid to the
+highest, then the six-job limit submitted only prefixes beginning with a
+3,533-bps probe. A competitor cleared that first order at 6,327 bps, so every
+longer prefix became invalid even though our later quotes exceeded several
+observed competitor payments; three 9,191-10,000-bps jobs were excluded from
+the submitted set entirely. All six member expirations were one economic
+prefix failure, not six relay failures, and all six relays had accepted the
+variants. The auction now orders strongest-priced independent work first,
+leaving underpriced probes as suffixes that cannot invalidate stronger earlier
+transactions. Equal-price work remains profit-first. The existing adaptive
+controllers still learn per order from exact clearing evidence and retained
+profit remains the final quote boundary.
