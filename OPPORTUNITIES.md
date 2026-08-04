@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-07-30 (America/Denver)
+Last updated: 2026-08-03 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -2972,3 +2972,29 @@ Production discovered the new order in the first pass at its creation block
 needed. At block `25,678,719`, round 14 remained Selling with 19 tickets and
 no buying or collection lifecycle; the pinned runtime and canonical V2 pool
 relationship remained valid.
+
+Live follow-up, 2026-08-04 04:05-04:40 UTC: the strongest-prefix standing-order
+change preserved eventual capture but did not eliminate exact price losses.
+At targets `25,679,040` and `25,679,205`, ten-member private batches missed;
+eight distinct orders in each target were taken by competitors whose observed
+payments normalized to `5,273-8,010 bps` and `5,962-8,556 bps`, respectively.
+The per-order controller increased only the exact counterfactually profitable
+losses (six and four targets) and held the rest. Separately, round 299's
+`processAcquisitions(1) -> syncFwaResult -> settle` chain missed a Titan block
+and its remaining `sync -> settle` chain missed the following unmarked geth
+block despite all six relay paths accepting both bundles. No competing
+lifecycle transaction acted in either block. The same `sync -> settle` quote
+then landed in the next BuilderNet block for `0.00076614205551872 ETH` net.
+This remains builder construction/reach evidence rather than clearing-price
+evidence; it does not justify raising the pool-ready bid or weakening exact
+profitability. Continue measuring eventual wins and builder-specific delivery.
+
+Release watch, 2026-08-04 04:06-04:12 UTC: canonical-deployer nonces
+`3419-3423` were four ordinary `withdraw(uint256)` calls against existing
+standing orders followed by a plain ETH funding transfer to already supported
+order `0x8b9967cEf76957Ecc54ef31dcbE4102Fc6683c68`. There were no creations,
+factory/configuration changes, successor relationships, or new method surface.
+At block `25,679,320`, the pinned GroupPull remained unpaused and
+non-deprecated; live round 15 was Selling with five tickets, no buying rounds,
+and PullPool V2 had open round 300 with no pending pull. No release integration
+or production change is warranted.
