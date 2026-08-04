@@ -2948,3 +2948,15 @@ leaving underpriced probes as suffixes that cannot invalidate stronger earlier
 transactions. Equal-price work remains profit-first. The existing adaptive
 controllers still learn per order from exact clearing evidence and retained
 profit remains the final quote boundary.
+
+Release watch, 2026-08-04 01:48 UTC: canonical deployer transaction
+`0x1d4829364d6b499e31bfb6dc0fb28fc1d8e8b8ece7ee8a762943801247af583b`
+entered two tickets in live GroupPull round 13 at the already pinned successor.
+This is ordinary successful product participation, not a deployment,
+configuration change, successor signal, or new keeper method. At block
+`25,678,432`, the runtime relationship remained the canonical V2 pool,
+GroupPull was unpaused and non-deprecated with round 13 still Selling
+(`ticketsSold=9`, `bought=0`, `pullsCollected=0`), while PullPool V2 was
+unpaused and non-deprecated with open round 295 and no pending pull. No
+compatibility or production change is warranted; continue monitoring the
+existing exact `close`/`submit`/`collect` lifecycle.
