@@ -280,6 +280,21 @@ Acceptance:
 - reconcile the first `Cranked` fee, receipt gas, builder payment, and wallet delta
 - tune only from lane-specific competitor and retained-profit evidence
 
+Live validation, 2026-08-05 08:02 America/Denver: production privately landed
+the canonical subscription order's `crank()` for GroupPull round 21 in Titan
+block `25,689,193`. The successful receipt earned exactly `0.0002 ETH`, spent
+`0.000077756255484192 ETH`, and retained `0.000122243744515808 ETH`; the
+wallet delta and nonce advance to `latest == pending == 2068` reconcile. All
+six relay paths accepted, first acceptance arrived in 69 ms, and target-block
+delivery was full success with no revert or expiration. Exact state at block
+`25,689,296` had the pinned GroupPull unpaused/non-deprecated, round 21 Selling
+with six tickets, and no buying round. Recent lifecycle history also disproves
+a GroupPull outage: in completed round 18 our signer captured six of seven
+`BountyPaid` shares (`0.0054 ETH` gross), while
+`0x5476Ff2a30103b83a67E57D21C699E66352a9ffB` captured only the close share
+(`0.0009 ETH`). Rounds 19 and 20 expired underfilled with no bounty-bearing
+submit/collect competition. No bid or delivery change is warranted.
+
 ### P1 — Rescue competitively priced standing-order suffixes
 
 Status: active-probe blocking risk fixed; alternate rescue ladders remain
