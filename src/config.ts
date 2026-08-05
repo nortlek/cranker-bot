@@ -358,7 +358,7 @@ export function loadConfig(): KeeperConfig {
   );
   const buybackBuilderBidBps = integerEnv(
     "BUYBACK_BUILDER_BID_BPS",
-    8_400,
+    9_704,
     {
       min: 0,
       max: 10_000,

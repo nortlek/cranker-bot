@@ -1531,11 +1531,13 @@ async function main(): Promise<void> {
         );
         const directPaymentEligible =
           config.enableDirectCoinbasePayments &&
-          eligibleRequests.every(
+          (eligibleRequests.every(
             (request) =>
               request.kind === "standing_order" &&
               request.order !== undefined,
-          );
+          ) ||
+            (eligibleRequests.length === 1 &&
+              eligibleRequests[0]?.kind === "fwa_buyback"));
         const profitabilityOnlyPricing = eligiblePricingComponents.some(
           (component) => component.profitabilityOnly === true,
         );

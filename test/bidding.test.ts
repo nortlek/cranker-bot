@@ -311,6 +311,29 @@ describe("compareObservedBuilderPayment", () => {
     expect(comparison.profitable).toBe(true);
   });
 
+  it("prices the block-25690190 buyback above the direct Titan payment", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: 2_531_985_045_301_370n,
+      simulatedGasUsed: 159_626n,
+      baseFeeAllowancePerGas: 321_572_505n,
+      minimumPriorityFeePerGas: 0n,
+      builderBidBps: 9_704n,
+      maxFeePerGasCap: parseGwei("5"),
+      minProfitWei: parseEther("0.000001"),
+      directPaymentGasUsed: 50_000n,
+    });
+
+    expect(quote.builderPayment).toBe(2_457_038_287_960_449n);
+    expect(quote.builderPayment).toBeGreaterThan(
+      2_456_924_975_570_103n,
+    );
+    expect(quote.directBuilderPayment).toBe(
+      1_710_239_620_643_579n,
+    );
+    expect(quote.expectedProfit).toBe(7_536_799_407_791n);
+    expect(quote.profitable).toBe(true);
+  });
+
   it("normalizes the absolute competitor payment against our planned reward", () => {
     const comparison = compareObservedBuilderPayment({
       observedBuilderPayment: 914n,

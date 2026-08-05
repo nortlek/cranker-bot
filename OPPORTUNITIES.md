@@ -157,8 +157,9 @@ before reporting progress or deploying.
 
 ### P0 — Independent FWA buyback bidding
 
-Status: two exact price losses reconstructed; the independent lane target is
-now 8400 bps. At parent block
+Status: three exact price losses reconstructed; the independent lane target is
+now 9704 bps with direct beneficiary payment enabled for a single isolated
+buyback. At parent block
 `25683817`, the keeper exact-simulated an FWA token `buyback()` with
 `0.003740206223983917 ETH` caller reward and `159622` gas. It offered
 `0.000374020622494774 ETH` (effectively 1001 bps), all six private paths
@@ -182,9 +183,28 @@ Transaction
 captured the exact reward, paid `0.000002991858074036 ETH` in priority fees and
 `0.001134118561512794 ETH` directly to Titan, or 8346.61 bps in aggregate.
 One wei above it normalizes to 8347 bps and would still have retained
-`0.000218814483958562 ETH` after our planned gas and incremental payment. The
-8400-bps target is a 53-bps cushion, remains isolated from every other lane,
-and exact profitability remains the final boundary.
+`0.000218814483958562 ETH` after our planned gas and incremental payment.
+
+The 8400-bps target was not expressible under the 5-gwei fee cap on the next
+opportunity. At parent block `25690188`, the keeper exact-simulated buyback
+target `0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845` with a
+`0.002531985045301370 ETH` reward and `159626` gas. It targeted blocks
+`25690189` and `25690190`; all six relays accepted both attempts, but the fee
+cap limited the expressed payments to `0.000750910446793328 ETH` (2966 bps)
+and `0.000746798667316870 ETH` (2950 bps). Transaction
+`0x430a19a9b5a899a0dc79bcafca0f34a6b1103374c6396a63cbce98c3e5cb93bb`
+captured the exact reward in Titan block `25690190` through wrapper
+`0x73851bf6c6e49cc44a1680451a127795c951c3e5`, paid zero priority fee and
+`0.002456924975570103 ETH` directly to Titan, and retained about
+`0.000015143072737142 ETH` after gas. One wei above the payment normalizes to
+9704 bps. The pinned direct-payment helper can express
+`0.002457038287960449 ETH` at the exact historical base fee, including its
+full 50000-gas signing envelope, while retaining
+`0.000007536799407791 ETH`, above the `0.000001 ETH` production floor. This is
+exact price competition rather than reach, construction, or timing: the
+single-buyback direct-payment path is isolated from other job kinds and the
+complete signed bundle remains subject to exact simulation and retained-profit
+checks.
 
 A separate buyback in block `25684944` is not a confirmed-head planner miss:
 the FWA token had zero ETH at parent block `25684943`, and the winner
@@ -193,8 +213,9 @@ therefore not comparable with a pre-existing balance opportunity.
 
 Acceptance:
 
-- replay both exact payment comparisons in tests
-- deploy 8400 bps with one signer lease and latest nonce equal to pending
+- replay the newest exact payment comparison with the full helper gas envelope
+- deploy 9704 bps and single-buyback direct payment with one signer lease and
+  latest nonce equal to pending
 - on the next buyback, reconcile reward, gas, builder payment, and wallet delta
 - change the target again only from new buyback-specific clearing evidence
 
