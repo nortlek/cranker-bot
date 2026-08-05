@@ -1457,6 +1457,9 @@ async function main(): Promise<void> {
                 baseFeeAllowancePerGas,
                 maxFeePerGasCap: config.maxFeePerGas,
                 minProfitWei: config.minProfitWei,
+                ...(gasUsed[0] === undefined
+                  ? {}
+                  : { leadingGasUsed: gasUsed[0] }),
               })
             : pricingComponents.map((_, index) => index);
         if (affordableIndependentIndexes.length === 0) {

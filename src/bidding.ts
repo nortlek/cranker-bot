@@ -547,26 +547,68 @@ export function fullyAffordableIndependentComponentIndexes(parameters: {
   readonly baseFeeAllowancePerGas: bigint;
   readonly maxFeePerGasCap?: bigint;
   readonly minProfitWei: bigint;
+  /** Gas required when a retained component becomes the first transaction. */
+  readonly leadingGasUsed?: bigint;
 }): readonly number[] {
-  return parameters.components.flatMap((component, index) => {
+  const affordableIndexes = parameters.components.flatMap(
+    (component, index) => {
+      const quote = quoteCompetitiveFees({
+        crankFee: component.rewardWei,
+        simulatedGasUsed: component.gasUsed,
+        baseFeeAllowancePerGas:
+          parameters.baseFeeAllowancePerGas,
+        minimumPriorityFeePerGas:
+          component.minimumPriorityFeePerGas,
+        builderBidBps: component.builderBidBps,
+        ...(parameters.maxFeePerGasCap === undefined
+          ? {}
+          : { maxFeePerGasCap: parameters.maxFeePerGasCap }),
+        minProfitWei: parameters.minProfitWei,
+      });
+      return quote.profitable &&
+        !quote.cappedByProfit &&
+        !quote.cappedByFeeCap
+        ? [index]
+        : [];
+    },
+  );
+
+  if (parameters.leadingGasUsed === undefined) {
+    return affordableIndexes;
+  }
+
+  while (affordableIndexes.length > 0) {
+    const leadingIndex = affordableIndexes[0];
+    const leadingComponent =
+      leadingIndex === undefined
+        ? undefined
+        : parameters.components[leadingIndex];
+    if (leadingComponent === undefined) break;
     const quote = quoteCompetitiveFees({
-      crankFee: component.rewardWei,
-      simulatedGasUsed: component.gasUsed,
+      crankFee: leadingComponent.rewardWei,
+      simulatedGasUsed:
+        parameters.leadingGasUsed > leadingComponent.gasUsed
+          ? parameters.leadingGasUsed
+          : leadingComponent.gasUsed,
       baseFeeAllowancePerGas: parameters.baseFeeAllowancePerGas,
       minimumPriorityFeePerGas:
-        component.minimumPriorityFeePerGas,
-      builderBidBps: component.builderBidBps,
+        leadingComponent.minimumPriorityFeePerGas,
+      builderBidBps: leadingComponent.builderBidBps,
       ...(parameters.maxFeePerGasCap === undefined
         ? {}
         : { maxFeePerGasCap: parameters.maxFeePerGasCap }),
       minProfitWei: parameters.minProfitWei,
     });
-    return quote.profitable &&
+    if (
+      quote.profitable &&
       !quote.cappedByProfit &&
       !quote.cappedByFeeCap
-      ? [index]
-      : [];
-  });
+    ) {
+      return affordableIndexes;
+    }
+    affordableIndexes.shift();
+  }
+  return affordableIndexes;
 }
 
 /**

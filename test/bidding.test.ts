@@ -272,6 +272,37 @@ describe("fullyAffordableIndependentComponentIndexes", () => {
       }),
     ).toEqual([1, 2, 3, 4]);
   });
+
+  it("rescues the cold-affordable suffix from block 25690602", () => {
+    expect(
+      fullyAffordableIndependentComponentIndexes({
+        components: [
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 332_454n,
+            builderBidBps: 7_169n,
+            minimumPriorityFeePerGas: 0n,
+          },
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 218_313n,
+            builderBidBps: 7_166n,
+            minimumPriorityFeePerGas: 0n,
+          },
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 218_313n,
+            builderBidBps: 1_000n,
+            minimumPriorityFeePerGas: 0n,
+          },
+        ],
+        baseFeeAllowancePerGas: 240_400_282n,
+        maxFeePerGasCap: parseGwei("5"),
+        minProfitWei: parseEther("0.000001"),
+        leadingGasUsed: 332_454n,
+      }),
+    ).toEqual([2]);
+  });
 });
 
 describe("compareObservedBuilderPayment", () => {

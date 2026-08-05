@@ -330,8 +330,8 @@ warranted.
 
 ### P1 — Rescue competitively priced standing-order suffixes
 
-Status: active-probe blocking risk fixed; alternate rescue ladders remain
-unjustified without a repeated cluster. At target block `25685871`, production
+Status: active-probe blocking and cold-leading compaction risks fixed;
+alternate signed ladders remain unjustified. At target block `25685871`, production
 offered five independently priced standing-order cranks as a
 strongest-bid-first nonce prefix ladder. All six relays accepted every offered
 prefix. Eureka included the first two cranks, which retained
@@ -366,6 +366,34 @@ price. This establishes eventual capture but does not recover the first exposed
 fee or by itself justify the complexity of alternate signed nonce ladders.
 Keep the replay item open, but prioritize it below a repeated blocked-suffix
 cluster or a design that proves deterministic outcome attribution.
+
+The second cluster arrived at target block `25690602`. The planner ordered
+three independent orders at 7169, 7166, and 1000 bps. Preliminary exact
+simulation correctly removed the first order because its requested bid was not
+individually affordable, then compacted the other two to nonces 2069 and 2070.
+That compaction made the 7166-bps order the cold first pool call: competitive
+simulation proved it would lose `0.000089332772229592 ETH`, and the sender
+rejected the whole remaining prefix. The 1000-bps suffix was independently
+profitable but therefore received no submission. Titan included competitors
+for the first and third orders in the target block at exact 1699- and 1178-bps
+payments; Eureka included the middle order one block later at 1519 bps. A
+1000-bps rescue would not have beaten the third order's target-block price, so
+this is not claimed as a counterfactual win, but the missing submission also
+prevented the independent controller from learning that price.
+
+The affordability pass now prices each newly leading retained order against
+the exact cold leading-gas observation before nonce compaction. Historical
+parent-block estimation gives 332454 gas for each of the three calls: both
+stale high-bid orders are rejected as cold leaders, while the 1000-bps suffix
+remains fully expressible and independently profitable. It is renonced to the
+first signer nonce and still must pass the ordinary complete competitive
+simulation, account/lease/deadline gates, and retained-profit check. This
+creates one deterministic rescue ladder without extra relay variants; the
+next equivalent exposure will either capture at its independent price or
+produce exact learning evidence instead of a silent blocked suffix. Separately
+evaluate whether stale high controller targets should make profitability-capped
+probes only after replaying their prior clearing evidence; do not weaken the
+per-order retained-profit boundary.
 
 ### P0 — Backrun a final direct ticket purchase with `pull`
 
