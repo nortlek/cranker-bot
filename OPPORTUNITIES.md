@@ -316,6 +316,18 @@ a GroupPull outage: in completed round 18 our signer captured six of seven
 (`0.0009 ETH`). Rounds 19 and 20 expired underfilled with no bounty-bearing
 submit/collect competition. No bid or delivery change is warranted.
 
+Second live validation, 2026-08-05 11:58 America/Denver: the same canonical
+subscription order became callable for GroupPull round 22 and production won
+the first target, BuilderNet block `25,690,366`. All six relay paths accepted;
+the first acceptance arrived in 79 ms. The receipt earned exactly
+`0.0002 ETH`, spent `0.000103744192225504 ETH`, and retained
+`0.000096255807774496 ETH`. The wallet increased by that exact amount and the
+signer reconciled at `latest == pending == 2069`. This is the lane's second
+consecutive full win at the unchanged independent 1000-bps target. Exact state
+at block `25,690,496` had round 22 Selling, zero buying rounds, and neither
+`close` nor the order crank callable. No bid, reach, or construction change is
+warranted.
+
 ### P1 — Rescue competitively priced standing-order suffixes
 
 Status: active-probe blocking risk fixed; alternate rescue ladders remain
