@@ -293,6 +293,15 @@ would have moved the blocked winner ahead of both losing jobs. Deploy only with
 exact signed-bundle simulation, deterministic receipt attribution, and a test
 covering this block; do not raise the fifth order's bid from this evidence.
 
+Live follow-up at target `25686143`: the same five orders all landed in Quasar
+after the two price-loss controllers increased. The batch retained
+`0.000187114809836772 ETH`; the previously blocked fifth order won unchanged at
+1573 bps, confirming its earlier miss was prefix construction rather than its
+price. This establishes eventual capture but does not recover the first exposed
+fee or by itself justify the complexity of alternate signed nonce ladders.
+Keep the replay item open, but prioritize it below a repeated blocked-suffix
+cluster or a design that proves deterministic outcome attribution.
+
 ### P0 — Backrun a final direct ticket purchase with `pull`
 
 Status: live. The original deployment
@@ -3171,6 +3180,16 @@ Deployment, processor, and sync form one mandatory private prefix; the pinned
 singleton factory/runtime, canonical FWA constant, complete bundle simulation,
 nonce/lease gates, and retained-profit boundary remain fail closed. Solidity
 tests reproduce the historical pointer-shift failure and prove rollback.
+
+Live validation, 2026-08-05: the guarded executor processed exactly sequence
+`123684`, then production synced and settled V2 round 329 in Quasar block
+`25686149`. The three receipts earned `0.001204263570331996 ETH`, spent
+`0.000354172199090676 ETH` including the 1706-effective-bps builder payment,
+and retained `0.000850091371241320 ETH`. Exact processor gas was `2,020,350`,
+the mandatory prefix landed in full, and the wallet delta reconciled. This
+proves the bounded executor works on the live FIFO path; continue watching for
+a deliberately reverted pointer-shift bundle as evidence of the protection
+activating under target-block interference.
 
 Release watch, 2026-08-04 16:13-16:43 UTC: @ripe0x announced that GroupPull
 subscriptions are coming soon and separately confirmed Pack 0016 completed.
