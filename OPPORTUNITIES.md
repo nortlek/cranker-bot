@@ -32,6 +32,21 @@ spent `0.000290943677169978 ETH`, and retained
 previous verified snapshot. PostgreSQL member receipts, its aggregate batch
 result, account balances, and nonces agree.
 
+At 2026-08-05 07:30 America/Denver, verified net ETH equivalent was
+`0.557909675076449224` (about `$1,041.64` at the fresh `$1,867.0451`
+oracle), with `latest == pending == 2067`. Seven new successful receipts
+increased the wallet by exactly `0.001209057888523152 ETH`: round 330's
+sync/settle lifecycle retained `0.000997433398012727 ETH`, and a five-order
+batch retained `0.000211624490510425 ETH`. Stable-first/probe-suffix ordering
+worked and all five orders landed, but the first member independently lost
+`0.000059766412357204 ETH`; aggregate pricing had cross-subsidized it with
+the other four. Commit `772231e` now removes any standalone order whose exact
+requested bid cannot retain its own profit floor, reassigns contiguous nonces,
+and rechecks every retained member after the final exact bundle simulation.
+The historical replay keeps the four profitable members and drops exactly the
+loser. Production deployment `af806d30-108a-40bd-ad59-efabf18d2f2d` runs that
+exact revision with one signer and healthy passes.
+
 At 2026-07-30 14:16 America/Denver, the preceding
 verified snapshot was **$239.69256803 net**, or **95.87%** of the goal, with
 `latest == pending == 699`, net ETH equivalent of
