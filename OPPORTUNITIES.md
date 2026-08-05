@@ -393,7 +393,18 @@ next equivalent exposure will either capture at its independent price or
 produce exact learning evidence instead of a silent blocked suffix. Separately
 evaluate whether stale high controller targets should make profitability-capped
 probes only after replaying their prior clearing evidence; do not weaken the
-per-order retained-profit boundary.
+per-order retained-profit boundary. That replay is now complete and does not
+justify a production change. At block `25684002`, the two controllers lost at
+5773/5769 bps to exact competitor clearing bounds of 8516/8514 bps, then won at
+8542/8540 bps and again at their 7170/7167-bps probe levels. The much lower
+1699/1519-bps clearing observed around `25690602` is therefore one contradictory
+regime-shift sample, not evidence that the durable targets were arbitrary. A
+profitability-capped cold probe would have beaten those two low-clearing
+competitors, but after the validated 8.5k-bps competition it could also lose and
+again nonce-block the stable suffix. Retain the exact requested-bid boundary and
+the newly deployed cold-leading compaction. Reconsider a capped alternate only
+after repeated low-clearing evidence or an isolated profitable miss proves that
+it can be offered without blocking independently profitable suffixes.
 
 ### P0 — Backrun a final direct ticket purchase with `pull`
 
