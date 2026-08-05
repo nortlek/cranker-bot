@@ -142,8 +142,8 @@ before reporting progress or deploying.
 
 ### P0 — Independent FWA buyback bidding
 
-Status: exact loss reconstructed and 4250-bps independent lane implemented on
-2026-08-04; awaiting the normal validated production rollout. At parent block
+Status: two exact price losses reconstructed; the independent lane target is
+now 8400 bps. At parent block
 `25683817`, the keeper exact-simulated an FWA token `buyback()` with
 `0.003740206223983917 ETH` caller reward and `159622` gas. It offered
 `0.000374020622494774 ETH` (effectively 1001 bps), all six private paths
@@ -158,13 +158,28 @@ bps of our exact planned gross. One wei above the observed payment normalizes
 to 4213 bps and leaves a counterfactual
 `0.002137573040588198 ETH` after the incremental builder payment, still far
 above the retained-profit floor. This is price competition, not builder reach
-or timing. The new 4250-bps target is a narrow 37-bps cushion and no longer
-shares the standing-order controller.
+or timing. The first 4250-bps target was deployed and won one small buyback,
+but a second profitable opportunity at target block `25684814` proved it
+stale. Our six accepted submissions offered `0.000578983340190038 ETH`
+against a `0.001362313741436637 ETH` gross reward and expired in a Titan block.
+Transaction
+`0x861a869ef950e8e1f45db0524107fbf365a339dfce60e8059f4fad7b33515a04`
+captured the exact reward, paid `0.000002991858074036 ETH` in priority fees and
+`0.001134118561512794 ETH` directly to Titan, or 8346.61 bps in aggregate.
+One wei above it normalizes to 8347 bps and would still have retained
+`0.000218814483958562 ETH` after our planned gas and incremental payment. The
+8400-bps target is a 53-bps cushion, remains isolated from every other lane,
+and exact profitability remains the final boundary.
+
+A separate buyback in block `25684944` is not a confirmed-head planner miss:
+the FWA token had zero ETH at parent block `25684943`, and the winner
+atomically supplied value and called buyback. Its 530-bps builder payment is
+therefore not comparable with a pre-existing balance opportunity.
 
 Acceptance:
 
-- replay the exact payment comparison in tests
-- deploy with one signer lease and latest nonce equal to pending
+- replay both exact payment comparisons in tests
+- deploy 8400 bps with one signer lease and latest nonce equal to pending
 - on the next buyback, reconcile reward, gas, builder payment, and wallet delta
 - change the target again only from new buyback-specific clearing evidence
 
