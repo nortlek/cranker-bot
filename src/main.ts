@@ -32,6 +32,7 @@ import {
   attributePriorityBidsByOrder,
   compareObservedBuilderPayment,
   effectiveBuilderBidBps,
+  fullyAffordableIndependentComponentIndexes,
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
 } from "./bidding.js";
@@ -1442,16 +1443,83 @@ async function main(): Promise<void> {
           });
         }
 
-        const fullGrossReward = pricingComponents.reduce(
+        const independentlyPricedStandingOrders =
+          prefixRequests.every(
+            (request) =>
+              request.kind === "standing_order" &&
+              request.order !== undefined &&
+              request.standingOrderBatchMembers === undefined,
+          );
+        const affordableIndependentIndexes =
+          independentlyPricedStandingOrders
+            ? fullyAffordableIndependentComponentIndexes({
+                components: pricingComponents,
+                baseFeeAllowancePerGas,
+                maxFeePerGasCap: config.maxFeePerGas,
+                minProfitWei: config.minProfitWei,
+              })
+            : pricingComponents.map((_, index) => index);
+        if (affordableIndependentIndexes.length === 0) {
+          log("info", "independent_unaffordable_jobs_pruned", {
+            plannedJobs: prefixRequests.length,
+            selectedJobs: 0,
+            droppedJobs: prefixRequests.length,
+            reason: "individual_bid_exceeds_retained_profit",
+          });
+          return { hashes: [], targetBlock, relayCount: 0 };
+        }
+        const eligibleRequests = affordableIndependentIndexes.map(
+          (originalIndex, selectedIndex) => {
+            const request = prefixRequests[originalIndex];
+            const firstNonce = prefixRequests[0]?.nonce;
+            if (request === undefined || firstNonce === undefined) {
+              throw new Error(
+                "independent affordability selection was incomplete",
+              );
+            }
+            return {
+              ...request,
+              nonce: firstNonce + selectedIndex,
+            };
+          },
+        );
+        const eligiblePricingComponents =
+          affordableIndependentIndexes.map((index) => {
+            const component = pricingComponents[index];
+            if (component === undefined) {
+              throw new Error(
+                "independent affordability pricing was incomplete",
+              );
+            }
+            return component;
+          });
+        if (eligibleRequests.length < prefixRequests.length) {
+          log("info", "independent_unaffordable_jobs_pruned", {
+            plannedJobs: prefixRequests.length,
+            selectedJobs: eligibleRequests.length,
+            droppedJobs:
+              prefixRequests.length - eligibleRequests.length,
+            droppedOrders: JSON.stringify(
+              prefixRequests.flatMap((request, index) =>
+                affordableIndependentIndexes.includes(index)
+                  ? []
+                  : [request.order],
+              ),
+            ),
+            reason: "individual_bid_exceeds_retained_profit",
+          });
+        }
+
+        const fullGrossReward = eligiblePricingComponents.reduce(
           (total, component) => total + component.rewardWei,
           0n,
         );
-        const fullGasUsed = pricingComponents.reduce(
+        const fullGasUsed = eligiblePricingComponents.reduce(
           (total, component) => total + component.gasUsed,
           0n,
         );
         const fullMinimumPriorityFeePerGas =
-          pricingComponents.reduce(
+          eligiblePricingComponents.reduce(
             (highest, component) =>
               component.minimumPriorityFeePerGas > highest
                 ? component.minimumPriorityFeePerGas
@@ -1459,16 +1527,16 @@ async function main(): Promise<void> {
             0n,
           );
         const fullBuilderBidBps = aggregateBuilderBidBps(
-          pricingComponents,
+          eligiblePricingComponents,
         );
         const directPaymentEligible =
           config.enableDirectCoinbasePayments &&
-          prefixRequests.every(
+          eligibleRequests.every(
             (request) =>
               request.kind === "standing_order" &&
               request.order !== undefined,
           );
-        const profitabilityOnlyPricing = pricingComponents.some(
+        const profitabilityOnlyPricing = eligiblePricingComponents.some(
           (component) => component.profitabilityOnly === true,
         );
         const fullQuote = quoteCompetitiveFees({
@@ -1490,7 +1558,7 @@ async function main(): Promise<void> {
             : {}),
         });
         const prefixSelection = selectMostProfitablePrefix({
-          components: pricingComponents,
+          components: eligiblePricingComponents,
           minimumViablePrefix,
           baseFeeAllowancePerGas,
           maxFeePerGasCap: config.maxFeePerGas,
@@ -1503,15 +1571,15 @@ async function main(): Promise<void> {
             : {}),
         });
         const selectedLength =
-          prefixSelection?.length ?? pricingComponents.length;
+          prefixSelection?.length ?? eligiblePricingComponents.length;
         const selectedPricingComponents =
-          pricingComponents.slice(0, selectedLength);
+          eligiblePricingComponents.slice(0, selectedLength);
         const selectedProfitabilityOnlyPricing =
           selectedPricingComponents.some(
             (component) => component.profitabilityOnly === true,
           );
         const competitivelySelectedRequests =
-          prefixRequests.slice(0, selectedLength);
+          eligibleRequests.slice(0, selectedLength);
         const grossReward =
           prefixSelection?.grossReward ?? fullGrossReward;
         const totalGasUsed =
@@ -1583,13 +1651,13 @@ async function main(): Promise<void> {
           bidPolicies.length > 1
             ? `weighted:${bidPolicies.join("+")}`
             : (bidPolicies[0] ?? "default");
-        if (selectedLength < prefixRequests.length) {
+        if (selectedLength < eligibleRequests.length) {
           log("info", "unprofitable_bundle_suffix_pruned", {
-            plannedJobs: prefixRequests.length,
+            plannedJobs: eligibleRequests.length,
             selectedJobs: selectedLength,
-            droppedJobs: prefixRequests.length - selectedLength,
+            droppedJobs: eligibleRequests.length - selectedLength,
             droppedKinds: JSON.stringify(
-              prefixRequests
+              eligibleRequests
                 .slice(selectedLength)
                 .map((request) => request.kind),
             ),
@@ -2002,6 +2070,58 @@ async function main(): Promise<void> {
           // selected reward-producing transaction.
           minimumEconomicPrefix = selected.length;
         } else {
+          if (independentPriorityAllocation !== undefined) {
+            for (
+              let index = 0;
+              index < selectedRequests.length;
+              index += 1
+            ) {
+              const request = selectedRequests[index];
+              const transactionGas = selectedGas[index];
+              if (
+                request === undefined ||
+                transactionGas === undefined
+              ) {
+                throw new Error(
+                  "independent exact profitability accounting was incomplete",
+                );
+              }
+              const exactReward = estimatedJobReward({
+                job: request,
+                gasUsed: transactionGas,
+                baseFeePerGas: bountyBaseFeePerGas,
+                poolBountyEstimateBps:
+                  config.poolBountyEstimateBps,
+                poolPullBountyEstimateBps:
+                  config.poolPullBountyEstimateBps,
+              });
+              const exactGasCost =
+                transactionGas *
+                effectiveEip1559GasPrice({
+                  baseFeePerGas: baseFeeAllowancePerGas,
+                  maxFeePerGas: request.maxFeePerGas,
+                  maxPriorityFeePerGas:
+                    request.maxPriorityFeePerGas,
+                });
+              if (exactReward - exactGasCost < profitFloor) {
+                log(
+                  "info",
+                  "independent_exact_profitability_rejected",
+                  {
+                    targetBlock: targetBlock.toString(),
+                    order: request.order ?? "unknown",
+                    reward: eth(exactReward),
+                    gasCost: eth(exactGasCost),
+                    expectedProfit: eth(
+                      exactReward - exactGasCost,
+                    ),
+                    requiredProfit: eth(profitFloor),
+                  },
+                );
+                return { hashes: [], targetBlock, relayCount: 0 };
+              }
+            }
+          }
           let prefixReward = 0n;
           let prefixMaximumGasCost = 0n;
           for (

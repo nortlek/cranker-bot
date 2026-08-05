@@ -538,6 +538,38 @@ export function quoteCompetitiveFees(parameters: {
 }
 
 /**
+ * Selects independent jobs whose exact requested bid can be paid while each
+ * job retains its own profit floor. Aggregate profitability must never
+ * cross-subsidize a losing standalone transaction.
+ */
+export function fullyAffordableIndependentComponentIndexes(parameters: {
+  readonly components: readonly CompetitivePrefixComponent[];
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly maxFeePerGasCap?: bigint;
+  readonly minProfitWei: bigint;
+}): readonly number[] {
+  return parameters.components.flatMap((component, index) => {
+    const quote = quoteCompetitiveFees({
+      crankFee: component.rewardWei,
+      simulatedGasUsed: component.gasUsed,
+      baseFeeAllowancePerGas: parameters.baseFeeAllowancePerGas,
+      minimumPriorityFeePerGas:
+        component.minimumPriorityFeePerGas,
+      builderBidBps: component.builderBidBps,
+      ...(parameters.maxFeePerGasCap === undefined
+        ? {}
+        : { maxFeePerGasCap: parameters.maxFeePerGasCap }),
+      minProfitWei: parameters.minProfitWei,
+    });
+    return quote.profitable &&
+      !quote.cappedByProfit &&
+      !quote.cappedByFeeCap
+      ? [index]
+      : [];
+  });
+}
+
+/**
  * Selects the best contiguous, dependency-safe prefix after exact simulated
  * gas and the prefix's reward-weighted builder policy. Retained profit wins
  * normally. When both candidates are clamped to the retained-profit floor,

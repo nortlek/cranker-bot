@@ -7,6 +7,7 @@ import {
   attributePriorityBidsByOrder,
   compareObservedBuilderPayment,
   effectiveBuilderBidBps,
+  fullyAffordableIndependentComponentIndexes,
   quoteCompetitiveFees,
   selectMostProfitablePrefix,
 } from "../src/bidding.js";
@@ -226,6 +227,50 @@ describe("allocateIndependentPriorityFees", () => {
         minProfitWei: 1n,
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("fullyAffordableIndependentComponentIndexes", () => {
+  it("drops the negative-marginal first member from the block-25688799 batch", () => {
+    expect(
+      fullyAffordableIndependentComponentIndexes({
+        components: [
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 322_596n,
+            builderBidBps: 9_504n,
+            minimumPriorityFeePerGas: 0n,
+          },
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 218_313n,
+            builderBidBps: 1_572n,
+            minimumPriorityFeePerGas: 0n,
+          },
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 218_313n,
+            builderBidBps: 1_000n,
+            minimumPriorityFeePerGas: 0n,
+          },
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 218_313n,
+            builderBidBps: 7_169n,
+            minimumPriorityFeePerGas: 0n,
+          },
+          {
+            rewardWei: parseEther("0.0002"),
+            gasUsed: 218_313n,
+            builderBidBps: 7_166n,
+            minimumPriorityFeePerGas: 0n,
+          },
+        ],
+        baseFeeAllowancePerGas: 216_000_000n,
+        maxFeePerGasCap: parseGwei("5"),
+        minProfitWei: parseEther("0.000001"),
+      }),
+    ).toEqual([1, 2, 3, 4]);
   });
 });
 
