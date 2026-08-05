@@ -2,6 +2,7 @@ import {
   decodeEventLog,
   encodeFunctionData,
   formatEther,
+  getContractAddress,
   keccak256,
   type Address,
   type Chain,
@@ -27,6 +28,10 @@ import {
   successfulPrefixLength,
 } from "./flashbots.js";
 import { errorMessage, eth, gwei, log } from "./format.js";
+import {
+  GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+} from "./constants.js";
+import { verifyGroupPullStandingOrderFactory } from "./group-pull.js";
 import type { PrivateBatchOutcome } from "./keeper.js";
 import type { ValidatedPendingFundingPrerequisite } from "./pending-funding.js";
 import {
@@ -47,10 +52,26 @@ export interface PendingFundingBackrunResult {
   readonly realizedProfitWei?: bigint;
 }
 
-type OrderFundingPrerequisite = Extract<
+type CrankPrerequisite = Extract<
   ValidatedPendingFundingPrerequisite,
-  { action: "order_funding" }
+  { action: "order_funding" | "group_pull_order_creation" }
 >;
+
+export function pendingCreatedOrderAddress(parameters: {
+  readonly factory: Address;
+  readonly factoryNonce: number;
+}): Address {
+  if (
+    !Number.isSafeInteger(parameters.factoryNonce) ||
+    parameters.factoryNonce < 0
+  ) {
+    throw new Error("pending order factory nonce is invalid");
+  }
+  return getContractAddress({
+    from: parameters.factory,
+    nonce: BigInt(parameters.factoryNonce),
+  });
+}
 
 function abortRequested(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
@@ -186,7 +207,8 @@ async function getReceiptOrUndefined(
 async function exactPricedCrank(parameters: {
   readonly relay: FlashbotsRelay;
   readonly signer: PrivateKeyAccount;
-  readonly prerequisite: OrderFundingPrerequisite;
+  readonly prerequisite: CrankPrerequisite;
+  readonly order: Address;
   readonly targetBlock: bigint;
   readonly nonce: number;
   readonly crankFee: bigint;
@@ -217,7 +239,7 @@ async function exactPricedCrank(parameters: {
     await parameters.signer.signTransaction({
       chainId: 1,
       type: "eip1559",
-      to: parameters.prerequisite.target,
+      to: parameters.order,
       data: crankData,
       gas: preliminaryGasLimit,
       maxFeePerGas: parameters.baseFeeAllowancePerGas,
@@ -265,7 +287,7 @@ async function exactPricedCrank(parameters: {
       await parameters.signer.signTransaction({
         chainId: 1,
         type: "eip1559",
-        to: parameters.prerequisite.target,
+        to: parameters.order,
         data: crankData,
         gas: gasLimit,
         maxFeePerGas: quote.maxFeePerGas,
@@ -329,7 +351,7 @@ export async function executePendingFundingBackrun(parameters: {
   readonly publicClient: PublicClient<Transport, Chain>;
   readonly pendingClient: PublicClient<Transport, Chain>;
   readonly signer: PrivateKeyAccount;
-  readonly prerequisite: OrderFundingPrerequisite;
+  readonly prerequisite: CrankPrerequisite;
   readonly relays: readonly FlashbotsRelay[];
   readonly builders: readonly string[];
   readonly config: KeeperConfig;
@@ -360,9 +382,39 @@ export async function executePendingFundingBackrun(parameters: {
       reason: "shutdown",
     };
   }
-  const order = parameters.prerequisite.target;
   const currentHead = await parameters.publicClient.getBlockNumber();
   const targetBlock = currentHead + 1n;
+  let order = parameters.prerequisite.target;
+  let knownCrankFee: bigint | undefined;
+  if (
+    parameters.prerequisite.action ===
+    "group_pull_order_creation"
+  ) {
+    if (
+      parameters.prerequisite.target.toLowerCase() !==
+      GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS.toLowerCase()
+    ) {
+      return {
+        status: "skipped",
+        reason: "group_pull_factory_not_canonical",
+        targetBlock,
+      };
+    }
+    await verifyGroupPullStandingOrderFactory({
+      client: parameters.publicClient,
+      blockNumber: currentHead,
+    });
+    const factoryNonce =
+      await parameters.publicClient.getTransactionCount({
+        address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+        blockNumber: currentHead,
+      });
+    order = pendingCreatedOrderAddress({
+      factory: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+      factoryNonce,
+    });
+    knownCrankFee = parameters.prerequisite.crankFee;
+  }
   const [latestNonce, pendingNonce] = await Promise.all([
     parameters.publicClient.getTransactionCount({
       address: parameters.signer.address,
@@ -416,22 +468,25 @@ export async function executePendingFundingBackrun(parameters: {
         targetBlock,
       };
     }
-    const [latestBlock, crankFee, accountBalance] =
+    const [latestBlock, readCrankFee, accountBalance] =
       await Promise.all([
         parameters.publicClient.getBlock({
           blockNumber: currentHead,
         }),
-        parameters.publicClient.readContract({
-          address: order,
-          abi: standingOrderAbi,
-          functionName: "crankFee",
-          blockNumber: currentHead,
-        }),
+        knownCrankFee === undefined
+          ? parameters.publicClient.readContract({
+              address: order,
+              abi: standingOrderAbi,
+              functionName: "crankFee",
+              blockNumber: currentHead,
+            })
+          : Promise.resolve(knownCrankFee),
         parameters.publicClient.getBalance({
           address: parameters.signer.address,
           blockNumber: currentHead,
         }),
       ]);
+    const crankFee = readCrankFee;
     if (latestBlock.baseFeePerGas === null) {
       return {
         status: "skipped",
@@ -451,6 +506,7 @@ export async function executePendingFundingBackrun(parameters: {
       relay: parameters.relays[0]!,
       signer: parameters.signer,
       prerequisite: parameters.prerequisite,
+      order,
       targetBlock,
       nonce: latestNonce,
       crankFee,
@@ -484,6 +540,7 @@ export async function executePendingFundingBackrun(parameters: {
     log("info", "pending_funding_backrun_opportunity", {
       prerequisiteHash: parameters.prerequisite.hash,
       order,
+      action: parameters.prerequisite.action,
       fundingValue: eth(parameters.prerequisite.value),
       crankFee: eth(crankFee),
       crankGasUsed: exact.gasUsed.toString(),
@@ -581,6 +638,7 @@ export async function executePendingFundingBackrun(parameters: {
       prerequisiteHash: parameters.prerequisite.hash,
       hash: crankHash,
       order,
+      action: parameters.prerequisite.action,
       nonce: latestNonce,
       targetBlock: targetBlock.toString(),
       relayCount: relayIndexes.length,
@@ -592,7 +650,11 @@ export async function executePendingFundingBackrun(parameters: {
         exact.effectiveBuilderBidBps.toString(),
     });
     log("info", "keeper_transaction_sent", {
-      kind: "standing_order",
+      kind:
+        parameters.prerequisite.action ===
+        "group_pull_order_creation"
+          ? "group_pull_standing_order"
+          : "standing_order",
       label: `pending_funding_backrun:${order}`,
       hash: crankHash,
       nonce: latestNonce,
@@ -610,7 +672,11 @@ export async function executePendingFundingBackrun(parameters: {
     );
     if (!observed) {
       log("warn", "keeper_transaction_expired", {
-        kind: "standing_order",
+        kind:
+          parameters.prerequisite.action ===
+          "group_pull_order_creation"
+            ? "group_pull_standing_order"
+            : "standing_order",
         label: `pending_funding_backrun:${order}`,
         hash: crankHash,
         nonce: latestNonce,
@@ -670,7 +736,11 @@ export async function executePendingFundingBackrun(parameters: {
         includedAsPlanned ? "info" : "warn",
         "keeper_receipt",
         {
-          kind: "standing_order",
+          kind:
+            parameters.prerequisite.action ===
+            "group_pull_order_creation"
+              ? "group_pull_standing_order"
+              : "standing_order",
           label: `pending_funding_backrun:${order}`,
           hash: crankHash,
           nonce: latestNonce,
@@ -773,7 +843,11 @@ export async function executePendingFundingBackrun(parameters: {
       );
     }
     log("warn", "keeper_transaction_expired", {
-      kind: "standing_order",
+      kind:
+        parameters.prerequisite.action ===
+        "group_pull_order_creation"
+          ? "group_pull_standing_order"
+          : "standing_order",
       label: `pending_funding_backrun:${order}`,
       hash: crankHash,
       nonce: latestNonce,

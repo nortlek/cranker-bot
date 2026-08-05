@@ -14,7 +14,11 @@ import {
   type TransactionSerialized,
 } from "viem";
 
-import { groupPullAbi, poolAbi } from "./abi.js";
+import {
+  groupPullAbi,
+  groupPullStandingOrderFactoryAbi,
+  poolAbi,
+} from "./abi.js";
 
 const ETHEREUM_CHAIN_ID = 1;
 const EMPTY_INPUT = "0x";
@@ -172,6 +176,13 @@ export type ValidatedPendingFundingPrerequisite =
       readonly roundId: bigint;
       readonly quantity: number;
       readonly beneficiary: Address;
+    })
+  | (ValidatedPendingPrerequisiteBase & {
+      readonly action: "group_pull_order_creation";
+      readonly ticketsPerRound: number;
+      readonly crankFee: bigint;
+      readonly minSecondsBetweenBuys: bigint;
+      readonly recipient: Address;
     });
 
 function validationFailure(
@@ -425,6 +436,7 @@ export async function validatePendingFundingPrerequisite(parameters: {
   readonly canonicalTargets: Iterable<Address>;
   readonly poolTarget?: Address;
   readonly groupPullTarget?: Address;
+  readonly groupPullOrderFactoryTarget?: Address;
 }): Promise<ValidatedPendingFundingPrerequisite> {
   const rpcTargetsPool =
     parameters.poolTarget !== undefined &&
@@ -470,7 +482,17 @@ export async function validatePendingFundingPrerequisite(parameters: {
   const isGroupPullTarget =
     parameters.groupPullTarget !== undefined &&
     isAddressEqual(target, parameters.groupPullTarget);
-  if (!isPoolTarget && !isGroupPullTarget) {
+  const isGroupPullOrderFactoryTarget =
+    parameters.groupPullOrderFactoryTarget !== undefined &&
+    isAddressEqual(
+      target,
+      parameters.groupPullOrderFactoryTarget,
+    );
+  if (
+    !isPoolTarget &&
+    !isGroupPullTarget &&
+    !isGroupPullOrderFactoryTarget
+  ) {
     if (input !== EMPTY_INPUT) {
       validationFailure(
         "input_not_empty",
@@ -487,6 +509,63 @@ export async function validatePendingFundingPrerequisite(parameters: {
       type,
       target,
       value,
+    };
+  }
+  if (isGroupPullOrderFactoryTarget) {
+    let decoded: ReturnType<typeof decodeFunctionData>;
+    try {
+      decoded = decodeFunctionData({
+        abi: groupPullStandingOrderFactoryAbi,
+        data: input,
+      });
+    } catch {
+      validationFailure(
+        "input_unsupported",
+        "Pending GroupPull order-factory calldata is not recognized",
+      );
+    }
+    if (
+      decoded.functionName !== "createOrder" ||
+      !Array.isArray(decoded.args) ||
+      decoded.args.length !== 4
+    ) {
+      validationFailure(
+        "input_unsupported",
+        "Pending GroupPull order-factory transaction is not an order creation",
+      );
+    }
+    const [ticketsPerRound, crankFee, minSecondsBetweenBuys, recipient] =
+      decoded.args;
+    if (
+      typeof ticketsPerRound !== "number" ||
+      !Number.isSafeInteger(ticketsPerRound) ||
+      ticketsPerRound <= 0 ||
+      typeof crankFee !== "bigint" ||
+      crankFee < 0n ||
+      typeof minSecondsBetweenBuys !== "bigint" ||
+      minSecondsBetweenBuys < 0n ||
+      typeof recipient !== "string" ||
+      !isAddress(recipient, { strict: false })
+    ) {
+      validationFailure(
+        "ticket_purchase_invalid",
+        "Pending GroupPull order creation arguments are invalid",
+      );
+    }
+    return {
+      action: "group_pull_order_creation",
+      rawTransaction,
+      hash: computedHash,
+      sender,
+      nonce,
+      chainId: ETHEREUM_CHAIN_ID,
+      type,
+      target,
+      value,
+      ticketsPerRound,
+      crankFee,
+      minSecondsBetweenBuys,
+      recipient: getAddress(recipient),
     };
   }
   if (isGroupPullTarget) {

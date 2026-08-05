@@ -185,8 +185,9 @@ Acceptance:
 
 ### P0 — GroupPull subscription standing orders
 
-Status: canonical release validated and keeper integration included in this
-2026-08-04 revision for the normal production rollout. Canonical deployer
+Status: canonical release and first live order validated. Confirmed-head
+planning is live; a pending order-creation backrun is included in the current
+2026-08-05 revision for the normal production rollout. Canonical deployer
 `0xCB43078C32423F5348Cab5885911C3B5faE217F9` created verified, ownerless
 `GroupPullStandingOrderFactory` at
 `0x2315F319c0E47AFa26c6167e0e3a4DC46585F605` in block `25683290` through
@@ -221,11 +222,34 @@ configuration change. A later post said pulls per pack had been lowered to
 three; that matches the already-observed canonical `setTerms` update and does
 not require another keeper change.
 
+The first order was created by the canonical deployer in transaction
+`0x4ef6f08bff8bc4f16089dfc343cc7184a06d918562c09ce817176db967e20d78`
+at block `25685406`: one ticket per round, `0.0002 ETH` crank fee, zero pacing
+interval, and `0.0212 ETH` opening value. Factory nonce 1 deterministically
+created canonical order `0x78879381a9c77942536a397A2B0d1854E13de45c` with the pinned GroupPull target.
+Another keeper cranked it later in the same block, before any confirmed-head
+planner could discover the new address, and collected the exact fee. The
+winner paid `0.000009294408856102 ETH` to Titan, normalizing to 465 bps of the
+fee; the independent 1000-bps lane target was already sufficient. This was a
+same-block discovery gap, not price competition or a confirmed-head defect.
+
+The pending subscription now includes only the pinned factory in addition to
+the existing canonical targets. It accepts only an exact signed mainnet
+`createOrder(uint32,uint96,uint64,address)` with positive value, derives the
+new order from the factory's exact parent-state CREATE nonce, verifies the
+factory runtime and immutable GroupPull relationship, and simulates the
+complete `[public createOrder, keeper crank]` pair twice. It prices and
+accounts only the keeper crank, revalidates raw bytes, pending status,
+replacement identity, nonce, balance, lease, and target deadline immediately
+before submission, and never offers the creation transaction alone. The
+historical transaction decodes through the new validator and factory nonce 1
+reproduces the deployed order address exactly.
+
 Acceptance:
 
 - deploy the exact tested source and verify one signer lease and no pass failures
-- observe factory order discovery once the first order is created
-- require the first candidate's exact simulation and canonical target check
+- observe the next factory creation in the filtered pending feed
+- require the first pending candidate's complete-pair exact simulation
 - reconcile the first `Cranked` fee, receipt gas, builder payment, and wallet delta
 - tune only from lane-specific competitor and retained-profit evidence
 

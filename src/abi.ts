@@ -167,6 +167,7 @@ export const groupPullAbi = parseAbi([
 
 export const groupPullStandingOrderFactoryAbi = parseAbi([
   "function GROUP() view returns (address)",
+  "function createOrder(uint32 ticketsPerRound, uint96 crankFee, uint64 minSecondsBetweenBuys, address recipient) payable returns (address order)",
   "function allOrders() view returns (address[])",
   "function isOrder(address order) view returns (bool)",
   "function orderCount() view returns (uint256)",

@@ -18,7 +18,11 @@ import {
   vi,
 } from "vitest";
 
-import { groupPullAbi, poolAbi } from "../src/abi.js";
+import {
+  groupPullAbi,
+  groupPullStandingOrderFactoryAbi,
+  poolAbi,
+} from "../src/abi.js";
 import {
   PendingFundingReplacementTracker,
   PendingFundingValidationError,
@@ -46,6 +50,9 @@ const poolTarget = getAddress(
 );
 const groupPullTarget = getAddress(
   "0x4000000000000000000000000000000000000004",
+);
+const groupPullOrderFactoryTarget = getAddress(
+  "0x5000000000000000000000000000000000000005",
 );
 
 async function signFunding(
@@ -278,6 +285,39 @@ describe("validatePendingFundingPrerequisite", () => {
       quantity: 3,
       beneficiary: account.address,
       value: 15_900_000_000_000_000n,
+    });
+  });
+
+  it("accepts an exact signed GroupPull standing-order creation prerequisite", async () => {
+    const data = encodeFunctionData({
+      abi: groupPullStandingOrderFactoryAbi,
+      functionName: "createOrder",
+      args: [1, 200_000_000_000_000n, 0n, account.address],
+    });
+    const rawTransaction = await signFunding("eip1559", {
+      to: groupPullOrderFactoryTarget,
+      value: 21_200_000_000_000_000n,
+      data,
+    });
+    const hash = keccak256(rawTransaction);
+
+    await expect(
+      validatePendingFundingPrerequisite({
+        rawTransaction,
+        expectedHash: hash,
+        rpcTransaction: rpcTransaction(rawTransaction),
+        canonicalTargets: [groupPullOrderFactoryTarget],
+        groupPullOrderFactoryTarget,
+      }),
+    ).resolves.toMatchObject({
+      action: "group_pull_order_creation",
+      hash,
+      target: groupPullOrderFactoryTarget,
+      ticketsPerRound: 1,
+      crankFee: 200_000_000_000_000n,
+      minSecondsBetweenBuys: 0n,
+      recipient: account.address,
+      value: 21_200_000_000_000_000n,
     });
   });
 

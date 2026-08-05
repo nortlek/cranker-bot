@@ -20,6 +20,7 @@ import { loadConfig } from "../src/config.js";
 import { FlashbotsRelay } from "../src/flashbots.js";
 import {
   executePendingFundingBackrun,
+  pendingCreatedOrderAddress,
   pendingFundingBundleTransactions,
   pendingFundingCrankGasUsed,
   receiptSucceededInTarget,
@@ -36,6 +37,16 @@ afterEach(() => {
 });
 
 describe("pending funding prerequisite-bundle accounting", () => {
+  it("replays the first canonical GroupPull order address from its parent factory nonce", () => {
+    expect(
+      pendingCreatedOrderAddress({
+        factory:
+          "0x2315F319c0E47AFa26c6167e0e3a4DC46585F605",
+        factoryNonce: 1,
+      }),
+    ).toBe("0x78879381a9c77942536a397A2B0d1854E13de45c");
+  });
+
   it("prices only the keeper crank at simulation index one", () => {
     const gas = pendingFundingCrankGasUsed({
       simulation: {

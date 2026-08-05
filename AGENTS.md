@@ -648,6 +648,17 @@ These constraints prevent expensive or unsafe regressions:
   funded Ethereum-valid gas envelope, require complete signed-bundle
   simulation for actual gas and retained profit, and keep the collect bid
   independent from close/submit bidding.
+- A pending GroupPull standing-order creation backrun is always the exact pair
+  `[public factory createOrder, keeper order crank]`. Prove the signed raw
+  mainnet transaction targets the pinned factory and decodes to
+  `createOrder(uint32,uint96,uint64,address)` with positive value. Derive the
+  new order address from the factory's exact parent-state CREATE nonce, verify
+  the factory runtime and immutable canonical GroupPull relationship, and let
+  complete-pair simulation prove construction, callability, actual gas, and
+  retained profit. Revalidate raw bytes, pending status, replacement identity,
+  signer nonce/balance, lease, and target deadline immediately before private
+  submission. Price and account only the crank under the independent
+  GroupPull standing-order bid, and never submit the creation alone.
 - A pending FWA fulfillment backrun is always one exact bounded bundle:
   `[contiguous public coordinator nonce prefix ending in the target
   fulfillRandomWords, keeper syncFwaResult, keeper settle]`, or

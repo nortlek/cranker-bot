@@ -52,6 +52,7 @@ import {
   DIRECT_COINBASE_PAYMENT_HELPER_CODE_HASH,
   ETH_USD_FEED_ADDRESS,
   GROUP_PULL_ADDRESS,
+  GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
 } from "./constants.js";
 import {
   loadConfig,
@@ -2587,7 +2588,12 @@ async function main(): Promise<void> {
               ...orders,
               ...vaults,
               config.expectedPoolAddress,
-              ...(config.enableGroupPull ? [GROUP_PULL_ADDRESS] : []),
+              ...(config.enableGroupPull
+                ? [
+                    GROUP_PULL_ADDRESS,
+                    GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+                  ]
+                : []),
             ].map((address) => getAddress(address)),
           ),
         ];
@@ -2714,7 +2720,10 @@ async function main(): Promise<void> {
                           config.flashbotsBuilders,
                         config,
                         builderBidBps:
-                          config.pendingFundingBuilderBidBps,
+                          prerequisite.action ===
+                          "group_pull_order_creation"
+                            ? config.groupPullStandingOrderBuilderBidBps
+                            : config.pendingFundingBuilderBidBps,
                         coordinator: signerCoordinator,
                         assertSignerLeaseHeld,
                         isPrerequisiteCurrent: () =>
@@ -2765,6 +2774,9 @@ async function main(): Promise<void> {
                   prerequisite.action === "group_pull_entry"
                     ? "pending_group_pull_backrun_complete"
                     : prerequisite.action ===
+                        "group_pull_order_creation"
+                      ? "pending_group_pull_order_backrun_complete"
+                    : prerequisite.action ===
                         "pool_ticket_purchase"
                       ? "pending_pool_pull_backrun_complete"
                       : "pending_funding_backrun_complete",
@@ -2802,6 +2814,9 @@ async function main(): Promise<void> {
                   "warn",
                   prerequisite.action === "group_pull_entry"
                     ? "pending_group_pull_backrun_failed"
+                    : prerequisite.action ===
+                        "group_pull_order_creation"
+                      ? "pending_group_pull_order_backrun_failed"
                     : prerequisite.action ===
                         "pool_ticket_purchase"
                       ? "pending_pool_pull_backrun_failed"
@@ -2942,6 +2957,8 @@ async function main(): Promise<void> {
                             ? {
                                 groupPullTarget:
                                   GROUP_PULL_ADDRESS,
+                                groupPullOrderFactoryTarget:
+                                  GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
                               }
                             : {}),
                         });
@@ -2965,6 +2982,19 @@ async function main(): Promise<void> {
                                 beneficiary:
                                   prerequisite.beneficiary,
                               }
+                            : prerequisite.action ===
+                                "group_pull_order_creation"
+                              ? {
+                                  ticketsPerRound:
+                                    prerequisite.ticketsPerRound,
+                                  crankFee: eth(
+                                    prerequisite.crankFee,
+                                  ),
+                                  minSecondsBetweenBuys:
+                                    prerequisite.minSecondsBetweenBuys.toString(),
+                                  recipient:
+                                    prerequisite.recipient,
+                                }
                             : prerequisite.action ===
                                 "pool_ticket_purchase"
                             ? {
