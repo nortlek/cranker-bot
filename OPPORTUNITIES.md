@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-04 (America/Denver)
+Last updated: 2026-08-05 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -186,8 +186,8 @@ Acceptance:
 ### P0 — GroupPull subscription standing orders
 
 Status: canonical release and first live order validated. Confirmed-head
-planning is live; a pending order-creation backrun is included in the current
-2026-08-05 revision for the normal production rollout. Canonical deployer
+planning and the pending order-creation backrun are live in production revision
+`b035db767d704be1eb6799fdae75d40c04ce7794`. Canonical deployer
 `0xCB43078C32423F5348Cab5885911C3B5faE217F9` created verified, ownerless
 `GroupPullStandingOrderFactory` at
 `0x2315F319c0E47AFa26c6167e0e3a4DC46585F605` in block `25683290` through
@@ -245,6 +245,18 @@ before submission, and never offers the creation transaction alone. The
 historical transaction decodes through the new validator and factory nonce 1
 reproduces the deployed order address exactly.
 
+Release follow-up, 2026-08-05 03:12 UTC: @ripe0x publicly announced that group
+pack subscriptions are live and linked Pack 020. Exact on-chain state at block
+`25685982` corroborates the supported release boundary: the pinned factory still
+has exactly the one canonical order above, its immutable GroupPull relationship
+and runtime remain valid, and GroupPull is unpaused/non-deprecated against the
+canonical V2 pool. GroupPull round 20 had completed (`liveRound=0`,
+`buyingRounds=0`), so there was no current subscription crank or lifecycle call
+to send. Canonical-deployer nonce `3435` was only an unrelated `mintEdition`
+transaction; there was no successor, factory/configuration change, or second
+subscription creation. Continue monitoring the next exact factory creation and
+use it as the first live validation of the deployed atomic backrun.
+
 Acceptance:
 
 - deploy the exact tested source and verify one signer lease and no pass failures
@@ -252,6 +264,34 @@ Acceptance:
 - require the first pending candidate's complete-pair exact simulation
 - reconcile the first `Cranked` fee, receipt gas, builder payment, and wallet delta
 - tune only from lane-specific competitor and retained-profit evidence
+
+### P1 — Rescue competitively priced standing-order suffixes
+
+Status: structural miss validated; design and historical replay remain before a
+safe production change. At target block `25685871`, production offered five
+independently priced standing-order cranks as a strongest-bid-first nonce prefix
+ladder. All six relays accepted every offered prefix. Eureka included the first
+two cranks, which retained `0.000039309318952024 ETH`, but competitors took the
+next three orders. Two were exact price losses: our effective per-order bids
+were 7245 and 5252 bps versus 7853 and 7616 bps clearing payments, and their
+independent controllers correctly increased to 7878 and 9504 bps.
+
+The fifth order was different. Our effective 1573-bps payment exceeded its
+competitor's exact 1179-bps payment, but it was reachable only through the two
+earlier losing nonce positions. Eureka selected our two-transaction prefix and
+the cheaper public competitor transaction instead. The controller correctly
+held the fifth order because payment was not causal, but it cannot recover this
+construction loss by raising that order's bid. This is one partial-prefix
+economic outcome, not three relay-delivery failures.
+
+Next action: replay the exact five jobs with bounded alternate nonce orderings
+or rescue ladders and prove that independently profitable later jobs can be
+exposed without sacrificing the stronger prefix, multiplying relay load
+unboundedly, or making receipt/nonce attribution ambiguous. Prefer an
+active-probe-aware ordering only if the historical controller state proves it
+would have moved the blocked winner ahead of both losing jobs. Deploy only with
+exact signed-bundle simulation, deterministic receipt attribution, and a test
+covering this block; do not raise the fifth order's bid from this evidence.
 
 ### P0 — Backrun a final direct ticket purchase with `pull`
 
