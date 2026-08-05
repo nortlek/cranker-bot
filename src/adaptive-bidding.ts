@@ -772,6 +772,14 @@ export class AdaptiveBidController {
     ).currentBidBps;
   }
 
+  isActiveProbe(target: string): boolean {
+    const state = this.#states.get(target.toLowerCase());
+    return (
+      state?.activeProbeBidBps !== undefined &&
+      state.activeProbeBidBps === state.currentBidBps
+    );
+  }
+
   get maximumActiveBidBps(): bigint {
     let maximumBidBps = this.#policy.baselineBidBps;
     for (const state of this.#states.values()) {

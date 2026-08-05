@@ -771,11 +771,12 @@ These constraints prevent expensive or unsafe regressions:
 - A multi-transaction standalone standing-order batch prices every transaction
   from that order's own reward-normalized target. Do not use one shared
   priority fee: it can dilute a contested high-reward order while overpaying
-  cheap orders even when the aggregate payment looks correct. Order eligible
-  independent work by ascending adaptive target, then expected profit, so an
-  expensive contested suffix cannot invalidate easier prefixes. Recompute the
-  exact safe prefix floor from each transaction's assigned fee and preserve the
-  aggregate retained-profit boundary.
+  cheap orders even when the aggregate payment looks correct. Order stable
+  independent work by descending adaptive target, then expected profit, and
+  place active price-discovery probes in a suffix ordered by the same rule. A
+  losing probe must not invalidate otherwise winnable stable work. Recompute
+  the exact safe prefix floor from each transaction's assigned fee and preserve
+  the aggregate retained-profit boundary.
 - A direct coinbase payment may only fill an existing fee-capped adaptive bid
   for a zero-value, standing-order-only private batch. The pinned receive-only
   helper must pass its startup code-hash check, occupy the final contiguous

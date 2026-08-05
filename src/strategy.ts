@@ -448,6 +448,9 @@ export interface StrategyContext {
   readonly standingOrderBidBps?: (
     order: Address,
   ) => bigint;
+  readonly standingOrderBidIsActiveProbe?: (
+    order: Address,
+  ) => boolean;
   /**
    * Additional verified pool adapters are planned inside the same pass. The
    * promise may begin resolving before the primary planner so activation
@@ -529,14 +532,16 @@ export interface StandingOrderBatchPlan extends PlannedJobs {
 }
 
 /**
- * A nonce-contiguous bundle can only expose prefixes. Put the strongest-priced
- * standalone orders first so an underpriced probe can fail only as a suffix
- * instead of invalidating every otherwise winnable transaction after it.
- * Equal-price orders retain profit-first ordering.
+ * A nonce-contiguous bundle can only expose prefixes. Put stable work before
+ * active price-discovery probes, then put the strongest-priced work first
+ * within each tier. A losing probe can then fail only as a suffix instead of
+ * invalidating otherwise winnable stable work. Equal-price orders retain
+ * profit-first ordering.
  */
 export function orderStandaloneStandingJobsForAuction(parameters: {
   readonly jobs: readonly KeeperJob[];
   readonly bidBps: (order: Address) => bigint;
+  readonly isActiveProbe?: (order: Address) => boolean;
   readonly maxFeePerGas: bigint;
 }): readonly KeeperJob[] {
   if (
@@ -551,6 +556,9 @@ export function orderStandaloneStandingJobsForAuction(parameters: {
     return parameters.jobs;
   }
   return [...parameters.jobs].sort((left, right) => {
+    const leftIsProbe = parameters.isActiveProbe?.(left.order!) ?? false;
+    const rightIsProbe = parameters.isActiveProbe?.(right.order!) ?? false;
+    if (leftIsProbe !== rightIsProbe) return leftIsProbe ? 1 : -1;
     const leftBid = parameters.bidBps(left.order!);
     const rightBid = parameters.bidBps(right.order!);
     if (leftBid !== rightBid) return leftBid > rightBid ? -1 : 1;
@@ -5515,6 +5523,12 @@ export async function runKeeperPass(
       const orderedJobs = orderStandaloneStandingJobsForAuction({
         jobs: plan.jobs,
         bidBps: context.standingOrderBidBps,
+        ...(context.standingOrderBidIsActiveProbe === undefined
+          ? {}
+          : {
+              isActiveProbe:
+                context.standingOrderBidIsActiveProbe,
+            }),
         maxFeePerGas,
       });
       if (
@@ -5533,7 +5547,14 @@ export async function runKeeperPass(
               context.standingOrderBidBps!(job.order!).toString(),
             ),
           ),
-          policy: "strongest_price_prefix_first",
+          activeProbes: JSON.stringify(
+            orderedJobs.map(
+              (job) =>
+                context.standingOrderBidIsActiveProbe?.(job.order!) ??
+                false,
+            ),
+          ),
+          policy: "stable_strongest_price_then_probe_suffix",
         });
       }
     }

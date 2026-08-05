@@ -267,12 +267,13 @@ Acceptance:
 
 ### P1 — Rescue competitively priced standing-order suffixes
 
-Status: structural miss validated; design and historical replay remain before a
-safe production change. At target block `25685871`, production offered five
-independently priced standing-order cranks as a strongest-bid-first nonce prefix
-ladder. All six relays accepted every offered prefix. Eureka included the first
-two cranks, which retained `0.000039309318952024 ETH`, but competitors took the
-next three orders. Two were exact price losses: our effective per-order bids
+Status: active-probe blocking risk fixed; alternate rescue ladders remain
+unjustified without a repeated cluster. At target block `25685871`, production
+offered five independently priced standing-order cranks as a
+strongest-bid-first nonce prefix ladder. All six relays accepted every offered
+prefix. Eureka included the first two cranks, which retained
+`0.000039309318952024 ETH`, but competitors took the next three orders. Two
+were exact price losses: our effective per-order bids
 were 7245 and 5252 bps versus 7853 and 7616 bps clearing payments, and their
 independent controllers correctly increased to 7878 and 9504 bps.
 
@@ -284,14 +285,15 @@ held the fifth order because payment was not causal, but it cannot recover this
 construction loss by raising that order's bid. This is one partial-prefix
 economic outcome, not three relay-delivery failures.
 
-Next action: replay the exact five jobs with bounded alternate nonce orderings
-or rescue ladders and prove that independently profitable later jobs can be
-exposed without sacrificing the stronger prefix, multiplying relay load
-unboundedly, or making receipt/nonce attribution ambiguous. Prefer an
-active-probe-aware ordering only if the historical controller state proves it
-would have moved the blocked winner ahead of both losing jobs. Deploy only with
-exact signed-bundle simulation, deterministic receipt attribution, and a test
-covering this block; do not raise the fifth order's bid from this evidence.
+The auction now places stable jobs before active price-discovery probes while
+preserving strongest-price-first ordering inside each tier. This removes the
+validated class where an intentionally cheaper probe blocks stable work, and
+the ordering telemetry records the probe tier explicitly. It does not claim a
+counterfactual win for block `25685871`: the non-probe 7245-bps price loss would
+still have preceded the stable 1573-bps job. Fully rescuing that case requires
+alternate nonce ladders and remains unjustified from one cluster because it
+multiplies relay load and complicates deterministic receipt attribution. Do not
+raise the fifth order's bid from this evidence.
 
 Live follow-up at target `25686143`: the same five orders all landed in Quasar
 after the two price-loss controllers increased. The batch retained

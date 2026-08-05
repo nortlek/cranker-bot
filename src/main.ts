@@ -4109,6 +4109,8 @@ async function main(): Promise<void> {
               standingOrderBidBps: (order) =>
                 adaptiveBidController?.currentBidBps(order) ??
                 config.builderBidBps,
+              standingOrderBidIsActiveProbe: (order) =>
+                adaptiveBidController?.isActiveProbe(order) ?? false,
               additionalPoolConfigs,
               sendTransaction,
               sendBatch,

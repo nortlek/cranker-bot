@@ -618,6 +618,11 @@ describe("adjustAdaptiveBid", () => {
         "0x0000000000000000000000000000000000000001",
       ),
     ).toBe(8_700n);
+    expect(
+      controller.isActiveProbe(
+        "0x0000000000000000000000000000000000000001",
+      ),
+    ).toBe(false);
     await controller.observe(
       "0x0000000000000000000000000000000000000002",
       {
@@ -674,10 +679,20 @@ describe("adjustAdaptiveBid", () => {
         },
       );
       expect(probe.currentBidBps).toBe(5_012n);
+      expect(
+        controller.isActiveProbe(
+          "0x0000000000000000000000000000000000000001",
+        ),
+      ).toBe(true);
       const reloaded = await AdaptiveBidController.load(
         policy,
         statePath,
       );
+      expect(
+        reloaded.isActiveProbe(
+          "0x0000000000000000000000000000000000000001",
+        ),
+      ).toBe(true);
       const recovery = await reloaded.observe(
         "0x0000000000000000000000000000000000000001",
         {

@@ -773,6 +773,30 @@ describe("orderStandaloneStandingJobsForAuction", () => {
       }),
     ).toEqual([larger, smaller]);
   });
+
+  it("keeps stable work ahead of a higher-bid active probe", () => {
+    const probe = standingJob(
+      "0x1000000000000000000000000000000000000001",
+      300n,
+    );
+    const stable = standingJob(
+      "0x2000000000000000000000000000000000000002",
+      200n,
+    );
+    const bids = new Map([
+      [probe.order, 8_500n],
+      [stable.order, 1_573n],
+    ]);
+
+    expect(
+      orderStandaloneStandingJobsForAuction({
+        jobs: [probe, stable],
+        bidBps: (order) => bids.get(order)!,
+        isActiveProbe: (order) => order === probe.order,
+        maxFeePerGas: 1n,
+      }),
+    ).toEqual([stable, probe]);
+  });
 });
 
 describe("mergeConcurrentPoolPlans", () => {
