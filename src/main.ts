@@ -73,6 +73,7 @@ import {
 } from "./dashboard.js";
 import {
   appendDirectCoinbasePayment,
+  directCoinbasePaymentEligible,
   requiredSignerBalance,
 } from "./direct-coinbase-payment.js";
 import { requiredProfit } from "./economics.js";
@@ -1534,13 +1535,7 @@ async function main(): Promise<void> {
         );
         const directPaymentEligible =
           config.enableDirectCoinbasePayments &&
-          (eligibleRequests.every(
-            (request) =>
-              request.kind === "standing_order" &&
-              request.order !== undefined,
-          ) ||
-            (eligibleRequests.length === 1 &&
-              eligibleRequests[0]?.kind === "fwa_buyback"));
+          directCoinbasePaymentEligible(eligibleRequests);
         const profitabilityOnlyPricing = eligiblePricingComponents.some(
           (component) => component.profitabilityOnly === true,
         );

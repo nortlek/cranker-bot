@@ -4,6 +4,26 @@ import {
 } from "./constants.js";
 import type { KeeperTransactionRequest } from "./strategy.js";
 
+export function directCoinbasePaymentEligible(
+  requests: readonly KeeperTransactionRequest[],
+): boolean {
+  if (
+    requests.length === 0 ||
+    requests.some((request) => (request.value ?? 0n) !== 0n)
+  ) {
+    return false;
+  }
+  return (
+    requests.every(
+      (request) =>
+        request.kind === "standing_order" &&
+        request.order !== undefined,
+    ) ||
+    (requests.length === 1 &&
+      requests[0]?.kind === "fwa_buyback")
+  );
+}
+
 export function appendDirectCoinbasePayment(parameters: {
   readonly requests: readonly KeeperTransactionRequest[];
   readonly directBuilderPayment: bigint;
@@ -22,21 +42,26 @@ export function appendDirectCoinbasePayment(parameters: {
     );
   }
   const firstNonce = parameters.requests[0]!.nonce;
+  if (
+    parameters.requests.some(
+      (request) => (request.value ?? 0n) !== 0n,
+    )
+  ) {
+    throw new Error(
+      "direct coinbase payment requires zero-value keeper requests",
+    );
+  }
+  if (!directCoinbasePaymentEligible(parameters.requests)) {
+    throw new Error(
+      "direct coinbase payment requires standing orders or one isolated FWA buyback",
+    );
+  }
   for (
     let index = 0;
     index < parameters.requests.length;
     index += 1
   ) {
     const request = parameters.requests[index]!;
-    if (
-      request.kind !== "standing_order" ||
-      request.order === undefined ||
-      (request.value ?? 0n) !== 0n
-    ) {
-      throw new Error(
-        "direct coinbase payment requires zero-value standing-order requests",
-      );
-    }
     if (request.nonce !== firstNonce + index) {
       throw new Error(
         "direct coinbase payment requires contiguous keeper nonces",

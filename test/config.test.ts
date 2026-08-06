@@ -22,6 +22,8 @@ const originalLiveBidSweep =
   process.env.ENABLE_LIVE_BID_SWEEP;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
+const originalBuybackBuilderBidBps =
+  process.env.BUYBACK_BUILDER_BID_BPS;
 const originalBuilderBidBps = process.env.BUILDER_BID_BPS;
 const originalPoolBuilderBidBps =
   process.env.POOL_BUILDER_BID_BPS;
@@ -83,6 +85,12 @@ afterEach(() => {
   } else {
     process.env.PENDING_FUNDING_BUILDER_BID_BPS =
       originalPendingFundingBuilderBidBps;
+  }
+  if (originalBuybackBuilderBidBps === undefined) {
+    delete process.env.BUYBACK_BUILDER_BID_BPS;
+  } else {
+    process.env.BUYBACK_BUILDER_BID_BPS =
+      originalBuybackBuilderBidBps;
   }
   if (originalBuilderBidBps === undefined) {
     delete process.env.BUILDER_BID_BPS;
@@ -172,6 +180,14 @@ describe("standing-order builder bid", () => {
     delete process.env.BUILDER_BID_BPS;
 
     expect(loadConfig().builderBidBps).toBe(1_000n);
+  });
+});
+
+describe("FWA buyback builder bid", () => {
+  it("uses the newest exact profitable clearing floor", () => {
+    delete process.env.BUYBACK_BUILDER_BID_BPS;
+
+    expect(loadConfig().buybackBuilderBidBps).toBe(9_858n);
   });
 });
 
@@ -342,6 +358,7 @@ describe("private builder coverage", () => {
       "https://rpc.quasar.win",
       "https://rpc.titanbuilder.xyz",
       "https://rpc.beaverbuild.org",
+      "https://rpc.bombora.build",
       "https://rpc.eurekabuilder.xyz",
       "https://rpc.buildernet.org",
     ]);

@@ -151,7 +151,7 @@ function submissionModeEnv(): "flashbots" | "public" {
 function relayUrlsEnv(): readonly string[] {
   const values = (
     process.env.FLASHBOTS_RELAY_URLS ||
-    "https://relay.flashbots.net,https://rpc.quasar.win,https://rpc.titanbuilder.xyz,https://rpc.beaverbuild.org,https://rpc.eurekabuilder.xyz,https://rpc.buildernet.org"
+    "https://relay.flashbots.net,https://rpc.quasar.win,https://rpc.titanbuilder.xyz,https://rpc.beaverbuild.org,https://rpc.bombora.build,https://rpc.eurekabuilder.xyz,https://rpc.buildernet.org"
   )
     .split(",")
     .map((value) => value.trim())
@@ -358,7 +358,7 @@ export function loadConfig(): KeeperConfig {
   );
   const buybackBuilderBidBps = integerEnv(
     "BUYBACK_BUILDER_BID_BPS",
-    9_704,
+    9_858,
     {
       min: 0,
       max: 10_000,

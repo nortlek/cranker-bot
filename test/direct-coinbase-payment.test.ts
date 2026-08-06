@@ -7,6 +7,7 @@ import {
 } from "../src/constants.js";
 import {
   appendDirectCoinbasePayment,
+  directCoinbasePaymentEligible,
   requiredSignerBalance,
 } from "../src/direct-coinbase-payment.js";
 import type { KeeperTransactionRequest } from "../src/strategy.js";
@@ -26,6 +27,25 @@ function standingOrderRequest(
     gas: 230_000n,
     reward: { kind: "fixed", amountWei: 2_500_000_000_000_000n },
     order: ORDER,
+    nonce,
+    maxFeePerGas: 5_000_000_000n,
+    maxPriorityFeePerGas: 4_500_000_000n,
+  };
+}
+
+function buybackRequest(
+  nonce: number,
+): KeeperTransactionRequest {
+  return {
+    kind: "fwa_buyback",
+    label: "fwa_buyback",
+    target: ORDER,
+    data: "0xf8ec6911",
+    gas: 160_000n,
+    reward: {
+      kind: "fixed",
+      amountWei: 5_000_000_000_000_000n,
+    },
     nonce,
     maxFeePerGas: 5_000_000_000n,
     maxPriorityFeePerGas: 4_500_000_000n,
@@ -53,6 +73,22 @@ describe("appendDirectCoinbasePayment", () => {
     });
   });
 
+  it("supports one isolated zero-value FWA buyback", () => {
+    const requests = appendDirectCoinbasePayment({
+      requests: [buybackRequest(42)],
+      directBuilderPayment: 4_072_814_195_571_175n,
+      baseFeeAllowancePerGas: 120_176_581n,
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.kind).toBe("fwa_buyback");
+    expect(requests[1]).toMatchObject({
+      kind: "builder_payment",
+      nonce: 43,
+      value: 4_072_814_195_571_175n,
+    });
+  });
+
   it("rejects mixed jobs and nonce gaps", () => {
     const {
       order: _order,
@@ -68,7 +104,17 @@ describe("appendDirectCoinbasePayment", () => {
         directBuilderPayment: 1n,
         baseFeeAllowancePerGas: 1n,
       }),
-    ).toThrow("zero-value standing-order");
+    ).toThrow("standing orders or one isolated FWA buyback");
+
+    expect(() =>
+      appendDirectCoinbasePayment({
+        requests: [
+          { ...buybackRequest(42), value: 1n },
+        ],
+        directBuilderPayment: 1n,
+        baseFeeAllowancePerGas: 1n,
+      }),
+    ).toThrow("zero-value keeper requests");
 
     expect(() =>
       appendDirectCoinbasePayment({
@@ -80,6 +126,25 @@ describe("appendDirectCoinbasePayment", () => {
         baseFeeAllowancePerGas: 1n,
       }),
     ).toThrow("contiguous keeper nonces");
+  });
+});
+
+describe("directCoinbasePaymentEligible", () => {
+  it("keeps pricing eligibility aligned with bundle construction", () => {
+    expect(
+      directCoinbasePaymentEligible([buybackRequest(42)]),
+    ).toBe(true);
+    expect(
+      directCoinbasePaymentEligible([
+        { ...buybackRequest(42), value: 1n },
+      ]),
+    ).toBe(false);
+    expect(
+      directCoinbasePaymentEligible([
+        buybackRequest(42),
+        buybackRequest(43),
+      ]),
+    ).toBe(false);
   });
 });
 

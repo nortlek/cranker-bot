@@ -182,10 +182,13 @@ GitHub-source automatic deployment is not yet connected because Railway's web
 UI still needs an authenticated browser session. Until that is completed,
 deploy the exact local committed source with the Railway CLI.
 
-Production submits private bundles through six paths: Flashbots, Quasar,
-direct Titan, direct Beaver, direct Eureka, and direct BuilderNet. Flashbots
-also multiplexes to the configured builder list, including the registered
-`bobthebuilder`, `Bombora`, and `Eureka` routes. Direct Eureka was added after
+Production submits private bundles through seven paths: Flashbots, Quasar,
+direct Titan, direct Beaver, direct Bombora, direct Eureka, and direct
+BuilderNet. Flashbots also multiplexes to the configured builder list,
+including the registered
+`bobthebuilder`, `Bombora`, and `Eureka` routes. Direct Bombora was added after
+a higher-paying isolated FWA buyback was omitted from a Bombora-built block
+despite Flashbots multiplex acceptance. Direct Eureka was added after
 another exact lifecycle bundle missed in an otherwise non-conflicting Eureka
 block despite multiplexing; direct BuilderNet covers the same delivery risk
 for BuilderNet blocks. Do not remove the direct paths without evidence:

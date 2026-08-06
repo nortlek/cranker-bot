@@ -157,8 +157,8 @@ before reporting progress or deploying.
 
 ### P0 — Independent FWA buyback bidding
 
-Status: three exact price losses reconstructed; the independent lane target is
-now 9704 bps with direct beneficiary payment enabled for a single isolated
+Status: four exact price losses reconstructed; the independent lane target is
+now 9858 bps with direct beneficiary payment enabled for a single isolated
 buyback. At parent block
 `25683817`, the keeper exact-simulated an FWA token `buyback()` with
 `0.003740206223983917 ETH` caller reward and `159622` gas. It offered
@@ -211,10 +211,48 @@ the FWA token had zero ETH at parent block `25684943`, and the winner
 atomically supplied value and called buyback. Its 530-bps builder payment is
 therefore not comparable with a pre-existing balance opportunity.
 
+The first live direct-payment exposure uncovered a correctness gap at target
+block `25692551`. The keeper simulated a `0.005 ETH` reward and selected a
+9704-bps payment: `0.000779185804428825 ETH` through priority fee plus
+`0.004072814195571175 ETH` through the helper, retaining an expected
+`0.000122801975378825 ETH`. Bundle construction then rejected the isolated
+buyback with the stale standing-order-only guard, so nothing reached a relay.
+Transaction `0x1c199da7c5bacf146082c3215c733597849b7ecd09dec128d686d4ec5e2651ef`
+captured the exact reward in the Titan block and paid
+`0.004928557644957567 ETH` directly to the beneficiary with zero priority fee.
+One wei above it normalizes to 9858 bps and remains profitable by roughly
+`0.000046244330421257 ETH` even when charging the full 50,000-gas helper
+envelope at the exact child base fee. The helper guard now accepts either a
+contiguous zero-value standing-order batch or exactly one zero-value FWA
+buyback; mixed jobs, value-bearing jobs, nonce gaps, partial simulation, and
+helper-free prefixes remain rejected.
+
+A second, distinct residual buyback at target `25692552` exposed builder reach.
+All six configured routes accepted our 9705-effective-bps offer of
+`0.000692556877947260 ETH`, but Bombora omitted it and included transaction
+`0xed55d7ac7fda1fefb3e8cbefbffc0d652be7f777578128953337f8382d97273e`,
+which captured the same `0.000713681860983105 ETH` reward and paid only
+`0.000685869067392007 ETH` directly to Bombora. Payment was not causal: our
+offer exceeded the winner by `0.000006687810555253 ETH`, all six relays had
+accepted, and the block used only `19,225,903 / 60,000,000` gas. Bombora's
+official unauthenticated `eth_sendBundle` endpoint accepted the keeper's
+existing request shape, so add `https://rpc.bombora.build` as a seventh direct
+delivery path rather than raising the bid from this second miss.
+
+While this repair was being validated, production won a smaller buyback on the
+first target, block `25696749`, at the still-live 9704-bps target. Its receipt
+earned `0.000301653174335544 ETH`, spent `0.000300653174238220 ETH`, and
+retained exactly `0.000001000000097324 ETH`. The wallet and nonce 2078
+reconcile. An equivalent small reward will fail the retained-profit boundary at
+9858 bps and be skipped; that is intentional. The higher target is reserved for
+buybacks whose exact reward and gas can still afford the newest 9857-bps
+clearing evidence, while the final economic gate prevents an on-chain loss.
+
 Acceptance:
 
 - replay the newest exact payment comparison with the full helper gas envelope
-- deploy 9704 bps and single-buyback direct payment with one signer lease and
+- deploy 9858 bps, the corrected single-buyback direct payment, and direct
+  Bombora delivery with one signer lease and
   latest nonce equal to pending
 - on the next buyback, reconcile reward, gas, builder payment, and wallet delta
 - change the target again only from new buyback-specific clearing evidence
