@@ -28,12 +28,21 @@ export function appendDirectCoinbasePayment(parameters: {
   readonly requests: readonly KeeperTransactionRequest[];
   readonly directBuilderPayment: bigint;
   readonly baseFeeAllowancePerGas: bigint;
+  readonly maxFeePerGas: bigint;
 }): readonly KeeperTransactionRequest[] {
   if (parameters.directBuilderPayment <= 0n) {
     throw new Error("direct builder payment must be positive");
   }
   if (parameters.baseFeeAllowancePerGas < 0n) {
     throw new Error("base fee allowance cannot be negative");
+  }
+  if (
+    parameters.maxFeePerGas <
+    parameters.baseFeeAllowancePerGas
+  ) {
+    throw new Error(
+      "direct payment max fee cannot be below the target base fee",
+    );
   }
   const lastRequest = parameters.requests.at(-1);
   if (lastRequest === undefined) {
@@ -84,7 +93,11 @@ export function appendDirectCoinbasePayment(parameters: {
       gas: DIRECT_COINBASE_PAYMENT_GAS_LIMIT,
       reward: { kind: "fixed", amountWei: 0n },
       nonce: lastRequest.nonce + 1,
-      maxFeePerGas: parameters.baseFeeAllowancePerGas,
+      // Some relay simulators retain the parent base fee while publishing a
+      // decreasing child base fee. Give the zero-tip helper the same signed
+      // fee capacity as the reward-producing transaction; its effective gas
+      // price remains the exact child base fee.
+      maxFeePerGas: parameters.maxFeePerGas,
       maxPriorityFeePerGas: 0n,
       value: parameters.directBuilderPayment,
     },

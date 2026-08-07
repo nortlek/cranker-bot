@@ -58,6 +58,7 @@ describe("appendDirectCoinbasePayment", () => {
       requests: [standingOrderRequest(42)],
       directBuilderPayment: 1_200n,
       baseFeeAllowancePerGas: 500n,
+      maxFeePerGas: 5_000_000_000n,
     });
 
     expect(requests).toHaveLength(2);
@@ -67,7 +68,7 @@ describe("appendDirectCoinbasePayment", () => {
       data: "0x",
       gas: DIRECT_COINBASE_PAYMENT_GAS_LIMIT,
       nonce: 43,
-      maxFeePerGas: 500n,
+      maxFeePerGas: 5_000_000_000n,
       maxPriorityFeePerGas: 0n,
       value: 1_200n,
     });
@@ -78,6 +79,7 @@ describe("appendDirectCoinbasePayment", () => {
       requests: [buybackRequest(42)],
       directBuilderPayment: 4_072_814_195_571_175n,
       baseFeeAllowancePerGas: 120_176_581n,
+      maxFeePerGas: 5_000_000_000n,
     });
 
     expect(requests).toHaveLength(2);
@@ -86,7 +88,35 @@ describe("appendDirectCoinbasePayment", () => {
       kind: "builder_payment",
       nonce: 43,
       value: 4_072_814_195_571_175n,
+      maxFeePerGas: 5_000_000_000n,
+      maxPriorityFeePerGas: 0n,
     });
+  });
+
+  it("covers a decreasing-child relay simulation with the reward fee envelope", () => {
+    const requests = appendDirectCoinbasePayment({
+      requests: [buybackRequest(42)],
+      directBuilderPayment: 1n,
+      baseFeeAllowancePerGas: 198_755_378n,
+      maxFeePerGas: 5_000_000_000n,
+    });
+
+    expect(requests[1]).toMatchObject({
+      kind: "builder_payment",
+      maxFeePerGas: 5_000_000_000n,
+      maxPriorityFeePerGas: 0n,
+    });
+  });
+
+  it("rejects a helper fee envelope below the exact target base fee", () => {
+    expect(() =>
+      appendDirectCoinbasePayment({
+        requests: [buybackRequest(42)],
+        directBuilderPayment: 1n,
+        baseFeeAllowancePerGas: 198_755_378n,
+        maxFeePerGas: 198_755_377n,
+      }),
+    ).toThrow("direct payment max fee cannot be below the target base fee");
   });
 
   it("rejects mixed jobs and nonce gaps", () => {
@@ -103,6 +133,7 @@ describe("appendDirectCoinbasePayment", () => {
         requests: [standingOrderRequest(42), mixed],
         directBuilderPayment: 1n,
         baseFeeAllowancePerGas: 1n,
+        maxFeePerGas: 500n,
       }),
     ).toThrow("standing orders or one isolated FWA buyback");
 
@@ -113,6 +144,7 @@ describe("appendDirectCoinbasePayment", () => {
         ],
         directBuilderPayment: 1n,
         baseFeeAllowancePerGas: 1n,
+        maxFeePerGas: 500n,
       }),
     ).toThrow("zero-value keeper requests");
 
@@ -124,6 +156,7 @@ describe("appendDirectCoinbasePayment", () => {
         ],
         directBuilderPayment: 1n,
         baseFeeAllowancePerGas: 1n,
+        maxFeePerGas: 500n,
       }),
     ).toThrow("contiguous keeper nonces");
   });
@@ -154,11 +187,12 @@ describe("requiredSignerBalance", () => {
       requests: [standingOrderRequest(42)],
       directBuilderPayment: 1_200n,
       baseFeeAllowancePerGas: 500n,
+      maxFeePerGas: 5_000_000_000n,
     });
 
     expect(requiredSignerBalance(requests)).toBe(
       230_000n * 5_000_000_000n +
-        DIRECT_COINBASE_PAYMENT_GAS_LIMIT * 500n +
+        DIRECT_COINBASE_PAYMENT_GAS_LIMIT * 5_000_000_000n +
         1_200n,
     );
   });

@@ -1779,6 +1779,13 @@ async function main(): Promise<void> {
               directBuilderPayment:
                 quote.directBuilderPayment,
               baseFeeAllowancePerGas,
+              maxFeePerGas: competitivelyPriced.reduce(
+                (highest, request) =>
+                  request.maxFeePerGas > highest
+                    ? request.maxFeePerGas
+                    : highest,
+                baseFeeAllowancePerGas,
+              ),
             });
         }
         competitivelyPricedWithPayment =

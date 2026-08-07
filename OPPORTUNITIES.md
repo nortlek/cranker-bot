@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-05 (America/Denver)
+Last updated: 2026-08-07 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -248,6 +248,41 @@ reconcile. An equivalent small reward will fail the retained-profit boundary at
 buybacks whose exact reward and gas can still afford the newest 9857-bps
 clearing evidence, while the final economic gate prevents an on-chain loss.
 
+Decreasing-base-fee relay-simulation incident, 2026-08-06 through 2026-08-07:
+the deployed isolated-buyback direct-payment path passed its preliminary exact
+simulation but failed its final competitive Flashbots simulation 11 times with
+typed `-32000 max fee per gas less than block base fee`. In every case the
+immediate child's actual base fee equaled the keeper's deterministic EIP-1559
+derivation and was lower than its parent. The helper had been signed at only
+the child base fee plus one wei while the reward call retained the configured
+5-gwei fee capacity. Flashbots continued to reject the helper throughout the
+bounded 500-ms publication retry, proving this was not an incorrect local base
+fee or ordinary publication delay.
+
+All 11 exact target blocks contained a competing `Bought` event for the same
+reward, so these were 11 distinct avoidable economic losses. Targets
+`25697511`, `25697674`, `25698363`, `25698583`, `25698990`, `25699503`,
+`25701827`, `25702678`, `25703521`, `25703816`, and `25704207` were built by
+Quasar, Eureka, Titan, Builder+, BuilderNet, or their identified routes. Their
+observed normalized payments ranged from 8,732 to 9,837 bps, all below our
+9,858-bps target; price was not causal. The latest example offered a `0.005
+ETH` reward at parent `25704206`, derived child base fee `198755378 wei`, and
+expected `0.000028191271664848 ETH` retained profit, but never reached relay
+submission; Titan captured it in target `25704207` for a
+`0.004507892806978179 ETH` direct payment.
+
+The bounded repair gives the zero-tip helper the highest signed max-fee
+capacity already assigned to the reward-producing bundle while economics still
+charge its actual gas at the exact child base fee. The helper therefore cannot
+add an effective priority payment, but can satisfy a relay simulator that is
+temporarily retaining the higher parent base fee. The signer balance gate now
+reserves the full helper signing envelope. Exact full-bundle simulation,
+helper-code identity, payment equality, retained-profit, nonce, balance, lease,
+and target-deadline gates remain unchanged. The historical
+`203177738 -> 198755378 wei` decrease is covered by regression tests, including
+a fail-closed rejection when the helper envelope is below the exact child base
+fee.
+
 Acceptance:
 
 - replay the newest exact payment comparison with the full helper gas envelope
@@ -295,6 +330,20 @@ five-ticket `enter(18,5,...)` with `0.025 ETH`, not another deployment or
 configuration change. A later post said pulls per pack had been lowered to
 three; that matches the already-observed canonical `setTerms` update and does
 not require another keeper change.
+
+Release follow-up, 2026-08-07: the canonical deployer advanced from nonce 3435
+to 3439 without creating a successor. Nonce 3436, transaction
+`0x1e04452958f50fcde7f690269f3b6899b52200d24ae5bbe59c7ae8a41e54c010`
+in block `25697895`, called the existing GroupPull's `setTerms` with
+`0.005 ETH` entry price, `0.0001 ETH` incentive per ticket, four pulls per
+round, a one-hour entry window, 15-minute round gap, four-hour submit window,
+and 2,000-ticket escalation threshold. Nonces 3437-3438 were ordinary entries
+into rounds 24 and 25. Exact round snapshots corroborate that round 24 retained
+three pulls while rounds 25 and 28 use four; this is expected per-round term
+snapshotting, not an ABI or planner mismatch. @ripe0x's new group-pack post is
+therefore a current-product activity lead only. The pinned runtime, canonical
+V2 pool relationship, unpaused/non-deprecated state, and existing keeper
+surface remain valid; no production compatibility change is warranted.
 
 The first order was created by the canonical deployer in transaction
 `0x4ef6f08bff8bc4f16089dfc343cc7184a06d918562c09ce817176db967e20d78`

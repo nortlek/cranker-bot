@@ -781,10 +781,15 @@ These constraints prevent expensive or unsafe regressions:
   the exact safe prefix floor from each transaction's assigned fee and preserve
   the aggregate retained-profit boundary.
 - A direct coinbase payment may only fill an existing fee-capped adaptive bid
-  for a zero-value, standing-order-only private batch. The pinned receive-only
-  helper must pass its startup code-hash check, occupy the final contiguous
-  nonce, reserve gas plus value, and remain inseparable from every selected
-  reward-producing crank. Require exact full-bundle simulation, exact
+  for either a zero-value standing-order-only private batch or one isolated
+  zero-value FWA buyback. The pinned receive-only helper must pass its startup
+  code-hash check, occupy the final contiguous nonce, reserve gas plus value,
+  and remain inseparable from every selected reward-producing call. Give its
+  zero-priority-fee transaction at least the same signed max-fee capacity as
+  the reward-producing transaction: some relay simulators retain the parent
+  base fee while publishing a decreasing immediate child. Continue to price
+  its actual gas at the exact derived child base fee, and reject a signed
+  envelope below that base fee. Require exact full-bundle simulation, exact
   `ethSentToCoinbase`/`coinbaseDiff`, and aggregate positive economics; never
   submit a helper-only or helper-free prefix of that paid variant.
 - The standing-order batch executor may replace only a private plan containing
