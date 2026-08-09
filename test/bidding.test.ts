@@ -359,8 +359,10 @@ describe("compareObservedBuilderPayment", () => {
       2_456_924_975_570_103n,
     );
     expect(quote.directBuilderPayment).toBe(
-      1_710_239_620_643_579n,
+      2_457_038_287_960_449n,
     );
+    expect(quote.priorityBuilderPayment).toBe(0n);
+    expect(quote.maxPriorityFeePerGas).toBe(0n);
     expect(quote.expectedProfit).toBe(7_536_799_407_791n);
     expect(quote.profitable).toBe(true);
   });
@@ -536,8 +538,9 @@ describe("quoteCompetitiveFees", () => {
 
     expect(quote.profitable).toBe(true);
     expect(quote.maxFeePerGas).toBe(parseGwei("5"));
+    expect(quote.maxPriorityFeePerGas).toBe(parseGwei("0.1"));
     expect(quote.priorityBuilderPayment).toBe(
-      183_753n * parseGwei("4.6"),
+      183_753n * parseGwei("0.1"),
     );
     expect(quote.directBuilderPayment).toBeGreaterThan(0n);
     expect(quote.builderPayment).toBe(
@@ -545,6 +548,28 @@ describe("quoteCompetitiveFees", () => {
     );
     expect(quote.cappedByFeeCap).toBe(false);
     expect(quote.expectedProfit).toBeGreaterThan(0n);
+  });
+
+  it("keeps a direct buyback payment exact across a decreasing relay base fee", () => {
+    const quote = quoteCompetitiveFees({
+      crankFee: parseEther("0.005"),
+      simulatedGasUsed: 159_626n,
+      baseFeeAllowancePerGas: 198_755_378n,
+      minimumPriorityFeePerGas: 0n,
+      builderBidBps: 9_858n,
+      maxFeePerGasCap: parseGwei("5"),
+      minProfitWei: parseEther("0.000001"),
+      directPaymentGasUsed: 50_000n,
+    });
+
+    expect(quote.maxFeePerGas).toBe(parseGwei("5"));
+    expect(quote.maxPriorityFeePerGas).toBe(0n);
+    expect(quote.priorityBuilderPayment).toBe(0n);
+    expect(quote.directBuilderPayment).toBe(
+      quote.builderPayment,
+    );
+    expect(quote.builderPayment).toBe(parseEther("0.004929"));
+    expect(quote.profitable).toBe(true);
   });
 
   it("does not add a direct payment when its gas would consume the profit budget", () => {

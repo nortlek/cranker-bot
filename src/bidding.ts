@@ -483,25 +483,34 @@ export function quoteCompetitiveFees(parameters: {
   }
 
   const profitFloor = priorityQuote.requiredProfit;
+  // Once the exact direct-payment helper is required, leave only the
+  // configured minimum in the priority fee and express the rest through the
+  // helper value. Some relay simulators price the immediate child against the
+  // parent's higher base fee while publishing a decreasing child. A
+  // fee-cap-saturated priority payment then appears smaller in coinbaseDiff
+  // even though the exact target block would pay the intended priority. The
+  // helper's ethSentToCoinbase is base-fee invariant.
+  const priorityBuilderPayment =
+    parameters.simulatedGasUsed *
+    parameters.minimumPriorityFeePerGas;
   const totalBaseGasCost =
     parameters.baseFeeAllowancePerGas *
     (parameters.simulatedGasUsed + directPaymentGasUsed);
   const maximumBuilderPayment =
     parameters.crankFee - totalBaseGasCost - profitFloor;
-  if (maximumBuilderPayment <= priorityQuote.builderPayment) {
+  if (maximumBuilderPayment <= priorityBuilderPayment) {
     return withoutDirectPayment;
   }
   const requestedBuilderPayment =
-    priorityQuote.desiredBuilderPayment >
-    priorityQuote.builderPayment
+    priorityQuote.desiredBuilderPayment > priorityBuilderPayment
       ? priorityQuote.desiredBuilderPayment
-      : priorityQuote.builderPayment;
+      : priorityBuilderPayment;
   const builderPayment =
     requestedBuilderPayment < maximumBuilderPayment
       ? requestedBuilderPayment
       : maximumBuilderPayment;
   const directBuilderPayment =
-    builderPayment - priorityQuote.builderPayment;
+    builderPayment - priorityBuilderPayment;
   if (directBuilderPayment <= 0n) {
     return withoutDirectPayment;
   }
@@ -517,7 +526,9 @@ export function quoteCompetitiveFees(parameters: {
 
   return {
     ...priorityQuoteWithoutReason,
-    priorityBuilderPayment: priorityQuote.builderPayment,
+    maxPriorityFeePerGas:
+      parameters.minimumPriorityFeePerGas,
+    priorityBuilderPayment,
     directBuilderPayment,
     directPaymentGasUsed,
     builderPayment,

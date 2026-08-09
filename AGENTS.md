@@ -792,6 +792,12 @@ These constraints prevent expensive or unsafe regressions:
   envelope below that base fee. Require exact full-bundle simulation, exact
   `ethSentToCoinbase`/`coinbaseDiff`, and aggregate positive economics; never
   submit a helper-only or helper-free prefix of that paid variant.
+  When the helper is present, express the builder bid through its exact value
+  except for the lane's configured minimum priority fee. Do not saturate the
+  reward transaction's priority fee merely because the fee cap has room: a
+  relay simulating a decreasing child against its higher parent base fee will
+  report a smaller priority contribution even though the deterministic child
+  would not, defeating exact aggregate-payment validation.
 - The standing-order batch executor may replace only a private plan containing
   two to 64 standalone standing-order cranks. Preserve every order's independent
   adaptive bid and compute its embedded builder payment from that order's

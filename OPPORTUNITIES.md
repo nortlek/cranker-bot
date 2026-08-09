@@ -283,6 +283,34 @@ and target-deadline gates remain unchanged. The historical
 a fail-closed rejection when the helper envelope is below the exact child base
 fee.
 
+Follow-on relay-accounting incident, 2026-08-08: the higher helper envelope
+removed the typed base-fee rejection and immediately produced four successful
+post-deploy buyback captures, including target `25705053`, where the exact
+two-member bundle earned `0.004829705284893819 ETH`, paid
+`0.003981067015332266 ETH` directly plus exact gas, and retained
+`0.000046666554656603 ETH`. However, it also exposed Flashbots simulating the
+reward transaction's fee-cap-saturated priority contribution against the
+higher parent base fee on decreasing-child targets. The helper payment itself
+was exact, but `coinbaseDiff` was lower than the deterministic-child payment
+by reward gas times the parent/child base-fee delta, so the keeper correctly
+failed closed on aggregate payment equality.
+
+Eight such final simulations failed at targets `25705464`, `25705700`,
+`25707610`, `25707611`, `25708686`, `25708687`, `25711068`, and `25711766`.
+Three fully submitted attempts also expired at targets `25705701`, `25708685`,
+and `25711765`. Exact on-chain `Bought` logs prove a competitor captured the
+same reward in every one of these 11 distinct blocks; they are economic misses,
+not duplicate transaction-member expirations. The bounded follow-on repair
+keeps only the lane's configured minimum priority fee whenever an exact direct
+payment is used and moves the remainder of the unchanged builder bid into the
+helper value. This preserves the same total bid, exact child-base gas cost,
+retained-profit floor, max-fee envelope, signer balance reservation, and all
+identity/simulation/lease/deadline gates, while making both
+`ethSentToCoinbase` and aggregate `coinbaseDiff` invariant to the relay's
+parent-versus-child base-fee view. The exact historical
+`203177738 -> 198755378 wei` decrease and full 9,858-bps buyback payment are
+covered by regression tests.
+
 Acceptance:
 
 - replay the newest exact payment comparison with the full helper gas envelope
@@ -344,6 +372,19 @@ snapshotting, not an ABI or planner mismatch. @ripe0x's new group-pack post is
 therefore a current-product activity lead only. The pinned runtime, canonical
 V2 pool relationship, unpaused/non-deprecated state, and existing keeper
 surface remain valid; no production compatibility change is warranted.
+
+Release follow-up, 2026-08-08: @ripe0x previewed a separate placeholder product
+shape with a 24-hour ETH pooling window, repeated FWA pulls until the pool is
+empty, and one backing-reserve auction per acquired NFT. This is a research
+lead only. The canonical deployer advanced from nonce 3439 through 3453 with
+ordinary calls on the already pinned GroupPull: entries for rounds 29-33 and
+claims for completed rounds, plus one unrelated patron-edition collection.
+There was no contract creation, factory, successor, ownership change, or
+configuration transaction. Exact current state keeps the supported GroupPull
+unpaused/non-deprecated on canonical V2 with round 40 selling and zero buying
+rounds. Do not infer a keeper ABI or deploy speculative support from the social
+mockup; inspect the first canonical creation, verified runtime, funding and
+auction accounting, and permissionless reward surface if the deployer ships it.
 
 The first order was created by the canonical deployer in transaction
 `0x4ef6f08bff8bc4f16089dfc343cc7184a06d918562c09ce817176db967e20d78`
