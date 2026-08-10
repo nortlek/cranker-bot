@@ -81,7 +81,98 @@ describe("validateDirectCoinbasePaymentSimulation", () => {
     ).toEqual({
       totalCoinbasePayment: 243n,
       directCoinbasePayment: 143n,
+      reportedCoinbaseDiff: 243n,
+      aggregateBaseFeeArtifact: false,
     });
+  });
+
+  it("accepts a lower aggregate artifact only when the exact helper is the entire signed payment", () => {
+    expect(
+      validateDirectCoinbasePaymentSimulation({
+        result: {
+          coinbaseDiff: "140",
+          results: [
+            { gasUsed: 100, ethSentToCoinbase: "0" },
+            { gasUsed: 30, ethSentToCoinbase: "143" },
+          ],
+        },
+        transactionCount: 2,
+        helperIndex: 1,
+        expectedTotalCoinbasePayment: 143n,
+        expectedDirectCoinbasePayment: 143n,
+        allowLowerAggregateBaseFeeArtifact: true,
+      }),
+    ).toEqual({
+      totalCoinbasePayment: 143n,
+      directCoinbasePayment: 143n,
+      reportedCoinbaseDiff: 140n,
+      aggregateBaseFeeArtifact: true,
+    });
+  });
+
+  it("replays the first post-ca0cf2 decreasing-child aggregate artifact", () => {
+    expect(
+      validateDirectCoinbasePaymentSimulation({
+        result: {
+          coinbaseDiff: "4928914347379123",
+          results: [
+            { gasUsed: 159_675, ethSentToCoinbase: "0" },
+            {
+              gasUsed: 21_055,
+              ethSentToCoinbase: "4929000000000000",
+            },
+          ],
+        },
+        transactionCount: 2,
+        helperIndex: 1,
+        expectedTotalCoinbasePayment: 4_929_000_000_000_000n,
+        expectedDirectCoinbasePayment: 4_929_000_000_000_000n,
+        allowLowerAggregateBaseFeeArtifact: true,
+      }),
+    ).toEqual({
+      totalCoinbasePayment: 4_929_000_000_000_000n,
+      directCoinbasePayment: 4_929_000_000_000_000n,
+      reportedCoinbaseDiff: 4_928_914_347_379_123n,
+      aggregateBaseFeeArtifact: true,
+    });
+  });
+
+  it("rejects an aggregate mismatch when a reward transaction reports a direct payment", () => {
+    expect(() =>
+      validateDirectCoinbasePaymentSimulation({
+        result: {
+          coinbaseDiff: "140",
+          results: [
+            { gasUsed: 100, ethSentToCoinbase: "1" },
+            { gasUsed: 30, ethSentToCoinbase: "143" },
+          ],
+        },
+        transactionCount: 2,
+        helperIndex: 1,
+        expectedTotalCoinbasePayment: 143n,
+        expectedDirectCoinbasePayment: 143n,
+        allowLowerAggregateBaseFeeArtifact: true,
+      }),
+    ).toThrow("reported total coinbase payment 140, expected 143");
+  });
+
+  it("rejects a higher aggregate even when the helper is the entire intended payment", () => {
+    expect(() =>
+      validateDirectCoinbasePaymentSimulation({
+        result: {
+          coinbaseDiff: "144",
+          results: [
+            { gasUsed: 100, ethSentToCoinbase: "0" },
+            { gasUsed: 30, ethSentToCoinbase: "143" },
+          ],
+        },
+        transactionCount: 2,
+        helperIndex: 1,
+        expectedTotalCoinbasePayment: 143n,
+        expectedDirectCoinbasePayment: 143n,
+        allowLowerAggregateBaseFeeArtifact: true,
+      }),
+    ).toThrow("reported total coinbase payment 144, expected 143");
   });
 
   it("rejects a helper simulation without exact payment fields", () => {

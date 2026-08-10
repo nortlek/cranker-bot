@@ -311,6 +311,29 @@ parent-versus-child base-fee view. The exact historical
 `203177738 -> 198755378 wei` decrease and full 9,858-bps buyback payment are
 covered by regression tests.
 
+Second follow-on, 2026-08-09: production proved that removing all intended
+priority payment was necessary but not sufficient for Flashbots' aggregate
+accounting. Six final simulations still reported a lower `coinbaseDiff` than
+the exact helper value, despite every reward transaction being signed with
+zero priority. The first exact discrepancy was
+`0.004928914347379123 ETH` reported versus
+`0.004929 ETH` paid by the helper. The affected target sequences were
+`25714683-25714686`, `25716729-25716730`, and
+`25718341-25718342`. Exact `Bought` logs show these were four economic
+opportunities, not eight independent losses: the reward persisted across the
+first no-inclusion block in each sequence, then a competitor captured it at
+`25714684`, `25714686`, `25716730`, and `25718342`.
+
+The exact fallback now validates the signed payment components rather than
+trusting the inconsistent aggregate: it is available only when the helper is
+the entire intended payment, every reward transaction is signed with zero
+priority, every non-helper simulation item reports zero direct payment, and
+the helper item reports the exact intended value. Only a lower aggregate is
+classified as the known relay base-fee artifact; an inexact helper, unexpected
+non-helper transfer, or higher aggregate remains fail-closed. The first exact
+production discrepancy is a regression fixture and production emits a
+dedicated event whenever this narrowly bounded fallback is exercised.
+
 Acceptance:
 
 - replay the newest exact payment comparison with the full helper gas envelope
@@ -319,6 +342,37 @@ Acceptance:
   latest nonce equal to pending
 - on the next buyback, reconcile reward, gas, builder payment, and wallet delta
 - change the target again only from new buyback-specific clearing evidence
+
+### P0 — MegaRip one-pass FWA pool
+
+Status: canonical release validated; keeper integration pending before the
+first funded lifecycle. Canonical deployer
+`0xCB43078C32423F5348Cab5885911C3B5faE217F9` created verified, ownerless
+`MegaRip` at `0x49ba5f1C980a153Fd66FA61a60EeacF9c2b484ec` with nonce
+`3455`. Its 21,100-byte runtime hash is
+`0xaf33e191c164598fe479bb959bf8123b30d5a73049b2549f492aac1887ab1d92`.
+The verified constructor pins canonical FWA
+`0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c`, canonical FWA token
+`0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845`, FWA rewards
+`0x6a1a1C0CfB3D3C538e13D36d608a5bcaa992fc78`, and a
+`0.0003 ETH` per-crank bounty. Runtime reads at block `25721175` matched those
+relationships and showed state Pending, zero deposits/pulls/active
+allocations, and scheduled `openAt=1786399919`; no keeper call was yet
+callable.
+
+The verified source exposes capital-free, permissionless bounty work after
+funding: `lock()` closes the fixed funding window, `pull(maxPulls)` first
+reconciles resolved acquisitions and then requests bounded new acquisitions,
+and `settle(listingId)` pays the reserved terminal bounty after an auction
+deadline. `syncStuck`, `releaseStale`, `finalize`, and `sync` are also
+permissionless lifecycle/recovery calls, but only paths consuming a reserved
+crank bounty should enter the profit lane; `open` and ordinary reconcile calls
+have no bounty. Implement a fail-closed independent MegaRip adapter before
+the first funded lock: pin the exact runtime hash and immutable FWA identities,
+enumerate exact active acquisitions, estimate/simulate each bounded call at a
+fixed block, decode `BountyPaid` as the only reward authority, give the lane
+independent bidding state, and preserve nonce/balance/lease/private-delivery
+gates. Do not add deposits, bids, approvals, or NFT custody.
 
 ### P0 — GroupPull subscription standing orders
 

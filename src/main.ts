@@ -2005,15 +2005,46 @@ async function main(): Promise<void> {
           const totalCoinbasePayment =
             priorityBuilderPayment +
             quote.directBuilderPayment;
-          validateDirectCoinbasePaymentSimulation({
-            result: finalSimulation,
-            transactionCount: selectedRequests.length,
-            helperIndex,
-            expectedTotalCoinbasePayment:
-              totalCoinbasePayment,
-            expectedDirectCoinbasePayment:
-              quote.directBuilderPayment,
-          });
+          const paymentValidation =
+            validateDirectCoinbasePaymentSimulation({
+              result: finalSimulation,
+              transactionCount: selectedRequests.length,
+              helperIndex,
+              expectedTotalCoinbasePayment:
+                totalCoinbasePayment,
+              expectedDirectCoinbasePayment:
+                quote.directBuilderPayment,
+              allowLowerAggregateBaseFeeArtifact:
+                priorityBuilderPayment === 0n &&
+                selectedRequests
+                  .slice(0, helperIndex)
+                  .every(
+                    (request) =>
+                      request.maxPriorityFeePerGas === 0n,
+                  ),
+            });
+          if (paymentValidation.aggregateBaseFeeArtifact) {
+            log(
+              "info",
+              "direct_coinbase_payment_aggregate_base_fee_artifact",
+              {
+                targetBlock: targetBlock.toString(),
+                reportedCoinbaseDiff: eth(
+                  paymentValidation.reportedCoinbaseDiff,
+                ),
+                exactDirectPayment: eth(
+                  paymentValidation.directCoinbasePayment,
+                ),
+                delta: eth(
+                  paymentValidation.directCoinbasePayment -
+                    paymentValidation.reportedCoinbaseDiff,
+                ),
+                signedPriorityPayment: eth(
+                  priorityBuilderPayment,
+                ),
+              },
+            );
+          }
           let exactGrossReward = 0n;
           for (let index = 0; index < helperIndex; index += 1) {
             const request = selectedRequests[index];

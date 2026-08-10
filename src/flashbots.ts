@@ -78,6 +78,8 @@ export interface CallBundleStateAvailabilityWait {
 export interface DirectCoinbasePaymentValidation {
   readonly totalCoinbasePayment: bigint;
   readonly directCoinbasePayment: bigint;
+  readonly reportedCoinbaseDiff: bigint;
+  readonly aggregateBaseFeeArtifact: boolean;
 }
 
 export interface EmbeddedCoinbasePaymentValidation {
@@ -307,6 +309,7 @@ export function validateDirectCoinbasePaymentSimulation(parameters: {
   readonly helperIndex: number;
   readonly expectedTotalCoinbasePayment: bigint;
   readonly expectedDirectCoinbasePayment: bigint;
+  readonly allowLowerAggregateBaseFeeArtifact?: boolean;
 }): DirectCoinbasePaymentValidation {
   if (
     parameters.helperIndex < 0 ||
@@ -337,20 +340,12 @@ export function validateDirectCoinbasePaymentSimulation(parameters: {
       "direct payment simulation omitted coinbase accounting",
     );
   }
-  const totalCoinbasePayment = BigInt(
+  const reportedCoinbaseDiff = BigInt(
     parameters.result.coinbaseDiff,
   );
   const directCoinbasePayment = BigInt(
     helper.ethSentToCoinbase,
   );
-  if (
-    totalCoinbasePayment !==
-    parameters.expectedTotalCoinbasePayment
-  ) {
-    throw new Error(
-      `direct payment simulation reported total coinbase payment ${totalCoinbasePayment}, expected ${parameters.expectedTotalCoinbasePayment}`,
-    );
-  }
   if (
     directCoinbasePayment !==
     parameters.expectedDirectCoinbasePayment
@@ -359,9 +354,32 @@ export function validateDirectCoinbasePaymentSimulation(parameters: {
       `direct payment simulation reported helper payment ${directCoinbasePayment}, expected ${parameters.expectedDirectCoinbasePayment}`,
     );
   }
+  const aggregateMatches =
+    reportedCoinbaseDiff ===
+    parameters.expectedTotalCoinbasePayment;
+  const lowerAggregateBaseFeeArtifact =
+    parameters.allowLowerAggregateBaseFeeArtifact === true &&
+    parameters.expectedTotalCoinbasePayment ===
+      parameters.expectedDirectCoinbasePayment &&
+    reportedCoinbaseDiff <
+      parameters.expectedTotalCoinbasePayment &&
+    items.every(
+      (item, index) =>
+        index === parameters.helperIndex ||
+        item.ethSentToCoinbase === "0",
+    );
+  if (!aggregateMatches && !lowerAggregateBaseFeeArtifact) {
+    throw new Error(
+      `direct payment simulation reported total coinbase payment ${reportedCoinbaseDiff}, expected ${parameters.expectedTotalCoinbasePayment}`,
+    );
+  }
   return {
-    totalCoinbasePayment,
+    totalCoinbasePayment:
+      parameters.expectedTotalCoinbasePayment,
     directCoinbasePayment,
+    reportedCoinbaseDiff,
+    aggregateBaseFeeArtifact:
+      lowerAggregateBaseFeeArtifact,
   };
 }
 

@@ -798,6 +798,14 @@ These constraints prevent expensive or unsafe regressions:
   relay simulating a decreasing child against its higher parent base fee will
   report a smaller priority contribution even though the deterministic child
   would not, defeating exact aggregate-payment validation.
+  Flashbots can also report a lower aggregate `coinbaseDiff` while every
+  reward transaction is signed with zero priority and the helper's per-item
+  `ethSentToCoinbase` remains exact. Treat that lower aggregate as a relay
+  base-fee accounting artifact only when the helper is the entire intended
+  builder payment, every non-helper item reports zero direct payment, and all
+  non-helper transactions are signed with zero priority. Continue to reject
+  an inexact helper, any unexpected non-helper direct payment, or an aggregate
+  above the intended payment.
 - The standing-order batch executor may replace only a private plan containing
   two to 64 standalone standing-order cranks. Preserve every order's independent
   adaptive bid and compute its embedded builder payment from that order's
