@@ -662,6 +662,21 @@ These constraints prevent expensive or unsafe regressions:
   signer nonce/balance, lease, and target deadline immediately before private
   submission. Price and account only the crank under the independent
   GroupPull standing-order bid, and never submit the creation alone.
+- MegaRip execution is limited to the pinned funded successor at
+  `0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25` while its runtime hash and
+  immutable FWA, FWA token, and FWA rewards relationships remain canonical.
+  `BountyPaid` from that exact contract is the only reward authority. At the
+  funding boundary, `lock()` has no reward and may be submitted only as the
+  mandatory private prefix `[lock(), pull(1)]` targeting the first eligible
+  child block; complete signed-bundle simulation must prove the whole prefix
+  and it must never expose a lock-only alternative. In Pulling state, call
+  `pull(1)` only when exact fixed-block acquisition state proves the call must
+  create a new rewarded acquisition. Call `settle(listingId)` only for an
+  exact reserved, no-bid allocation whose auction is closed or deadline has
+  passed and whose fixed-block estimate succeeds. Keep MegaRip bidding
+  independent and preserve exact retained-profit, nonce, balance, lease, and
+  private-delivery gates. Never deposit, bid, approve tokens, or take NFT
+  custody for this lane.
 - A pending FWA fulfillment backrun is always one exact bounded bundle:
   `[contiguous public coordinator nonce prefix ending in the target
   fulfillRandomWords, keeper syncFwaResult, keeper settle]`, or

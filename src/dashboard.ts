@@ -201,6 +201,21 @@ function laneForKind(kind: string): {
         strategy: "crank",
         accent: "#ffd18a",
       };
+    case "mega_rip_lock":
+    case "mega_rip_pull":
+    case "mega_rip_settle":
+      return {
+        laneKey: "other",
+        lane: "MegaRip",
+        contract: "MegaRip",
+        strategy:
+          kind === "mega_rip_lock"
+            ? "lock"
+            : kind === "mega_rip_pull"
+              ? "pull"
+              : "settle",
+        accent: "#ff8ac8",
+      };
     case "convex_earmark":
       return {
         laneKey: "other",

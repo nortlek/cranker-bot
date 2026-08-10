@@ -1405,6 +1405,17 @@ async function main(): Promise<void> {
             requestBidPolicy = "group_pull";
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
+          } else if (
+            request.kind === "mega_rip_lock" ||
+            request.kind === "mega_rip_pull" ||
+            request.kind === "mega_rip_settle"
+          ) {
+            requestBidBps =
+              request.configuredBuilderBidBps ??
+              config.megaRipBuilderBidBps;
+            requestBidPolicy = "mega_rip";
+            requestMinimumPriorityFeePerGas =
+              config.poolMinPriorityFeePerGas;
           } else if (request.kind === "liquity_liquidation") {
             requestBidBps = config.liquityBuilderBidBps;
             requestBidPolicy = "liquity";
@@ -1705,6 +1716,8 @@ async function main(): Promise<void> {
             config.groupPullCollectBuilderBidBps.toString(),
           configuredGroupPullStandingOrderBuilderBidBps:
             config.groupPullStandingOrderBuilderBidBps.toString(),
+          configuredMegaRipBuilderBidBps:
+            config.megaRipBuilderBidBps.toString(),
           configuredLiveBidSweepBuilderBidBps:
             config.liveBidSweepBuilderBidBps.toString(),
           configuredLiquityBuilderBidBps:
@@ -4060,6 +4073,8 @@ async function main(): Promise<void> {
       config.groupPullCollectBuilderBidBps.toString(),
     configuredGroupPullStandingOrderBuilderBidBps:
       config.groupPullStandingOrderBuilderBidBps.toString(),
+    configuredMegaRipBuilderBidBps:
+      config.megaRipBuilderBidBps.toString(),
     activeV2PoolFulfilledBuilderBidBps:
       v2Config === undefined
         ? ""
@@ -4095,6 +4110,7 @@ async function main(): Promise<void> {
     adaptiveBidding: adaptiveBidController !== undefined,
     poolLifecycle: config.enablePoolLifecycle,
     groupPull: config.enableGroupPull,
+    megaRip: config.enableMegaRip,
     vaults: config.enableVaults,
     buyback: config.enableBuyback,
     liveBidSweep: config.enableLiveBidSweep,

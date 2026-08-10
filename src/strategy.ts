@@ -99,6 +99,7 @@ import {
   planGroupPullStandingOrderJobs,
   type GroupPullCollectContext,
 } from "./group-pull.js";
+import { megaRipAbi, planMegaRipJobs } from "./mega-rip.js";
 import { retryTransientRead } from "./heads.js";
 import {
   ACQUISITION_STATUS,
@@ -152,6 +153,9 @@ export type KeeperJobKind =
   | "group_pull_submit"
   | "group_pull_collect"
   | "group_pull_standing_order"
+  | "mega_rip_lock"
+  | "mega_rip_pull"
+  | "mega_rip_settle"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -4817,6 +4821,20 @@ async function planJobs(parameters: {
           parameters.config.groupPullStandingOrderBuilderBidBps,
       })
     : Promise.resolve([]);
+  const megaRipPromise = parameters.config.enableMegaRip
+    ? planMegaRipJobs({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        blockTimestamp: parameters.headTimestamp,
+        maxFeePerGas: parameters.maxFeePerGas,
+        gasLimitMultiplierBps:
+          parameters.config.gasLimitMultiplierBps,
+        minProfitWei: parameters.config.minProfitWei,
+        builderBidBps:
+          parameters.config.megaRipBuilderBidBps,
+      })
+    : Promise.resolve(undefined);
   const {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
@@ -4909,11 +4927,32 @@ async function planJobs(parameters: {
           skipped: merged.skipped,
         }
       : mergedWithGroupPullCollect;
+  const megaRipPlan = await megaRipPromise;
+  const selectedWithMegaRip: PlannedJobs =
+    megaRipPlan === undefined || megaRipPlan.jobs.length === 0
+      ? selectedBase
+      : megaRipPlan.minimumViablePrefix > 1
+        ? {
+            jobs: megaRipPlan.jobs,
+            minimumViablePrefix: megaRipPlan.minimumViablePrefix,
+            orders: selectedBase.orders,
+            skipped: selectedBase.skipped,
+          }
+        : selectedBase.jobs.length >= maxJobs(parameters.config)
+          ? selectedBase
+          : {
+              ...selectedBase,
+              jobs: [...selectedBase.jobs, ...megaRipPlan.jobs],
+              minimumViablePrefix:
+                selectedBase.minimumViablePrefix === 0
+                  ? 1
+                  : selectedBase.minimumViablePrefix,
+            };
   const groupPullStandingOrderJobs =
     await groupPullStandingOrderPromise;
   const availableGroupPullStandingOrderSlots = Math.max(
     0,
-    maxJobs(parameters.config) - selectedBase.jobs.length,
+    maxJobs(parameters.config) - selectedWithMegaRip.jobs.length,
   );
   const appendedGroupPullStandingOrderJobs =
     groupPullStandingOrderJobs.slice(
@@ -4922,19 +4961,19 @@ async function planJobs(parameters: {
     );
   const selected: PlannedJobs =
     appendedGroupPullStandingOrderJobs.length === 0
-      ? selectedBase
+      ? selectedWithMegaRip
       : {
-          ...selectedBase,
+          ...selectedWithMegaRip,
           jobs: [
-            ...selectedBase.jobs,
+            ...selectedWithMegaRip.jobs,
             ...appendedGroupPullStandingOrderJobs,
           ],
           minimumViablePrefix:
-            selectedBase.minimumViablePrefix === 0
+            selectedWithMegaRip.minimumViablePrefix === 0
               ? 1
-              : selectedBase.minimumViablePrefix,
+              : selectedWithMegaRip.minimumViablePrefix,
           orders:
-            selectedBase.orders +
+            selectedWithMegaRip.orders +
             appendedGroupPullStandingOrderJobs.length,
         };
   log("info", "pull_pool_adapter_plans_merged", {
@@ -4980,6 +5019,19 @@ async function planJobs(parameters: {
       groupPullStandingOrderJobs.length,
     groupPullStandingOrdersAppended:
       appendedGroupPullStandingOrderJobs.length,
+    megaRipEnabled: parameters.config.enableMegaRip,
+    megaRipState: megaRipPlan?.state ?? "",
+    megaRipFundingEndsAt:
+      megaRipPlan?.fundingEndsAt.toString() ?? "",
+    megaRipTotalDeposited:
+      megaRipPlan?.totalDeposited.toString() ?? "",
+    megaRipPullsDone: megaRipPlan?.pullsDone.toString() ?? "",
+    megaRipEstimatedPullsRemaining:
+      megaRipPlan?.estimatedPullsRemaining.toString() ?? "",
+    megaRipPlannedJobs: megaRipPlan?.jobs.length ?? 0,
+    megaRipSelected: selected.jobs.some((job) =>
+      job.kind.startsWith("mega_rip_"),
+    ),
   });
   return selected;
 }
@@ -5220,6 +5272,31 @@ function actualJobReward(
         }
       } catch {
         // Ignore unrelated order logs.
+      }
+    }
+    return total;
+  }
+  if (
+    request.kind === "mega_rip_lock" ||
+    request.kind === "mega_rip_pull" ||
+    request.kind === "mega_rip_settle"
+  ) {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
+        continue;
+      }
+      try {
+        const decoded = decodeEventLog({
+          abi: megaRipAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (decoded.eventName === "BountyPaid") {
+          total += decoded.args.amount;
+        }
+      } catch {
+        // MegaRip emits lifecycle events alongside the bounty event.
       }
     }
     return total;

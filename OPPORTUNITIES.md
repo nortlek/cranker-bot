@@ -379,20 +379,21 @@ Acceptance:
 
 ### P0 — MegaRip one-pass FWA pool
 
-Status: canonical release validated; keeper integration pending before the
-first funded lifecycle. Canonical deployer
-`0xCB43078C32423F5348Cab5885911C3B5faE217F9` created verified, ownerless
-`MegaRip` at `0x49ba5f1C980a153Fd66FA61a60EeacF9c2b484ec` with nonce
-`3455`. Its 21,100-byte runtime hash is
-`0xaf33e191c164598fe479bb959bf8123b30d5a73049b2549f492aac1887ab1d92`.
-The verified constructor pins canonical FWA
+Status: funded canonical successor validated and bounded keeper integration
+implemented. The canonical deployer's nonce-3455 MegaRip at
+`0x49ba5f1C980a153Fd66FA61a60EeacF9c2b484ec` remains a zero-deposit Pending
+predecessor. Nonce 3456 created the later verified successor at
+`0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25` in block `25721560`; nonce 3457
+then funded it. Its 21,108-byte runtime hash is
+`0x7cd2bfa992850e1fb61393852e38f7c48b0e4fc01031ad820f3e3fd95d55ad8b`.
+The only verified-source change from the predecessor is a `0.01 ETH` minimum
+deposit. The verified constructor pins canonical FWA
 `0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c`, canonical FWA token
 `0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845`, FWA rewards
 `0x6a1a1C0CfB3D3C538e13D36d608a5bcaa992fc78`, and a
-`0.0003 ETH` per-crank bounty. Runtime reads at block `25721175` matched those
-relationships and showed state Pending, zero deposits/pulls/active
-allocations, and scheduled `openAt=1786399919`; no keeper call was yet
-callable.
+`0.0003 ETH` per-crank bounty. Exact runtime reads on 2026-08-10 matched those
+relationships and showed Funding state, `1.5978 ETH` deposited, zero pulls and
+active allocations, and `fundingEndsAt=1786418945`.
 
 The verified source exposes capital-free, permissionless bounty work after
 funding: `lock()` closes the fixed funding window, `pull(maxPulls)` first
@@ -401,12 +402,18 @@ and `settle(listingId)` pays the reserved terminal bounty after an auction
 deadline. `syncStuck`, `releaseStale`, `finalize`, and `sync` are also
 permissionless lifecycle/recovery calls, but only paths consuming a reserved
 crank bounty should enter the profit lane; `open` and ordinary reconcile calls
-have no bounty. Implement a fail-closed independent MegaRip adapter before
-the first funded lock: pin the exact runtime hash and immutable FWA identities,
-enumerate exact active acquisitions, estimate/simulate each bounded call at a
-fixed block, decode `BountyPaid` as the only reward authority, give the lane
-independent bidding state, and preserve nonce/balance/lease/private-delivery
-gates. Do not add deposits, bids, approvals, or NFT custody.
+have no bounty. The adapter pins the successor runtime and identities, decodes
+`BountyPaid` as its only receipt reward, and keeps an independent 1,000-bps
+private bid. It arms the exact mandatory `[lock(), pull(1)]` sequence only for
+the first eligible child block and never offers `lock()` alone. After locking,
+it permits an exactly estimated `pull(1)` only when all current pending records
+remain Pending in canonical FWA, and permits only reserved, expired/closed,
+no-bid floor settlements. Complete signed-bundle simulation, retained profit,
+nonce/balance/lease, and private-delivery gates remain authoritative. High-bid
+settlement and recovery branches remain deliberately disabled because a
+successful estimate alone does not yet prove they pay a bounty; reconstruct
+those branches from live allocations before expanding coverage. Do not add
+deposits, bids, approvals, or NFT custody.
 
 ### P0 — GroupPull subscription standing orders
 
