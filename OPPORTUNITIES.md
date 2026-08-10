@@ -334,6 +334,40 @@ non-helper transfer, or higher aggregate remains fail-closed. The first exact
 production discrepancy is a regression fixture and production emits a
 dedicated event whenever this narrowly bounded fallback is exercised.
 
+Signer-availability incident, 2026-08-09: Railway gracefully stopped the
+healthy `ca0cf2b` worker at `20:13:29 UTC`, marked its deployment Removed, and
+left zero advisory signer leases. There was no `fatal`, pass failure, pending
+nonce, or active lifecycle at shutdown, but the signer remained absent until
+the next monitoring run restored it. Exact downtime replay across blocks
+`25719742-25721194` found 371 FWA `Bought` events; none remained profitable at
+the keeper's 9,858-bps bid after exact block base fee and the buyback/helper
+gas, so those were not avoidable keeper losses.
+
+GroupPull round 46 did expose avoidable work. Its covering `enter` paid one
+close bounty atomically to the entrant and was not independently addressable.
+The later `submit` at block `25720268` paid four GroupPull bounty shares
+totalling `0.003555555555555556 ETH` while the competitor paid only
+`0.000013809615 ETH` of priority and no direct payment; the configured
+3,000-bps lane would have remained profitable. Once pool rounds 356-359
+fulfilled, eight separate zero-builder-payment pool calls at blocks
+`25720300-25720303` and `25720319-25720322` captured
+`0.001648130493074796 ETH` of sync bounties and
+`0.003303212146462005 ETH` of settle bounties. These nine reward calls exposed
+`0.008506898195092357 ETH` gross during the outage; that is missed gross
+reward, not realized or net profit. The eventual four-share GroupPull collect
+paid `0.003504175660674695 ETH` to the builder against
+`0.003555555555555556 ETH` gross and retained only
+`0.000000679649280184 ETH` after exact base gas, below the keeper's
+`0.000001 ETH` floor, so raising the collect bid is not justified.
+
+Production was restored as deployment
+`9aa76d6c-4f00-4948-935a-4c1c8a4d4f41` on exact revision
+`3b7f0688db3956b280942ec72b90c8dc8e5a7b05`, with one signer lease, no
+waiter, and continuing WebSocket passes. The stop had no application error
+fingerprint to repair; continue treating a zero-lease/Removed deployment as an
+availability incident requiring immediate safe redeployment after nonce and
+lifecycle gates.
+
 Acceptance:
 
 - replay the newest exact payment comparison with the full helper gas envelope
