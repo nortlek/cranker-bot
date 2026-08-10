@@ -201,19 +201,25 @@ function laneForKind(kind: string): {
         strategy: "crank",
         accent: "#ffd18a",
       };
+    case "mega_rip_executor_deploy":
     case "mega_rip_lock":
     case "mega_rip_pull":
     case "mega_rip_settle":
+    case "mega_rip_recover":
       return {
         laneKey: "other",
         lane: "MegaRip",
         contract: "MegaRip",
         strategy:
-          kind === "mega_rip_lock"
+          kind === "mega_rip_executor_deploy"
+            ? "deploy executor"
+            : kind === "mega_rip_lock"
             ? "lock"
             : kind === "mega_rip_pull"
               ? "pull"
-              : "settle",
+              : kind === "mega_rip_settle"
+                ? "settle"
+                : "recover",
         accent: "#ff8ac8",
       };
     case "convex_earmark":

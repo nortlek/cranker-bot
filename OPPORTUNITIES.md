@@ -379,8 +379,8 @@ Acceptance:
 
 ### P0 — MegaRip one-pass FWA pool
 
-Status: funded canonical successor validated and bounded keeper integration
-implemented. The canonical deployer's nonce-3455 MegaRip at
+Status: funded canonical successor validated and competitive reward-gated
+batch keeper integration implemented. The canonical deployer's nonce-3455 MegaRip at
 `0x49ba5f1C980a153Fd66FA61a60EeacF9c2b484ec` remains a zero-deposit Pending
 predecessor. Nonce 3456 created the later verified successor at
 `0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25` in block `25721560`; nonce 3457
@@ -391,9 +391,14 @@ deposit. The verified constructor pins canonical FWA
 `0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c`, canonical FWA token
 `0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845`, FWA rewards
 `0x6a1a1C0CfB3D3C538e13D36d608a5bcaa992fc78`, and a
-`0.0003 ETH` per-crank bounty. Exact runtime reads on 2026-08-10 matched those
-relationships and showed Funding state, `1.5978 ETH` deposited, zero pulls and
-active allocations, and `fundingEndsAt=1786418945`.
+`0.0003 ETH` per-crank bounty. Exact runtime reads at block `25726144` on
+2026-08-10 matched those relationships and showed Funding state, `7.5778 ETH`
+deposited, zero pulls and active allocations, and
+`fundingEndsAt=1786418945`. The exact FWA quote was
+`0.081783700221525224 ETH`; after the two reserved bounties per acquisition,
+the pool could fund 91 acquisitions and therefore exposed at most `0.0546 ETH`
+of gross pull-plus-terminal keeper rewards. This is opportunity inventory, not
+realized or guaranteed net profit.
 
 The verified source exposes capital-free, permissionless bounty work after
 funding: `lock()` closes the fixed funding window, `pull(maxPulls)` first
@@ -402,18 +407,32 @@ and `settle(listingId)` pays the reserved terminal bounty after an auction
 deadline. `syncStuck`, `releaseStale`, `finalize`, and `sync` are also
 permissionless lifecycle/recovery calls, but only paths consuming a reserved
 crank bounty should enter the profit lane; `open` and ordinary reconcile calls
-have no bounty. The adapter pins the successor runtime and identities, decodes
-`BountyPaid` as its only receipt reward, and keeps an independent 1,000-bps
-private bid. It arms the exact mandatory `[lock(), pull(1)]` sequence only for
-the first eligible child block and never offers `lock()` alone. After locking,
-it permits an exactly estimated `pull(1)` only when all current pending records
-remain Pending in canonical FWA, and permits only reserved, expired/closed,
-no-bid floor settlements. Complete signed-bundle simulation, retained profit,
-nonce/balance/lease, and private-delivery gates remain authoritative. High-bid
-settlement and recovery branches remain deliberately disabled because a
-successful estimate alone does not yet prove they pay a bounty; reconstruct
-those branches from live allocations before expanding coverage. Do not add
-deposits, bids, approvals, or NFT custody.
+have no bounty. The original adapter's single `pull(1)` left most first-block
+rewards exposed, stalled whenever an earlier request moved out of Pending
+before reconciliation, and ignored every high-bid auction terminal bounty.
+The replacement derives an owner-bound CREATE2 executor, pins its runtime, and
+makes the first eligible private prefix `[deploy if needed, lock(),
+pullExact(40, 0.012 ETH)]`; two later rewarded batches can cover the remaining
+40 and 11 at their next exact states. The 40-call cap is derived from the
+keeper's `16,777,216` gas signing envelope: the 64-call fork replay succeeded
+but consumed `21,747,959` gas and therefore cannot be signed safely. In Pulling
+state the executor batches up to 40
+pulls and reverts the whole call unless the exact expected bounty arrives, so
+reconciled fulfillments cannot silently turn the attempt into unrewarded work.
+After auctions close, the planner tests every reserved allocation—including
+high-bid outcomes—through a one-item reward-gated estimate, batches only proven
+terminal bounties, and reverts unless the aggregate `0.0003 ETH` per listing is
+received. Executor receipt accounting and forwarded wallet balances must
+agree. Complete signed-bundle simulation, retained profit, independent
+1,000-bps private bidding, nonce/balance/lease, and private delivery remain
+authoritative.
+
+Auction bids are a different, capital-bearing strategy: they escrow ETH and
+can result in NFT custody, and winning resale value cannot be guaranteed from
+the protocol settlement alone. They remain intentionally excluded under the
+binding no-deposit/no-bid/no-approval/no-custody invariant. The bot does pursue
+the permissionless terminal bounty for each exact auction outcome that proves
+rewarded, whether another bidder wins or the reserve/no-bid path resolves.
 
 ### P0 — GroupPull subscription standing orders
 

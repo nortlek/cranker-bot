@@ -100,6 +100,7 @@ import {
   type GroupPullCollectContext,
 } from "./group-pull.js";
 import { megaRipAbi, planMegaRipJobs } from "./mega-rip.js";
+import { megaRipKeeperExecutorAbi } from "./mega-rip-keeper-executor.js";
 import { retryTransientRead } from "./heads.js";
 import {
   ACQUISITION_STATUS,
@@ -153,9 +154,11 @@ export type KeeperJobKind =
   | "group_pull_submit"
   | "group_pull_collect"
   | "group_pull_standing_order"
+  | "mega_rip_executor_deploy"
   | "mega_rip_lock"
   | "mega_rip_pull"
   | "mega_rip_settle"
+  | "mega_rip_recover"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -5277,9 +5280,15 @@ function actualJobReward(
     return total;
   }
   if (
-    request.kind === "mega_rip_lock" ||
+    request.kind === "mega_rip_executor_deploy" ||
+    request.kind === "mega_rip_lock"
+  ) {
+    return 0n;
+  }
+  if (
     request.kind === "mega_rip_pull" ||
-    request.kind === "mega_rip_settle"
+    request.kind === "mega_rip_settle" ||
+    request.kind === "mega_rip_recover"
   ) {
     let total = 0n;
     for (const entry of logs) {
@@ -5288,15 +5297,15 @@ function actualJobReward(
       }
       try {
         const decoded = decodeEventLog({
-          abi: megaRipAbi,
+          abi: megaRipKeeperExecutorAbi,
           data: entry.data,
           topics: entry.topics,
         });
-        if (decoded.eventName === "BountyPaid") {
-          total += decoded.args.amount;
+        if (decoded.eventName === "RewardedExecution") {
+          total += decoded.args.bounty;
         }
       } catch {
-        // MegaRip emits lifecycle events alongside the bounty event.
+        // Ignore unrelated executor logs.
       }
     }
     return total;

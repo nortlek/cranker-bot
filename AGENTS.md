@@ -666,14 +666,25 @@ These constraints prevent expensive or unsafe regressions:
   `0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25` while its runtime hash and
   immutable FWA, FWA token, and FWA rewards relationships remain canonical.
   `BountyPaid` from that exact contract is the only reward authority. At the
-  funding boundary, `lock()` has no reward and may be submitted only as the
-  mandatory private prefix `[lock(), pull(1)]` targeting the first eligible
-  child block; complete signed-bundle simulation must prove the whole prefix
-  and it must never expose a lock-only alternative. In Pulling state, call
-  `pull(1)` only when exact fixed-block acquisition state proves the call must
-  create a new rewarded acquisition. Call `settle(listingId)` only for an
-  exact reserved, no-bid allocation whose auction is closed or deadline has
-  passed and whose fixed-block estimate succeeds. Keep MegaRip bidding
+  funding boundary, `lock()` has no reward and may be submitted only in the
+  mandatory private prefix `[optional executor deploy, lock(),
+  executor.pullExact(count, count * bounty)]` targeting the first eligible
+  child block. Derive `count` from the exact FWA quote and locked deposits,
+  cap rewarded pulls at 40 to remain inside the keeper's signed gas envelope,
+  require the pinned owner-bound executor runtime, and let
+  complete signed-bundle simulation prove the entire prefix; never expose a
+  deployment-only or lock-only alternative. In Pulling state, use the same
+  reward-gated executor to batch up to 40 new pulls. Its minimum-bounty check
+  must revert the whole call if fewer new rewarded acquisitions are created,
+  including when fulfilled requests are reconciled first. For every exact
+  reserved allocation whose auction is closed or deadline has passed, attempt
+  `settle(listingId)` through the reward-gated executor regardless of whether
+  it has a high bidder. An individual exact fixed-block estimate must first
+  prove each settlement pays its terminal bounty, and the complete batch must
+  prove the aggregate minimum bounty; a retryable or unrewarded branch must
+  revert rather than spend gas. The executor must forward all received ETH to
+  the owner and emit the receipt-accounting event, and its code hash and
+  owner-derived CREATE2 address are fail-closed. Keep MegaRip bidding
   independent and preserve exact retained-profit, nonce, balance, lease, and
   private-delivery gates. Never deposit, bid, approve tokens, or take NFT
   custody for this lane.

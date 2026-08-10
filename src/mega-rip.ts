@@ -9,7 +9,6 @@ import {
   type Transport,
 } from "viem";
 
-import { fwaAbi } from "./abi.js";
 import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
 } from "./config.js";
@@ -22,7 +21,17 @@ import {
 } from "./constants.js";
 import { bufferedGas, requiredProfit } from "./economics.js";
 import { errorMessage, log } from "./format.js";
-import { ACQUISITION_STATUS } from "./lifecycle.js";
+import {
+  encodeMegaRipExactPull,
+  encodeMegaRipExactSettlements,
+  MEGA_RIP_KEEPER_EXECUTOR_DEPLOY_GAS_LIMIT,
+  MEGA_RIP_KEEPER_EXECUTOR_MAX_CALLS,
+  megaRipKeeperExecutorDeployment,
+} from "./mega-rip-keeper-executor.js";
+import {
+  SINGLETON_FACTORY_ADDRESS,
+  SINGLETON_FACTORY_RUNTIME_CODE,
+} from "./standing-order-batch-executor.js";
 import type { KeeperJob } from "./strategy.js";
 
 export const MEGA_RIP_STATE = {
@@ -42,6 +51,10 @@ export const MEGA_RIP_ACQUISITION_STATE = {
 } as const;
 
 const MAX_ACQUISITIONS_TO_SCAN = 512n;
+// Current live-fork gas is ~13.6m for 40 pulls. This preserves room inside the
+// keeper's 16,777,216 signing envelope; the executor's hard ABI bound remains
+// 64 for lower-gas terminal batches.
+const MAX_REWARDED_PULLS_PER_TRANSACTION = 40n;
 
 export const megaRipAbi = [
   {
@@ -106,6 +119,17 @@ export const megaRipAbi = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint128" }],
+  },
+  {
+    type: "function",
+    name: "quoteAcquisitionPrice",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "fee", type: "uint256" },
+      { name: "vrf", type: "uint256" },
+      { name: "total", type: "uint256" },
+    ],
   },
   {
     type: "function",
@@ -204,6 +228,31 @@ export function megaRipFloorSettlementIsRewarded(parameters: {
   );
 }
 
+export function megaRipTerminalSettlementIsEligible(parameters: {
+  readonly acquisition: MegaRipAcquisition;
+  readonly blockTimestamp: bigint;
+}): boolean {
+  const acquisition = parameters.acquisition;
+  return (
+    Number(acquisition.status) === MEGA_RIP_ACQUISITION_STATE.ALLOCATED &&
+    acquisition.reserved &&
+    acquisition.listingId !== 0n &&
+    (!acquisition.auctionOpen ||
+      parameters.blockTimestamp >= acquisition.deadline)
+  );
+}
+
+export function megaRipInitialPullCount(parameters: {
+  readonly totalDeposited: bigint;
+  readonly acquisitionPrice: bigint;
+  readonly bounty: bigint;
+}): bigint {
+  const unitCost = parameters.acquisitionPrice + parameters.bounty * 2n;
+  return unitCost === 0n
+    ? 0n
+    : boundedMegaRipCallCount(parameters.totalDeposited / unitCost);
+}
+
 export interface MegaRipPlan {
   readonly jobs: readonly KeeperJob[];
   readonly minimumViablePrefix: number;
@@ -273,8 +322,12 @@ async function readMegaRipAcquisition(parameters: {
 }
 
 function profitableJob(parameters: {
-  readonly kind: "mega_rip_pull" | "mega_rip_settle";
+  readonly kind:
+    | "mega_rip_pull"
+    | "mega_rip_settle"
+    | "mega_rip_recover";
   readonly label: string;
+  readonly target: Address;
   readonly data: `0x${string}`;
   readonly gas: bigint;
   readonly reward: bigint;
@@ -291,12 +344,83 @@ function profitableJob(parameters: {
   return {
     kind: parameters.kind,
     label: parameters.label,
-    target: MEGA_RIP_ADDRESS,
+    target: parameters.target,
     data: parameters.data,
     gas: parameters.gas,
     reward: { kind: "fixed", amountWei: parameters.reward },
     configuredBuilderBidBps: parameters.builderBidBps,
   };
+}
+
+async function megaRipExecutorState(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly blockNumber: bigint;
+}): Promise<{
+  readonly address: Address;
+  readonly deployed: boolean;
+  readonly deployJob?: KeeperJob;
+}> {
+  const owner =
+    typeof parameters.account === "string"
+      ? parameters.account
+      : parameters.account.address;
+  const deployment = megaRipKeeperExecutorDeployment(owner);
+  const code = await parameters.client.getCode({
+    address: deployment.address,
+    blockNumber: parameters.blockNumber,
+  });
+  if (code !== undefined && code !== "0x") {
+    if (keccak256(code) !== deployment.expectedRuntimeCodeHash) {
+      throw new Error("MegaRip executor runtime does not match pinned code");
+    }
+    return { address: deployment.address, deployed: true };
+  }
+  const factoryCode = await parameters.client.getCode({
+    address: SINGLETON_FACTORY_ADDRESS,
+    blockNumber: parameters.blockNumber,
+  });
+  if (factoryCode !== SINGLETON_FACTORY_RUNTIME_CODE) {
+    throw new Error("MegaRip executor factory runtime is not canonical");
+  }
+  return {
+    address: deployment.address,
+    deployed: false,
+    deployJob: {
+      kind: "mega_rip_executor_deploy",
+      label: "mega_rip_executor_deploy",
+      target: SINGLETON_FACTORY_ADDRESS,
+      data: deployment.deployData,
+      gas: MEGA_RIP_KEEPER_EXECUTOR_DEPLOY_GAS_LIMIT,
+      reward: { kind: "fixed", amountWei: 0n },
+      requiresBundleSimulation: true,
+    },
+  };
+}
+
+function boundedMegaRipCallCount(count: bigint): bigint {
+  return count < MAX_REWARDED_PULLS_PER_TRANSACTION
+    ? count
+    : MAX_REWARDED_PULLS_PER_TRANSACTION;
+}
+
+async function estimateRewardGatedJob(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly blockNumber: bigint;
+  readonly target: Address;
+  readonly data: `0x${string}`;
+  readonly gasLimitMultiplierBps: bigint;
+}): Promise<bigint> {
+  return bufferedGas(
+    await parameters.client.estimateGas({
+      account: parameters.account,
+      to: parameters.target,
+      data: parameters.data,
+      blockNumber: parameters.blockNumber,
+    }),
+    parameters.gasLimitMultiplierBps,
+  );
 }
 
 export async function planMegaRipJobs(parameters: {
@@ -357,6 +481,11 @@ export async function planMegaRipJobs(parameters: {
     pullsDone,
     estimatedPullsRemaining: remaining,
   };
+  const executor = await megaRipExecutorState({
+    client: parameters.client,
+    account: parameters.account,
+    blockNumber: parameters.blockNumber,
+  });
 
   if (
     megaRipFundingCanLockInNextBlock({
@@ -366,6 +495,20 @@ export async function planMegaRipJobs(parameters: {
       parentTimestamp: parameters.blockTimestamp,
     })
   ) {
+    const quote = await parameters.client.readContract({
+      address: PULL_POOL_FWA_ADDRESS,
+      abi: megaRipAbi,
+      functionName: "quoteAcquisitionPrice",
+      blockNumber: parameters.blockNumber,
+    });
+    const pullCount = megaRipInitialPullCount({
+      totalDeposited,
+      acquisitionPrice: quote[2],
+      bounty,
+    });
+    if (pullCount === 0n) {
+      return { ...base, jobs: [], minimumViablePrefix: 0 };
+    }
     const lockData = encodeFunctionData({
       abi: megaRipAbi,
       functionName: "lock",
@@ -385,6 +528,9 @@ export async function planMegaRipJobs(parameters: {
     return {
       ...base,
       jobs: [
+        ...(executor.deployJob === undefined
+          ? []
+          : [executor.deployJob]),
         {
           kind: "mega_rip_lock",
           label: "mega_rip_lock",
@@ -397,20 +543,23 @@ export async function planMegaRipJobs(parameters: {
         },
         {
           kind: "mega_rip_pull",
-          label: "mega_rip_pull:1:after_lock",
-          target: MEGA_RIP_ADDRESS,
-          data: encodeFunctionData({
-            abi: megaRipAbi,
-            functionName: "pull",
-            args: [1n],
-          }),
+          label: `mega_rip_pull:${pullCount}:after_lock`,
+          target: executor.address,
+          data: encodeMegaRipExactPull(
+            pullCount,
+            pullCount * bounty,
+          ),
           gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
-          reward: { kind: "fixed", amountWei: bounty },
+          reward: {
+            kind: "fixed",
+            amountWei: pullCount * bounty,
+          },
           configuredBuilderBidBps: parameters.builderBidBps,
           requiresBundleSimulation: true,
         },
       ],
-      minimumViablePrefix: 2,
+      minimumViablePrefix:
+        executor.deployJob === undefined ? 2 : 3,
     };
   }
 
@@ -429,121 +578,183 @@ export async function planMegaRipJobs(parameters: {
       }),
     ),
   );
-  const candidates: KeeperJob[] = [];
-  const pending = acquisitions.filter(
-    (acquisition) =>
-      Number(acquisition.status) === MEGA_RIP_ACQUISITION_STATE.PENDING,
-  );
-  let pendingCanOnlyStayPending = true;
-  if (pending.length > 0) {
-    const statuses = await Promise.all(
-      pending.map((acquisition) =>
-        parameters.client.readContract({
-          address: PULL_POOL_FWA_ADDRESS,
-          abi: fwaAbi,
-          functionName: "acquisitions",
-          args: [acquisition.requestId],
-          blockNumber: parameters.blockNumber,
-        }),
-      ),
-    );
-    pendingCanOnlyStayPending = statuses.every(
-      (acquisition) =>
-        Number(acquisition[4]) === ACQUISITION_STATUS.pending,
-    );
-  }
-  if (remaining > 0n && pendingCanOnlyStayPending) {
-    const data = encodeFunctionData({
-      abi: megaRipAbi,
-      functionName: "pull",
-      args: [1n],
-    });
-    try {
-      const gas = bufferedGas(
-        await parameters.client.estimateGas({
-          account: parameters.account,
-          to: MEGA_RIP_ADDRESS,
-          data,
-          blockNumber: parameters.blockNumber,
-        }),
-        parameters.gasLimitMultiplierBps,
-      );
-      const job = profitableJob({
+  if (remaining > 0n) {
+    let pullCount = boundedMegaRipCallCount(remaining);
+    let gas: bigint | undefined;
+    if (executor.deployed) {
+      while (pullCount > 0n) {
+        const data = encodeMegaRipExactPull(
+          pullCount,
+          pullCount * bounty,
+        );
+        try {
+          gas = await estimateRewardGatedJob({
+            client: parameters.client,
+            account: parameters.account,
+            blockNumber: parameters.blockNumber,
+            target: executor.address,
+            data,
+            gasLimitMultiplierBps:
+              parameters.gasLimitMultiplierBps,
+          });
+          break;
+        } catch (error) {
+          log("debug", "mega_rip_pull_batch_not_ready", {
+            pullCount: pullCount.toString(),
+            reason: errorMessage(error),
+          });
+          pullCount /= 2n;
+        }
+      }
+    } else {
+      gas = BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT);
+    }
+    if (pullCount > 0n && gas !== undefined) {
+      const reward = pullCount * bounty;
+      const pullJob = profitableJob({
         kind: "mega_rip_pull",
-        label: "mega_rip_pull:1",
-        data,
+        label: `mega_rip_pull:${pullCount}`,
+        target: executor.address,
+        data: encodeMegaRipExactPull(pullCount, reward),
         gas,
-        reward: bounty,
+        reward,
         maxFeePerGas: parameters.maxFeePerGas,
         minProfitWei: parameters.minProfitWei,
         builderBidBps: parameters.builderBidBps,
       });
-      if (job !== undefined) candidates.push(job);
-    } catch (error) {
-      log("debug", "mega_rip_pull_not_ready", {
-        reason: errorMessage(error),
-      });
+      if (pullJob !== undefined) {
+        const jobs = [
+          ...(executor.deployJob === undefined
+            ? []
+            : [executor.deployJob]),
+          {
+            ...pullJob,
+            ...(executor.deployed
+              ? {}
+              : { requiresBundleSimulation: true }),
+          },
+        ];
+        return {
+          ...base,
+          jobs,
+          minimumViablePrefix: jobs.length,
+        };
+      }
     }
   }
-  await Promise.all(
-    acquisitions.map(async (acquisition) => {
-      if (
-        !megaRipFloorSettlementIsRewarded({
-          acquisition,
-          blockTimestamp: parameters.blockTimestamp,
-        })
-      ) {
-        return;
-      }
-      const data = encodeFunctionData({
-        abi: megaRipAbi,
-        functionName: "settle",
-        args: [acquisition.listingId],
-      });
-      try {
-        const gas = bufferedGas(
-          await parameters.client.estimateGas({
-            account: parameters.account,
-            to: MEGA_RIP_ADDRESS,
-            data,
-            blockNumber: parameters.blockNumber,
-          }),
-          parameters.gasLimitMultiplierBps,
+  const eligibleSettlements = acquisitions
+    .filter((acquisition) =>
+      megaRipTerminalSettlementIsEligible({
+        acquisition,
+        blockTimestamp: parameters.blockTimestamp,
+      }),
+    )
+    .slice(0, Number(MEGA_RIP_KEEPER_EXECUTOR_MAX_CALLS));
+  if (eligibleSettlements.length === 0) {
+    return { ...base, jobs: [], minimumViablePrefix: 0 };
+  }
+  let settlementIds = eligibleSettlements.map(
+    (acquisition) => acquisition.listingId,
+  );
+  if (executor.deployed) {
+    const individuallyRewarded = await Promise.all(
+      settlementIds.map(async (listingId) => {
+        const data = encodeMegaRipExactSettlements(
+          [listingId],
+          bounty,
         );
-        const job = profitableJob({
-          kind: "mega_rip_settle",
-          label: `mega_rip_settle:${acquisition.listingId}`,
-          data,
-          gas,
-          reward: bounty,
-          maxFeePerGas: parameters.maxFeePerGas,
-          minProfitWei: parameters.minProfitWei,
-          builderBidBps: parameters.builderBidBps,
+        try {
+          await estimateRewardGatedJob({
+            client: parameters.client,
+            account: parameters.account,
+            blockNumber: parameters.blockNumber,
+            target: executor.address,
+            data,
+            gasLimitMultiplierBps:
+              parameters.gasLimitMultiplierBps,
+          });
+          return listingId;
+        } catch (error) {
+          log("debug", "mega_rip_settlement_not_rewarded", {
+            listingId: listingId.toString(),
+            reason: errorMessage(error),
+          });
+          return undefined;
+        }
+      }),
+    );
+    settlementIds = individuallyRewarded.filter(
+      (listingId): listingId is bigint => listingId !== undefined,
+    );
+  } else {
+    settlementIds = settlementIds.slice(0, 1);
+  }
+  if (settlementIds.length === 0) {
+    return { ...base, jobs: [], minimumViablePrefix: 0 };
+  }
+  let settlementGas = BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT);
+  if (executor.deployed) {
+    while (settlementIds.length > 0) {
+      const reward = bounty * BigInt(settlementIds.length);
+      try {
+        settlementGas = await estimateRewardGatedJob({
+          client: parameters.client,
+          account: parameters.account,
+          blockNumber: parameters.blockNumber,
+          target: executor.address,
+          data: encodeMegaRipExactSettlements(
+            settlementIds,
+            reward,
+          ),
+          gasLimitMultiplierBps:
+            parameters.gasLimitMultiplierBps,
         });
-        if (job !== undefined) candidates.push(job);
+        break;
       } catch (error) {
-        log("debug", "mega_rip_settle_not_ready", {
-          listingId: acquisition.listingId.toString(),
+        log("debug", "mega_rip_settlement_batch_not_ready", {
+          settlements: settlementIds.length,
           reason: errorMessage(error),
         });
+        settlementIds = settlementIds.slice(
+          0,
+          Math.floor(settlementIds.length / 2),
+        );
       }
-    }),
-  );
-  candidates.sort((left, right) => {
-    const leftReward = left.reward.kind === "fixed" ? left.reward.amountWei : 0n;
-    const rightReward =
-      right.reward.kind === "fixed" ? right.reward.amountWei : 0n;
-    const leftProfit = leftReward - left.gas * parameters.maxFeePerGas;
-    const rightProfit = rightReward - right.gas * parameters.maxFeePerGas;
-    return leftProfit === rightProfit
-      ? left.label.localeCompare(right.label)
-      : leftProfit > rightProfit
-        ? -1
-        : 1;
+    }
+  }
+  if (settlementIds.length === 0) {
+    return { ...base, jobs: [], minimumViablePrefix: 0 };
+  }
+  const settlementReward = bounty * BigInt(settlementIds.length);
+  const settlementJob = profitableJob({
+    kind: "mega_rip_settle",
+    label: `mega_rip_settle:${settlementIds.length}`,
+    target: executor.address,
+    data: encodeMegaRipExactSettlements(
+      settlementIds,
+      settlementReward,
+    ),
+    gas: settlementGas,
+    reward: settlementReward,
+    maxFeePerGas: parameters.maxFeePerGas,
+    minProfitWei: parameters.minProfitWei,
+    builderBidBps: parameters.builderBidBps,
   });
+  if (settlementJob === undefined) {
+    return { ...base, jobs: [], minimumViablePrefix: 0 };
+  }
+  const jobs = [
+    ...(executor.deployJob === undefined ? [] : [executor.deployJob]),
+    {
+      ...settlementJob,
+      ...(executor.deployed
+        ? {}
+        : { requiresBundleSimulation: true }),
+    },
+  ];
   return {
     ...base,
-    jobs: candidates.slice(0, 1),
-    minimumViablePrefix: candidates.length === 0 ? 0 : 1,
+    jobs,
+    minimumViablePrefix: jobs.length,
   };
 }

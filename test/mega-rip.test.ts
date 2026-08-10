@@ -12,6 +12,8 @@ import {
   megaRipAbi,
   megaRipFloorSettlementIsRewarded,
   megaRipFundingCanLockInNextBlock,
+  megaRipInitialPullCount,
+  megaRipTerminalSettlementIsEligible,
 } from "../src/mega-rip.js";
 
 const zero = getAddress("0x0000000000000000000000000000000000000000");
@@ -108,6 +110,48 @@ describe("MegaRip keeper adapter", () => {
     expect(
       megaRipFloorSettlementIsRewarded({
         acquisition: acquisition({ reserved: false }),
+        blockTimestamp: 100n,
+      }),
+    ).toBe(false);
+  });
+
+  it("batches the maximum safe first-block pulls from exact pool economics", () => {
+    expect(
+      megaRipInitialPullCount({
+        totalDeposited: 7_497_800_000_000_000_000n,
+        acquisitionPrice: 81_800_000_000_000_000n,
+        bounty: 300_000_000_000_000n,
+      }),
+    ).toBe(40n);
+    expect(
+      megaRipInitialPullCount({
+        totalDeposited: 824_000_000_000_000_000n,
+        acquisitionPrice: 81_800_000_000_000_000n,
+        bounty: 300_000_000_000_000n,
+      }),
+    ).toBe(10n);
+  });
+
+  it("pursues the terminal bounty after either a no-bid or high-bid auction", () => {
+    expect(
+      megaRipTerminalSettlementIsEligible({
+        acquisition: acquisition(),
+        blockTimestamp: 100n,
+      }),
+    ).toBe(true);
+    expect(
+      megaRipTerminalSettlementIsEligible({
+        acquisition: acquisition({
+          highBidder: getAddress(
+            "0x0000000000000000000000000000000000000002",
+          ),
+        }),
+        blockTimestamp: 100n,
+      }),
+    ).toBe(true);
+    expect(
+      megaRipTerminalSettlementIsEligible({
+        acquisition: acquisition({ deadline: 101n }),
         blockTimestamp: 100n,
       }),
     ).toBe(false);
