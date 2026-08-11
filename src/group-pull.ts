@@ -36,6 +36,9 @@ export const GROUP_PULL_ROUND_STATE = {
   EXPIRED: 5,
 } as const;
 
+const verifiedGroupPullRuntimeClients = new WeakSet<object>();
+const verifiedGroupPullFactoryRuntimeClients = new WeakSet<object>();
+
 export type GroupPullRound = Awaited<
   ReturnType<typeof readGroupPullRound>
 >;
@@ -74,11 +77,16 @@ export async function verifyGroupPullRuntime(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly blockNumber: bigint;
 }): Promise<void> {
+  const cacheKey = parameters.client as object;
+  const runtimeVerified =
+    verifiedGroupPullRuntimeClients.has(cacheKey);
   const [code, pool] = await Promise.all([
-    parameters.client.getCode({
-      address: GROUP_PULL_ADDRESS,
-      blockNumber: parameters.blockNumber,
-    }),
+    runtimeVerified
+      ? Promise.resolve(undefined)
+      : parameters.client.getCode({
+          address: GROUP_PULL_ADDRESS,
+          blockNumber: parameters.blockNumber,
+        }),
     parameters.client.readContract({
       address: GROUP_PULL_ADDRESS,
       abi: groupPullAbi,
@@ -87,50 +95,61 @@ export async function verifyGroupPullRuntime(parameters: {
     }),
   ]);
   if (
-    code === undefined ||
-    code === "0x" ||
-    keccak256(code) !== GROUP_PULL_RUNTIME_CODE_HASH
+    !runtimeVerified &&
+    (code === undefined ||
+      code === "0x" ||
+      keccak256(code) !== GROUP_PULL_RUNTIME_CODE_HASH)
   ) {
     throw new Error("GroupPull runtime does not match pinned code");
   }
   if (!isAddressEqual(pool, PULL_POOL_V2_ADDRESS)) {
     throw new Error("GroupPull no longer targets the canonical PullPool V2");
   }
+  verifiedGroupPullRuntimeClients.add(cacheKey);
 }
 
 export async function verifyGroupPullStandingOrderFactory(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly blockNumber: bigint;
 }): Promise<readonly Address[]> {
-  const [code, group, orderCount, orders] = await Promise.all([
-    parameters.client.getCode({
-      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+  const cacheKey = parameters.client as object;
+  const runtimeVerified =
+    verifiedGroupPullFactoryRuntimeClients.has(cacheKey);
+  const [code, [group, orderCount, orders]] = await Promise.all([
+    runtimeVerified
+      ? Promise.resolve(undefined)
+      : parameters.client.getCode({
+          address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+          blockNumber: parameters.blockNumber,
+        }),
+    parameters.client.multicall({
+      allowFailure: false,
       blockNumber: parameters.blockNumber,
-    }),
-    parameters.client.readContract({
-      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
-      abi: groupPullStandingOrderFactoryAbi,
-      functionName: "GROUP",
-      blockNumber: parameters.blockNumber,
-    }),
-    parameters.client.readContract({
-      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
-      abi: groupPullStandingOrderFactoryAbi,
-      functionName: "orderCount",
-      blockNumber: parameters.blockNumber,
-    }),
-    parameters.client.readContract({
-      address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
-      abi: groupPullStandingOrderFactoryAbi,
-      functionName: "allOrders",
-      blockNumber: parameters.blockNumber,
+      contracts: [
+        {
+          address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+          abi: groupPullStandingOrderFactoryAbi,
+          functionName: "GROUP" as const,
+        },
+        {
+          address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+          abi: groupPullStandingOrderFactoryAbi,
+          functionName: "orderCount" as const,
+        },
+        {
+          address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+          abi: groupPullStandingOrderFactoryAbi,
+          functionName: "allOrders" as const,
+        },
+      ],
     }),
   ]);
   if (
-    code === undefined ||
-    code === "0x" ||
-    keccak256(code) !==
-      GROUP_PULL_STANDING_ORDER_FACTORY_RUNTIME_CODE_HASH
+    !runtimeVerified &&
+    (code === undefined ||
+      code === "0x" ||
+      keccak256(code) !==
+        GROUP_PULL_STANDING_ORDER_FACTORY_RUNTIME_CODE_HASH)
   ) {
     throw new Error(
       "GroupPull standing-order factory runtime does not match pinned code",
@@ -144,6 +163,7 @@ export async function verifyGroupPullStandingOrderFactory(parameters: {
   if (orderCount > 512n || BigInt(orders.length) !== orderCount) {
     throw new Error("GroupPull standing-order factory index mismatch");
   }
+  verifiedGroupPullFactoryRuntimeClients.add(cacheKey);
   return orders;
 }
 
@@ -157,31 +177,46 @@ export async function planGroupPullStandingOrderJobs(parameters: {
   readonly builderBidBps: bigint;
 }): Promise<readonly KeeperJob[]> {
   const orders = await verifyGroupPullStandingOrderFactory(parameters);
+  const candidateState =
+    orders.length === 0
+      ? []
+      : await parameters.client.multicall({
+          allowFailure: true,
+          blockNumber: parameters.blockNumber,
+          contracts: orders.flatMap((order) => [
+            {
+              address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
+              abi: groupPullStandingOrderFactoryAbi,
+              functionName: "isOrder" as const,
+              args: [order] as const,
+            },
+            {
+              address: order,
+              abi: groupPullStandingOrderAbi,
+              functionName: "groupPull" as const,
+            },
+            {
+              address: order,
+              abi: groupPullStandingOrderAbi,
+              functionName: "crankFee" as const,
+            },
+          ]),
+        });
   const candidates = await Promise.all(
-    orders.map(async (order): Promise<KeeperJob | undefined> => {
+    orders.map(async (order, index): Promise<KeeperJob | undefined> => {
       try {
-        const [isOrder, groupPull, crankFee] = await Promise.all([
-          parameters.client.readContract({
-            address: GROUP_PULL_STANDING_ORDER_FACTORY_ADDRESS,
-            abi: groupPullStandingOrderFactoryAbi,
-            functionName: "isOrder",
-            args: [order],
-            blockNumber: parameters.blockNumber,
-          }),
-          parameters.client.readContract({
-            address: order,
-            abi: groupPullStandingOrderAbi,
-            functionName: "groupPull",
-            blockNumber: parameters.blockNumber,
-          }),
-          parameters.client.readContract({
-            address: order,
-            abi: groupPullStandingOrderAbi,
-            functionName: "crankFee",
-            blockNumber: parameters.blockNumber,
-          }),
-        ]);
-        if (!isOrder || !isAddressEqual(groupPull, GROUP_PULL_ADDRESS)) {
+        const isOrder = candidateState[index * 3];
+        const groupPull = candidateState[index * 3 + 1];
+        const crankFee = candidateState[index * 3 + 2];
+        if (
+          isOrder?.status !== "success" ||
+          groupPull?.status !== "success" ||
+          crankFee?.status !== "success" ||
+          isOrder.result !== true ||
+          typeof groupPull.result !== "string" ||
+          typeof crankFee.result !== "bigint" ||
+          !isAddressEqual(groupPull.result, GROUP_PULL_ADDRESS)
+        ) {
           return undefined;
         }
         const data = encodeFunctionData({
@@ -199,7 +234,7 @@ export async function planGroupPullStandingOrderJobs(parameters: {
           parameters.gasLimitMultiplierBps,
         );
         if (
-          crankFee - gas * parameters.maxFeePerGas <
+          crankFee.result - gas * parameters.maxFeePerGas <
           requiredProfit(parameters.minProfitWei)
         ) {
           return undefined;
@@ -210,7 +245,7 @@ export async function planGroupPullStandingOrderJobs(parameters: {
           target: order,
           data,
           gas,
-          reward: { kind: "fixed", amountWei: crankFee },
+          reward: { kind: "fixed", amountWei: crankFee.result },
           configuredBuilderBidBps: parameters.builderBidBps,
           order,
         };
@@ -254,6 +289,51 @@ export async function readGroupPullRound(parameters: {
   });
 }
 
+export async function readGroupPullPlannerState(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly blockNumber: bigint;
+}): Promise<{
+  readonly paused: boolean;
+  readonly deprecated: boolean;
+  readonly roundCount: bigint;
+  readonly liveRound: bigint;
+  readonly buyingRounds: bigint;
+}> {
+  const [paused, deprecated, roundCount, liveRound, buyingRounds] =
+    await parameters.client.multicall({
+      allowFailure: false,
+      blockNumber: parameters.blockNumber,
+      contracts: [
+        {
+          address: GROUP_PULL_ADDRESS,
+          abi: groupPullAbi,
+          functionName: "paused" as const,
+        },
+        {
+          address: GROUP_PULL_ADDRESS,
+          abi: groupPullAbi,
+          functionName: "deprecated" as const,
+        },
+        {
+          address: GROUP_PULL_ADDRESS,
+          abi: groupPullAbi,
+          functionName: "roundCount" as const,
+        },
+        {
+          address: GROUP_PULL_ADDRESS,
+          abi: groupPullAbi,
+          functionName: "liveRound" as const,
+        },
+        {
+          address: GROUP_PULL_ADDRESS,
+          abi: groupPullAbi,
+          functionName: "buyingRounds" as const,
+        },
+      ],
+    });
+  return { paused, deprecated, roundCount, liveRound, buyingRounds };
+}
+
 async function readActiveRounds(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly blockNumber: bigint;
@@ -273,15 +353,16 @@ async function readActiveRounds(parameters: {
       ids.push(cursor);
       cursor -= 1n;
     }
-    const rounds = await Promise.all(
-      ids.map((roundId) =>
-        readGroupPullRound({
-          client: parameters.client,
-          blockNumber: parameters.blockNumber,
-          roundId,
-        }),
-      ),
-    );
+    const rounds = await parameters.client.multicall({
+      allowFailure: false,
+      blockNumber: parameters.blockNumber,
+      contracts: ids.map((roundId) => ({
+        address: GROUP_PULL_ADDRESS,
+        abi: groupPullAbi,
+        functionName: "getRound" as const,
+        args: [roundId] as const,
+      })),
+    });
     for (let index = 0; index < ids.length; index += 1) {
       const round = rounds[index];
       if (
@@ -338,28 +419,30 @@ async function readFirstCollectablePulls(parameters: {
       functionName: "canPayTokens",
       blockNumber: parameters.blockNumber,
     }),
-    Promise.all(
-      poolRoundIds.map((poolRoundId) =>
-        parameters.client.readContract({
-          address: pool,
-          abi: poolV2Abi,
-          functionName: "getRound",
-          args: [poolRoundId],
+    poolRoundIds.length === 0
+      ? Promise.resolve([])
+      : parameters.client.multicall({
+          allowFailure: false,
           blockNumber: parameters.blockNumber,
+          contracts: poolRoundIds.map((poolRoundId) => ({
+            address: pool,
+            abi: poolV2Abi,
+            functionName: "getRound" as const,
+            args: [poolRoundId] as const,
+          })),
         }),
-      ),
-    ),
-    Promise.all(
-      poolRoundIds.map((poolRoundId) =>
-        parameters.client.readContract({
-          address: GROUP_PULL_ADDRESS,
-          abi: groupPullAbi,
-          functionName: "pullCollected",
-          args: [parameters.roundId, poolRoundId],
+    poolRoundIds.length === 0
+      ? Promise.resolve([])
+      : parameters.client.multicall({
+          allowFailure: false,
           blockNumber: parameters.blockNumber,
+          contracts: poolRoundIds.map((poolRoundId) => ({
+            address: GROUP_PULL_ADDRESS,
+            abi: groupPullAbi,
+            functionName: "pullCollected" as const,
+            args: [parameters.roundId, poolRoundId] as const,
+          })),
         }),
-      ),
-    ),
   ]);
   let firstCollections = 0;
   for (let index = 0; index < poolRoundIds.length; index += 1) {
@@ -471,39 +554,8 @@ export async function planGroupPullJob(parameters: {
   readonly collectBuilderBidBps: bigint;
 }): Promise<GroupPullPlan> {
   await verifyGroupPullRuntime(parameters);
-  const [paused, deprecated, roundCount, liveRound, buyingRounds] =
-    await Promise.all([
-      parameters.client.readContract({
-        address: GROUP_PULL_ADDRESS,
-        abi: groupPullAbi,
-        functionName: "paused",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: GROUP_PULL_ADDRESS,
-        abi: groupPullAbi,
-        functionName: "deprecated",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: GROUP_PULL_ADDRESS,
-        abi: groupPullAbi,
-        functionName: "roundCount",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: GROUP_PULL_ADDRESS,
-        abi: groupPullAbi,
-        functionName: "liveRound",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: GROUP_PULL_ADDRESS,
-        abi: groupPullAbi,
-        functionName: "buyingRounds",
-        blockNumber: parameters.blockNumber,
-      }),
-    ]);
+  const { paused, deprecated, roundCount, liveRound, buyingRounds } =
+    await readGroupPullPlannerState(parameters);
   const candidates: KeeperJob[] = [];
   const collectContexts: GroupPullCollectContext[] = [];
   if (liveRound > 0n) {

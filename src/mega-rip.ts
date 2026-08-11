@@ -60,6 +60,7 @@ const MAX_REWARDED_PULLS_PER_TRANSACTION = 40n;
 // exact repricer for the entire reward and let its base-fee-aware profitability
 // cap preserve MIN_PROFIT_ETH. Pulls retain their separate configured policy.
 export const MEGA_RIP_SETTLEMENT_BUILDER_BID_BPS = 10_000n;
+const verifiedMegaRipRuntimeClients = new WeakSet<object>();
 
 export const megaRipAbi = [
   {
@@ -272,28 +273,33 @@ export async function verifyMegaRipRuntime(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly blockNumber: bigint;
 }): Promise<void> {
-  const [code, fwa, token, rewards] = await Promise.all([
+  const cacheKey = parameters.client as object;
+  if (verifiedMegaRipRuntimeClients.has(cacheKey)) return;
+  const [code, [fwa, token, rewards]] = await Promise.all([
     parameters.client.getCode({
       address: MEGA_RIP_ADDRESS,
       blockNumber: parameters.blockNumber,
     }),
-    parameters.client.readContract({
-      address: MEGA_RIP_ADDRESS,
-      abi: megaRipAbi,
-      functionName: "FWA",
+    parameters.client.multicall({
+      allowFailure: false,
       blockNumber: parameters.blockNumber,
-    }),
-    parameters.client.readContract({
-      address: MEGA_RIP_ADDRESS,
-      abi: megaRipAbi,
-      functionName: "FWA_TOKEN",
-      blockNumber: parameters.blockNumber,
-    }),
-    parameters.client.readContract({
-      address: MEGA_RIP_ADDRESS,
-      abi: megaRipAbi,
-      functionName: "FWA_REWARDS",
-      blockNumber: parameters.blockNumber,
+      contracts: [
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "FWA" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "FWA_TOKEN" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "FWA_REWARDS" as const,
+        },
+      ],
     }),
   ]);
   if (
@@ -310,6 +316,7 @@ export async function verifyMegaRipRuntime(parameters: {
   ) {
     throw new Error("MegaRip immutable relationships are not canonical");
   }
+  verifiedMegaRipRuntimeClients.add(cacheKey);
 }
 
 async function readMegaRipAcquisition(parameters: {
@@ -341,6 +348,64 @@ export async function readMegaRipAcquisitions(parameters: {
       args: [BigInt(index)] as const,
     })),
   });
+}
+
+export async function readMegaRipState(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly blockNumber: bigint;
+}): Promise<{
+  readonly state: number;
+  readonly fundingEndsAt: bigint;
+  readonly totalDeposited: bigint;
+  readonly pullsDone: bigint;
+  readonly estimatedPullsRemaining: bigint;
+  readonly bounty: bigint;
+}> {
+  const [state, fundingEndsAt, totalDeposited, pullsDone, remaining, bounty] =
+    await parameters.client.multicall({
+      allowFailure: false,
+      blockNumber: parameters.blockNumber,
+      contracts: [
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "state" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "fundingEndsAt" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "totalDeposited" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "pullsDone" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "estimatedPullsRemaining" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "crankBounty" as const,
+        },
+      ],
+    });
+  return {
+    state: Number(state),
+    fundingEndsAt,
+    totalDeposited,
+    pullsDone,
+    estimatedPullsRemaining: remaining,
+    bounty,
+  };
 }
 
 function profitableJob(parameters: {
@@ -456,46 +521,14 @@ export async function planMegaRipJobs(parameters: {
   readonly builderBidBps: bigint;
 }): Promise<MegaRipPlan> {
   await verifyMegaRipRuntime(parameters);
-  const [stateRaw, fundingEndsAt, totalDeposited, pullsDone, remaining, bounty] =
-    await Promise.all([
-      parameters.client.readContract({
-        address: MEGA_RIP_ADDRESS,
-        abi: megaRipAbi,
-        functionName: "state",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: MEGA_RIP_ADDRESS,
-        abi: megaRipAbi,
-        functionName: "fundingEndsAt",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: MEGA_RIP_ADDRESS,
-        abi: megaRipAbi,
-        functionName: "totalDeposited",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: MEGA_RIP_ADDRESS,
-        abi: megaRipAbi,
-        functionName: "pullsDone",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: MEGA_RIP_ADDRESS,
-        abi: megaRipAbi,
-        functionName: "estimatedPullsRemaining",
-        blockNumber: parameters.blockNumber,
-      }),
-      parameters.client.readContract({
-        address: MEGA_RIP_ADDRESS,
-        abi: megaRipAbi,
-        functionName: "crankBounty",
-        blockNumber: parameters.blockNumber,
-      }),
-    ]);
-  const state = Number(stateRaw);
+  const {
+    state,
+    fundingEndsAt,
+    totalDeposited,
+    pullsDone,
+    estimatedPullsRemaining: remaining,
+    bounty,
+  } = await readMegaRipState(parameters);
   const base = {
     state,
     fundingEndsAt,

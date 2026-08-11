@@ -17,6 +17,7 @@ import {
   GROUP_PULL_DEPENDENT_COLLECT_GAS_LIMIT,
   groupPullBountyForCalls,
   groupPullCollectAfterSettlement,
+  readGroupPullPlannerState,
 } from "../src/group-pull.js";
 import {
   groupPullSubmitRewardAfterFinalEntry,
@@ -106,6 +107,39 @@ describe("GroupPull bounty accounting", () => {
         calls: 2,
       }),
     ).toBe(6n);
+  });
+
+  it("reads all hot GroupPull state through one exact-block multicall", async () => {
+    const seen: unknown[] = [];
+    const client = {
+      multicall: async (parameters: unknown) => {
+        seen.push(parameters);
+        return [false, false, 51n, 51n, 0n];
+      },
+    };
+
+    await expect(
+      readGroupPullPlannerState({
+        client: client as never,
+        blockNumber: 789n,
+      }),
+    ).resolves.toEqual({
+      paused: false,
+      deprecated: false,
+      roundCount: 51n,
+      liveRound: 51n,
+      buyingRounds: 0n,
+    });
+    expect(seen).toEqual([
+      expect.objectContaining({
+        allowFailure: false,
+        blockNumber: 789n,
+        contracts: expect.arrayContaining([
+          expect.objectContaining({ functionName: "paused" }),
+          expect.objectContaining({ functionName: "buyingRounds" }),
+        ]),
+      }),
+    ]);
   });
 
   it("builds an exact-simulation collect unlocked by a pool settlement", () => {

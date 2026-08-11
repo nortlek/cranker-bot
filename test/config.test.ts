@@ -20,6 +20,8 @@ const originalDirectCoinbasePayments =
   process.env.ENABLE_DIRECT_COINBASE_PAYMENTS;
 const originalLiveBidSweep =
   process.env.ENABLE_LIVE_BID_SWEEP;
+const originalLiquityLiquidations =
+  process.env.ENABLE_LIQUITY_LIQUIDATIONS;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
 const originalBuybackBuilderBidBps =
@@ -79,6 +81,12 @@ afterEach(() => {
   } else {
     process.env.ENABLE_LIVE_BID_SWEEP =
       originalLiveBidSweep;
+  }
+  if (originalLiquityLiquidations === undefined) {
+    delete process.env.ENABLE_LIQUITY_LIQUIDATIONS;
+  } else {
+    process.env.ENABLE_LIQUITY_LIQUIDATIONS =
+      originalLiquityLiquidations;
   }
   if (originalPendingFundingBuilderBidBps === undefined) {
     delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
@@ -172,6 +180,20 @@ describe("LiveBid sweep", () => {
     process.env.ENABLE_LIVE_BID_SWEEP = "true";
 
     expect(loadConfig().enableLiveBidSweep).toBe(true);
+  });
+});
+
+describe("Liquity liquidations", () => {
+  it("defaults off after sustained zero-opportunity production scans", () => {
+    delete process.env.ENABLE_LIQUITY_LIQUIDATIONS;
+
+    expect(loadConfig().enableLiquityLiquidations).toBe(false);
+  });
+
+  it("can only be enabled explicitly", () => {
+    process.env.ENABLE_LIQUITY_LIQUIDATIONS = "true";
+
+    expect(loadConfig().enableLiquityLiquidations).toBe(true);
   });
 });
 

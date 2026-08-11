@@ -618,7 +618,7 @@ export function loadConfig(): KeeperConfig {
     ),
     enableLiquityLiquidations: booleanEnv(
       "ENABLE_LIQUITY_LIQUIDATIONS",
-      true,
+      false,
     ),
     enableConvexEarmarks: booleanEnv(
       "ENABLE_CONVEX_EARMARKS",

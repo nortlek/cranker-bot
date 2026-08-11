@@ -368,6 +368,15 @@ fingerprint to repair; continue treating a zero-lease/Removed deployment as an
 availability incident requiring immediate safe redeployment after nonce and
 lifecycle gates.
 
+The RPC-cost audit retained this lane because durable history contains 65
+opportunities and 19 successful receipts, including a profitable receipt on
+2026-08-10. It did expose avoidable empty-state work: 7,033 of the preceding
+24 hours' passes reported `buyback_no_eth`. Buyback planning now reads the
+token's ETH balance first at the exact planning block and reads the two reward
+parameters only when that balance is nonzero. This preserves immediate
+eligibility and exact simulation while avoiding 14,066 contract reads per day
+at the observed pass rate.
+
 Acceptance:
 
 - replay the newest exact payment comparison with the full helper gas envelope
@@ -459,6 +468,14 @@ the two optional Alchemy-filtered pending feeds remain disarmed; private relay
 submission and all exact simulation, nonce, balance, signer-lease, and retained
 profit gates are unchanged.
 
+The follow-up RPC audit keeps MegaRip enabled because the first rewarded batch
+realized `0.010392136602992931 ETH` on its reward-bearing member. Its six hot
+state getters now share one exact-block Multicall3 request. The 21,108-byte
+non-proxy runtime and immutable FWA/token/rewards relationships are verified
+once per exact-state client instead of being downloaded and re-read on every
+head; all mutable state, acquisition records, estimates, simulations, and
+submission gates remain exact-head reads.
+
 At block `25729131`, all 379 allocations remained bounty-reserved: 366 were
 pending fulfillment and 13 had open auctions, with no high bids and no terminal
 settlement callable yet. The first observed auction deadlines are
@@ -500,6 +517,17 @@ membership are checked fail-closed at the exact planning block. Each candidate
 then receives exact fixed-block gas estimation, retained-profit gating, full
 signed-bundle simulation, receipt-event accounting, and an independent 1000
 bps builder policy.
+
+The RPC-cost audit retains GroupPull because durable history contains 38
+collect, 16 submit, and three standing-order opportunities with successful
+profitable receipts as recently as 2026-08-09. Hot `paused`, `deprecated`,
+round-index, and buying-state reads now share one exact-block Multicall3 call;
+active round and collection state are likewise batched. Factory relationship,
+count, and registry reads share one exact-block call, and all live order
+membership/target/fee reads share one call before per-candidate estimation.
+Pinned non-proxy runtime hashes are checked once per exact-state client, while
+the owner-settable live pool and every other mutable field remain checked on
+each head.
 
 The release was also publicly corroborated rather than trusted as authority:
 at about 17:00 America/Denver, @ripe0x posted that “group pack subscriptions”
@@ -2706,11 +2734,20 @@ and transient-custody boundary and requires explicit review before deployment.
 
 ### Liquity V2 liquidations
 
-Status: live watcher for official WETH, wstETH, and rETH branches.
+Status: default-off and production disabled on 2026-08-10 America/Denver.
 
 Budget only the guaranteed fixed WETH compensation in the eligibility model;
 variable collateral compensation is upside until decoded. Maintain exact batch
 simulation and a lane-specific competitive bid.
+
+The complete durable history from 2026-07-29 through 2026-08-10 contains zero
+Liquity opportunities, submissions, or receipts. In the last 24 hours alone,
+all three branches returned `none_liquidatable` on 7,058 passes, requiring at
+least 84,696 exact contract/multicall requests. Production now explicitly sets
+`ENABLE_LIQUITY_LIQUIDATIONS=false`, and the code default is also false.
+Re-enable only for a validated low-call liquidation trigger or evidence of a
+currently profitable trove; do not restore full three-branch enumeration on
+every head merely to retain dormant coverage.
 
 ### Convex earmarks and expired-lock kicks
 

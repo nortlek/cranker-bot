@@ -15,6 +15,7 @@ import {
   megaRipFundingCanLockInNextBlock,
   megaRipInitialPullCount,
   readMegaRipAcquisitions,
+  readMegaRipState,
   megaRipTerminalSettlementIsEligible,
 } from "../src/mega-rip.js";
 
@@ -162,6 +163,40 @@ describe("MegaRip keeper adapter", () => {
           expect.objectContaining({ args: [0n] }),
           expect.objectContaining({ args: [1n] }),
         ],
+      }),
+    ]);
+  });
+
+  it("reads all hot MegaRip state through one exact-block multicall", async () => {
+    const seen: unknown[] = [];
+    const client = {
+      multicall: async (parameters: unknown) => {
+        seen.push(parameters);
+        return [2, 100n, 1_000n, 9n, 4n, 300n];
+      },
+    };
+
+    await expect(
+      readMegaRipState({
+        client: client as never,
+        blockNumber: 456n,
+      }),
+    ).resolves.toEqual({
+      state: 2,
+      fundingEndsAt: 100n,
+      totalDeposited: 1_000n,
+      pullsDone: 9n,
+      estimatedPullsRemaining: 4n,
+      bounty: 300n,
+    });
+    expect(seen).toEqual([
+      expect.objectContaining({
+        allowFailure: false,
+        blockNumber: 456n,
+        contracts: expect.arrayContaining([
+          expect.objectContaining({ functionName: "state" }),
+          expect.objectContaining({ functionName: "crankBounty" }),
+        ]),
       }),
     ]);
   });

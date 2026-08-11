@@ -2655,26 +2655,32 @@ async function planBuyback(parameters: {
   readonly config: KeeperConfig;
   readonly token: Address;
   readonly maxFeePerGas: bigint;
+  readonly blockNumber: bigint;
   readonly skipped: Map<string, number>;
 }): Promise<KeeperJob | undefined> {
   if (!parameters.config.enableBuyback) return undefined;
-  const [balance, increment, rewardBps] = await Promise.all([
-    parameters.client.getBalance({ address: parameters.token }),
+  const balance = await parameters.client.getBalance({
+    address: parameters.token,
+    blockNumber: parameters.blockNumber,
+  });
+  if (balance === 0n) {
+    incrementReason(parameters.skipped, "buyback_no_eth");
+    return undefined;
+  }
+  const [increment, rewardBps] = await Promise.all([
     parameters.client.readContract({
       address: parameters.token,
       abi: fwaTokenAbi,
       functionName: "BUYBACK_INCREMENT",
+      blockNumber: parameters.blockNumber,
     }),
     parameters.client.readContract({
       address: parameters.token,
       abi: fwaTokenAbi,
       functionName: "CALLER_REWARD_BPS",
+      blockNumber: parameters.blockNumber,
     }),
   ]);
-  if (balance === 0n) {
-    incrementReason(parameters.skipped, "buyback_no_eth");
-    return undefined;
-  }
   const reward = buybackCallerReward({
     tokenEthBalance: balance,
     buybackIncrement: increment,
@@ -2686,6 +2692,7 @@ async function planBuyback(parameters: {
       address: parameters.token,
       abi: fwaTokenAbi,
       functionName: "buyback",
+      blockNumber: parameters.blockNumber,
     });
     const decision = assessProfit({
       crankFee: reward,
@@ -4552,6 +4559,7 @@ async function planJobsForPool(parameters: {
           config: parameters.config,
           token: tokenAddress,
           maxFeePerGas: parameters.maxFeePerGas,
+          blockNumber: parameters.headBlockNumber,
           skipped,
         }),
       ),
