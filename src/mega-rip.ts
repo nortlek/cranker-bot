@@ -321,6 +321,23 @@ async function readMegaRipAcquisition(parameters: {
   });
 }
 
+export async function readMegaRipAcquisitions(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly blockNumber: bigint;
+  readonly count: bigint;
+}): Promise<readonly MegaRipAcquisition[]> {
+  return parameters.client.multicall({
+    allowFailure: false,
+    blockNumber: parameters.blockNumber,
+    contracts: Array.from({ length: Number(parameters.count) }, (_, index) => ({
+      address: MEGA_RIP_ADDRESS,
+      abi: megaRipAbi,
+      functionName: "acquisitionAt" as const,
+      args: [BigInt(index)] as const,
+    })),
+  });
+}
+
 function profitableJob(parameters: {
   readonly kind:
     | "mega_rip_pull"
@@ -569,15 +586,11 @@ export async function planMegaRipJobs(parameters: {
   if (pullsDone > MAX_ACQUISITIONS_TO_SCAN) {
     throw new Error("MegaRip acquisition index exceeds bounded scan");
   }
-  const acquisitions: MegaRipAcquisition[] = await Promise.all(
-    Array.from({ length: Number(pullsDone) }, (_, index) =>
-      readMegaRipAcquisition({
-        client: parameters.client,
-        blockNumber: parameters.blockNumber,
-        index: BigInt(index),
-      }),
-    ),
-  );
+  const acquisitions = await readMegaRipAcquisitions({
+    client: parameters.client,
+    blockNumber: parameters.blockNumber,
+    count: pullsDone,
+  });
   if (remaining > 0n) {
     let pullCount = boundedMegaRipCallCount(remaining);
     let gas: bigint | undefined;

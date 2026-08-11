@@ -13,6 +13,7 @@ import {
   megaRipFloorSettlementIsRewarded,
   megaRipFundingCanLockInNextBlock,
   megaRipInitialPullCount,
+  readMegaRipAcquisitions,
   megaRipTerminalSettlementIsEligible,
 } from "../src/mega-rip.js";
 
@@ -130,6 +131,34 @@ describe("MegaRip keeper adapter", () => {
         bounty: 300_000_000_000_000n,
       }),
     ).toBe(10n);
+  });
+
+  it("reads every acquisition through one exact-block multicall", async () => {
+    const seen: unknown[] = [];
+    const client = {
+      multicall: async (parameters: unknown) => {
+        seen.push(parameters);
+        return [acquisition(), acquisition({ listingId: 10n })];
+      },
+    };
+
+    const results = await readMegaRipAcquisitions({
+      client: client as never,
+      blockNumber: 123n,
+      count: 2n,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(seen).toEqual([
+      expect.objectContaining({
+        allowFailure: false,
+        blockNumber: 123n,
+        contracts: [
+          expect.objectContaining({ args: [0n] }),
+          expect.objectContaining({ args: [1n] }),
+        ],
+      }),
+    ]);
   });
 
   it("pursues the terminal bounty after either a no-bid or high-bid auction", () => {

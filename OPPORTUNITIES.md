@@ -427,6 +427,43 @@ agree. Complete signed-bundle simulation, retained profit, independent
 1,000-bps private bidding, nonce/balance/lease, and private delivery remain
 authoritative.
 
+The funding boundary arrived in block `25729077` on 2026-08-10 America/Denver.
+The keeper's exact deploy/lock/40-pull prefix confirmed with `0.012 ETH` gross
+bounty and `0.010328368606535973 ETH` verified net realized profit. The three
+successful receipt attributions sum exactly to the wallet increase from
+`0.602447522227890090 ETH` to `0.612775890834426063 ETH`; this is about
+`$19.41` at the fresh `$1,879.18` oracle used by the reconciliation. Competing
+bundles then captured the other 339 pull bounties. The earliest four competing
+40-pull batches paid `0.011514 ETH` directly from each `0.012 ETH` reward and
+retained only about `0.0000043-0.0000049 ETH` after base gas, so they are not
+evidence for blindly bidding above 95.95% with the keeper's slightly larger
+executor gas. The final eight-pull competitor in block `25729092` paid
+`0.002159882279490615 ETH` directly from `0.0024 ETH` gross and retained
+`0.000068741406457957 ETH` after base gas. That tail was counterfactually
+profitable at a higher pull-specific bid, but production had exhausted its
+restart budget during a WebSocket provider outage; keep pull and terminal
+settlement bidding independent before applying this clearing evidence.
+
+The outage exposed a planner reliability defect: Pulling-state discovery sent
+one concurrent WebSocket request for every acquisition. At 379 acquisitions it
+closed the public exact-state socket and amplified failures on the
+capacity-constrained Alchemy socket. The planner now reads all acquisition
+records through one exact-block Multicall3 request. A production-equivalent
+read-only pass at block `25729170` completed with all 379 records and no socket
+failure. Until the Alchemy production WebSocket is independently stable again,
+the confirmed-head keeper uses the validated public exact-state WebSocket and
+the two optional Alchemy-filtered pending feeds remain disarmed; private relay
+submission and all exact simulation, nonce, balance, signer-lease, and retained
+profit gates are unchanged.
+
+At block `25729131`, all 379 allocations remained bounty-reserved: 366 were
+pending fulfillment and 13 had open auctions, with no high bids and no terminal
+settlement callable yet. The first observed auction deadlines are
+2026-08-11 09:30:35-09:31:47 America/Denver. The reserved terminal bounty
+inventory is `0.1137 ETH` gross across all allocations, not guaranteed or
+realized profit. Continue exact per-listing reward proofs and compete for every
+terminal bounty regardless of the auction's bidder outcome.
+
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
 the protocol settlement alone. They remain intentionally excluded under the
