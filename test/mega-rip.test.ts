@@ -53,8 +53,8 @@ function acquisition(
 }
 
 describe("MegaRip keeper adapter", () => {
-  it("prices terminal settlement at the exact profitability boundary", () => {
-    expect(MEGA_RIP_SETTLEMENT_BUILDER_BID_BPS).toBe(10_000n);
+  it("starts terminal settlement at the independent discovery bid", () => {
+    expect(MEGA_RIP_SETTLEMENT_BUILDER_BID_BPS).toBe(1_000n);
   });
 
   it("pins the funded canonical successor runtime", () => {

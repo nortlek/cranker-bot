@@ -434,10 +434,12 @@ terminal bounties, and reverts unless the aggregate `0.0003 ETH` per listing is
 received. Executor receipt accounting and forwarded wallet balances must
 agree. Complete signed-bundle simulation, retained profit, nonce/balance/lease,
 and private delivery remain authoritative. Pull execution retains its
-independent 1,000-bps private bid. Terminal auction settlement requests 10,000
-bps and is therefore repriced to the exact base-fee-aware profitability
-boundary, always retaining the configured `0.000001 ETH` minimum profit rather
-than sharing the underpriced pull policy.
+independent 1,000-bps private bid. Terminal auction settlement also starts at
+an independent 1,000-bps discovery bid: there is no same-lane clearing sample
+yet, while comparable FWA ready lifecycle work cleared around 250–1,001 bps.
+After a loss, raise settlement bidding only when the exact target block proves
+a competing MegaRip settlement, reconstructs its normalized builder payment,
+and shows that beating it would have retained the configured profit floor.
 
 The funding boundary arrived in block `25729077` on 2026-08-10 America/Denver.
 The keeper's exact deploy/lock/40-pull prefix confirmed with `0.012 ETH` gross
