@@ -423,9 +423,12 @@ After auctions close, the planner tests every reserved allocation—including
 high-bid outcomes—through a one-item reward-gated estimate, batches only proven
 terminal bounties, and reverts unless the aggregate `0.0003 ETH` per listing is
 received. Executor receipt accounting and forwarded wallet balances must
-agree. Complete signed-bundle simulation, retained profit, independent
-1,000-bps private bidding, nonce/balance/lease, and private delivery remain
-authoritative.
+agree. Complete signed-bundle simulation, retained profit, nonce/balance/lease,
+and private delivery remain authoritative. Pull execution retains its
+independent 1,000-bps private bid. Terminal auction settlement requests 10,000
+bps and is therefore repriced to the exact base-fee-aware profitability
+boundary, always retaining the configured `0.000001 ETH` minimum profit rather
+than sharing the underpriced pull policy.
 
 The funding boundary arrived in block `25729077` on 2026-08-10 America/Denver.
 The keeper's exact deploy/lock/40-pull prefix confirmed with `0.012 ETH` gross

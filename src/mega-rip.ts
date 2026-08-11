@@ -56,6 +56,11 @@ const MAX_ACQUISITIONS_TO_SCAN = 512n;
 // 64 for lower-gas terminal batches.
 const MAX_REWARDED_PULLS_PER_TRANSACTION = 40n;
 
+// Terminal auctions are short-lived, independent first-to-land races. Ask the
+// exact repricer for the entire reward and let its base-fee-aware profitability
+// cap preserve MIN_PROFIT_ETH. Pulls retain their separate configured policy.
+export const MEGA_RIP_SETTLEMENT_BUILDER_BID_BPS = 10_000n;
+
 export const megaRipAbi = [
   {
     type: "function",
@@ -751,7 +756,7 @@ export async function planMegaRipJobs(parameters: {
     reward: settlementReward,
     maxFeePerGas: parameters.maxFeePerGas,
     minProfitWei: parameters.minProfitWei,
-    builderBidBps: parameters.builderBidBps,
+    builderBidBps: MEGA_RIP_SETTLEMENT_BUILDER_BID_BPS,
   });
   if (settlementJob === undefined) {
     return { ...base, jobs: [], minimumViablePrefix: 0 };

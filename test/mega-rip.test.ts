@@ -8,6 +8,7 @@ import {
 } from "../src/constants.js";
 import {
   MEGA_RIP_ACQUISITION_STATE,
+  MEGA_RIP_SETTLEMENT_BUILDER_BID_BPS,
   MEGA_RIP_STATE,
   megaRipAbi,
   megaRipFloorSettlementIsRewarded,
@@ -51,6 +52,10 @@ function acquisition(
 }
 
 describe("MegaRip keeper adapter", () => {
+  it("prices terminal settlement at the exact profitability boundary", () => {
+    expect(MEGA_RIP_SETTLEMENT_BUILDER_BID_BPS).toBe(10_000n);
+  });
+
   it("pins the funded canonical successor runtime", () => {
     expect(MEGA_RIP_ADDRESS).toBe(
       "0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25",
