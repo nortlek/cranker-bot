@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-07 (America/Denver)
+Last updated: 2026-08-11 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -485,6 +485,24 @@ settlement callable yet. The first observed auction deadlines are
 inventory is `0.1137 ETH` gross across all allocations, not guaranteed or
 realized profit. Continue exact per-listing reward proofs and compete for every
 terminal bounty regardless of the auction's bidder outcome.
+
+The focused 2026-08-11 terminal watch captured all 379 reserved settlement
+bounties in 44 successful reward-gated transactions from nonces 2190-2233.
+Exact `BountyPaid` logs sent `0.1137 ETH` gross to the canonical executor;
+PostgreSQL receipts charged `0.022242025055292211 ETH` of gas and retained
+`0.091457974944707789 ETH`. The keeper wallet rose by exactly that net amount,
+from `0.613779218926293555 ETH` to `0.705237193871001344 ETH`, with
+`latest == pending == 2234`. Four private attempts expired in target blocks
+`25732694`, `25732695`, `25732712`, and `25732717`. Each had all seven relay
+paths accepted within 63-291 ms; the bobTheBuilder, Titan, Nethermind-labeled,
+and Titan blocks contained no competing MegaRip settlement, bounty, priority
+payment, or direct beneficiary payment. Same-1,000-bps retries landed, including
+the 54-listing retry after the first two omissions, so these were builder/block
+construction omissions rather than price losses and the settlement-only bid
+remains 1,000 bps. The three high-bid auctions extended to 09:57:59, 09:58:23,
+and 09:59:11 and each landed on its first eligible target through BuilderNet,
+Titan, and Titan. The final exact scan had 375 Resolved and four `STUCK_NFT`
+records, all non-reserved; no callable reserved allocation remained.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
