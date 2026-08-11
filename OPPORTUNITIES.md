@@ -2711,10 +2711,22 @@ simulation and a lane-specific competitive bid.
 
 ### Convex earmarks and expired-lock kicks
 
-Status: live watcher.
+Status: production disabled on 2026-08-10 America/Denver.
 
 Rewards are thin and use an independent bid. Keep contract/event decoding
 current and do not treat an estimated token equivalent as realized P&L.
+
+The preceding 24 hours contained zero Convex opportunities, submissions, or
+receipts, while the four-block background refreshes ran 1,766 times per lane.
+They issued approximately 226,048 earmark and 72,406 expired-lock gas
+estimates, dominated by repeated `crvChange` and `no exp locks` reverts. This
+was avoidable discovery cost rather than latency- or correctness-critical
+foreground work. Production now explicitly sets both
+`ENABLE_CONVEX_EARMARKS=false` and `ENABLE_CONVEX_KICKS=false`.
+
+Re-enable a lane only after a low-call event/state trigger or other bounded
+candidate source is validated against current mainnet rewards. Do not restore
+the broad four-block estimate sweep merely to retain dormant coverage.
 
 ### Stake DAO v4 Curve Accountant harvests
 
