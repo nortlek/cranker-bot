@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-11 (America/Denver)
+Last updated: 2026-08-12 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -503,6 +503,27 @@ remains 1,000 bps. The three high-bid auctions extended to 09:57:59, 09:58:23,
 and 09:59:11 and each landed on its first eligible target through BuilderNet,
 Titan, and Titan. The final exact scan had 375 Resolved and four `STUCK_NFT`
 records, all non-reserved; no callable reserved allocation remained.
+
+Release follow-up, 2026-08-12: the canonical deployer advanced from nonce 3457
+through 3468 without creating another contract. Nonces 3458-3468 were ordinary
+MegaRip/FWA participation and cleanup: NFT approval/mint activity, a V2 pool
+purchase, additional MegaRip funding, auction bids, a token swap, and the final
+claim/withdraw path. A fresh exact runtime/immutable check at block `25739705`
+still matched the pinned successor and showed Finalized state, 379 pulls, zero
+remaining pulls, all 379 acquisitions Resolved, and no reserved or callable
+terminal bounty. The four records that were initially `STUCK_NFT` therefore
+resolved during the canonical cleanup without exposing another keeper reward.
+
+The new @ripe0x S01 postmortem is a release lead, not production authority. It
+targets a next version around 2026-08-12/13 with settled ETH recycled into more
+pulls until a bankroll floor is reached, contribution-weighted prize pools, and
+most auctions replaced by direct settlement back into FWA. That materially
+changes lifecycle shape and can create repeated pull/settlement reward cycles,
+but no successor deployment existed at canonical-deployer nonce 3469. Watch
+for a canonical creation and verified source; before enabling anything, derive
+the new state machine, reward authority, recycling loop bounds, direct-settle
+callability, and exact independent economics. Do not assume the S01 auction
+settlement adapter or one-pass pull-count model is compatible.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
