@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-12 (America/Denver)
+Last updated: 2026-08-13 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -524,6 +524,20 @@ for a canonical creation and verified source; before enabling anything, derive
 the new state machine, reward authority, recycling loop bounds, direct-settle
 callability, and exact independent economics. Do not assume the S01 auction
 settlement adapter or one-pass pull-count model is compatible.
+
+Release watch, 2026-08-13: canonical-deployer nonce 3469 was successful
+transaction `0x723b963e893e315509ead5a68730319ec2911cfca190324c72b4b663bc1dcf68`,
+an ordinary `contribute(...)` call into verified `FWAPHouse` at
+`0x00000000000E56073987EAF8694Fe54fCA2F53de`, not a creation, upgrade,
+factory/configuration mutation, or MegaRip successor. The transaction supplied
+NFT/FWA inventory and minted house receipt/share assets. Exact verified-source
+review found permissionless `activateInventory`, `recycleAllocated`,
+`recoverAllocated`, `relistReturned`, and terminal-sync methods, but none pays
+the external caller: ETH/FWA proceeds and rewards are allocated to the house,
+treasury, or its holders. Calling them would spend keeper gas without a reward,
+so this downstream lead is rejected for the capital-free keeper. The newest
+visible @ripe0x post still predates the prior release boundary and supplies no
+successor address. Continue watching from deployer transaction count 3470.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
