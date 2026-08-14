@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-13 (America/Denver)
+Last updated: 2026-08-14 (America/Denver)
 
 ## Current objective and snapshot
 
@@ -538,6 +538,15 @@ treasury, or its holders. Calling them would spend keeper gas without a reward,
 so this downstream lead is rejected for the capital-free keeper. The newest
 visible @ripe0x post still predates the prior release boundary and supplies no
 successor address. Continue watching from deployer transaction count 3470.
+
+Release watch, 2026-08-14: @ripe0x posted a new MegaRip “SEASON 02” teaser at
+`2087930700347347414`, but supplied no address, lifecycle specification, or
+reward surface. Exact latest and pending transaction counts for the canonical
+deployer both remain 3470, so no canonical creation, configuration change, or
+successor relationship corroborates the teaser yet. Production remains pinned
+to the finalized S01 successor and has no remaining rewarded S01 allocation.
+Continue watching from deployer transaction count 3470 and require verified
+source plus exact reward authority before implementing Season 02.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
