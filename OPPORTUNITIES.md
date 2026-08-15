@@ -7,6 +7,27 @@ an old narrative.
 
 Last updated: 2026-08-14 (America/Denver)
 
+## Production shutdown and restart gate
+
+Status: worker intentionally offline as of 2026-08-14 America/Denver.
+
+At the shutdown gate, the keeper had `latest == pending == 2243`, no active
+PullPool lifecycle (`pendingLifecycleRound == 0`), and no viable opportunity,
+submission, or receipt in the preceding 30 minutes. The verified account
+snapshot was `0.699942998027875896 ETH` net equivalent, about `$1,317.73` at a
+fresh `$1,882.62` ETH/USD oracle. Railway deployment
+`f0a7e3e2-4439-4a9a-a37e-e110d270080d` was removed; the worker service is
+offline and PostgreSQL remains online.
+
+The configured RPC provider exhausted its monthly capacity immediately before
+shutdown and the worker correctly failed closed on a stale WebSocket head.
+Restore or replace production RPC and WebSocket capacity before any future
+activation. Do not schedule a deployment for routine monitoring or existing
+dormant lanes. A new deployment requires a newly validated profitable MegaRip
+season or another concrete bountied opportunity, a reviewed and tested
+implementation, fresh exact-state economics, and the ordinary nonce,
+lifecycle, signer-lease, and rollout gates.
+
 ## Current objective and snapshot
 
 The $50 cumulative verified net realized-profit goal was achieved before its

@@ -30,6 +30,17 @@ from a log estimate alone: reconcile wallet balances and successful receipts.
 The production signer runs on Railway. Do not run a second live signer locally.
 Local runs must be `DRY_RUN=true`, preferably `RUN_ONCE=true`.
 
+The production worker was intentionally shut down on 2026-08-14
+America/Denver at the user's direction. Railway deployment
+`f0a7e3e2-4439-4a9a-a37e-e110d270080d` is removed, the worker service is
+offline, and PostgreSQL remains online. Do not schedule or perform another
+deployment merely to resume routine operation. Redeploy only after a newly
+validated MegaRip season or another concrete keeper opportunity has positive
+post-gas, post-builder-payment economics and a tested implementation. Before
+any restart, restore or replace the exhausted production RPC capacity, repeat
+the nonce/lifecycle/deployment gates below, and obtain fresh live-state
+evidence that the opportunity is actionable.
+
 ## Start here
 
 Requirements:
