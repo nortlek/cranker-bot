@@ -2792,10 +2792,8 @@ remain reward-weighted under their existing independent policies.
 
 ### GachaTable battle cranks
 
-Status: production-enabled on 2026-08-14 in deployment
-`f0a7e3e2-4439-4a9a-a37e-e110d270080d` from revision
-`ed4fafa83ac3ea7df31548d8f8f94fbe5e4e442c`, with
-`ENABLE_GACHA_TABLE=true` through the existing private-bundle signer.
+Status: battle-24 defaults completed profitably on 2026-08-15; the temporary
+worker deployment was removed after reconciliation and production is offline.
 
 The exact-match, nonproxy `GachaTable` at
 `0xA936351838d1C85003e736deA03AC6666c1F9c73` was deployed in block
@@ -2897,6 +2895,38 @@ equivalent remained `0.699942998027875896`; no live transaction was pending.
 Keep this deployment only through the battle-24 default window and its receipt
 reconciliation, then shut it down again unless another exact positive-EV
 Gacha opportunity is present.
+
+Before the window, PublicNode announced exact heads before its state backend
+could serve them. The unused V2 activation read still ran in Gacha-only mode;
+when it rejected first, the concurrent Gacha promise could become unhandled
+and crash the worker. Revision `8e2a08991ae49502b9a0cbcab0fc39f7f4fa8531`
+skips that activation read whenever PullPool planning is intentionally
+disabled. Typecheck, all 413 tests, and both production builds passed. Railway
+deployment `83f4c00d-b487-4eb3-98f5-b22f69a932c7` acquired exactly one signer
+lease and remained healthy through the default window.
+
+Battle 24's first two legs were exact-simulated and accepted by all seven
+relay paths from parent block `25,762,552`, then included together in Titan
+block `25,762,553`. The second pair was exact-simulated and accepted by all
+seven paths from that block, then included together in BuilderNet block
+`25,762,554`. Transactions
+`0x95e1ca41705f8082c238fb84eecfd9af6b91ba17a11b7e11f58aaafd1818c5d3`
+and
+`0x8663e19336b1c79d8fafad89d97a4d41522332e872c414b1cb508b2e83cb0c81`
+emitted four canonical `BountyPaid` events and two executor
+`RewardedExecution` events for `0.004 ETH` gross. Receipt gas was
+`0.002048888135854308 ETH`, including exact priority/builder payment of
+`0.002000400000710342 ETH`, leaving verified net realized profit of
+`0.001951111864145692 ETH`. The wallet rose by exactly that amount from
+`0.707116336023273822` to `0.709067447887419514 ETH`; WETH was unchanged,
+PostgreSQL stored both successful receipts, and `latest == pending == 2245`.
+No other successful Gacha transaction appeared in either target block.
+
+Afterward battle 24 had no unresolved legs, battle 25 remained an empty OPEN
+table, and the fee pool was `0.114731080996386639 ETH`. No exact positive-EV
+Gacha action remained, so deployment
+`83f4c00d-b487-4eb3-98f5-b22f69a932c7` was removed. The worker is offline and
+PostgreSQL remains online. Do not restart for the residual fee pool alone.
 
 ### fwa.gg launch surfaces
 

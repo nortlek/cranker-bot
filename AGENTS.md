@@ -31,15 +31,17 @@ The production signer runs on Railway. Do not run a second live signer locally.
 Local runs must be `DRY_RUN=true`, preferably `RUN_ONCE=true`.
 
 The production worker was intentionally shut down on 2026-08-14
-America/Denver at the user's direction. Railway deployment
-`f0a7e3e2-4439-4a9a-a37e-e110d270080d` is removed, the worker service is
-offline, and PostgreSQL remains online. Do not schedule or perform another
-deployment merely to resume routine operation. Redeploy only after a newly
-validated MegaRip season or another concrete keeper opportunity has positive
-post-gas, post-builder-payment economics and a tested implementation. Before
-any restart, restore or replace the exhausted production RPC capacity, repeat
-the nonce/lifecycle/deployment gates below, and obtain fresh live-state
-evidence that the opportunity is actionable.
+America/Denver at the user's direction. It was temporarily reactivated for
+GachaTable battle 24's exact four-leg default window, then Railway deployment
+`83f4c00d-b487-4eb3-98f5-b22f69a932c7` was removed after successful receipt
+and wallet reconciliation on 2026-08-15. The worker service is offline and
+PostgreSQL remains online. Do not schedule or perform another deployment
+merely to resume routine operation. Redeploy only after a newly validated
+MegaRip season or another concrete keeper opportunity has positive post-gas,
+post-builder-payment economics and a tested implementation. Before any
+restart, restore or replace the exhausted production RPC capacity, repeat the
+nonce/lifecycle/deployment gates below, and obtain fresh live-state evidence
+that the opportunity is actionable.
 
 ## Start here
 
