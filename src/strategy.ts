@@ -99,6 +99,8 @@ import {
   planGroupPullStandingOrderJobs,
   type GroupPullCollectContext,
 } from "./group-pull.js";
+import { planGachaTableJobs } from "./gacha-table.js";
+import { gachaTableKeeperExecutorAbi } from "./gacha-table-keeper-executor.js";
 import { megaRipAbi, planMegaRipJobs } from "./mega-rip.js";
 import { megaRipKeeperExecutorAbi } from "./mega-rip-keeper-executor.js";
 import { retryTransientRead } from "./heads.js";
@@ -159,6 +161,10 @@ export type KeeperJobKind =
   | "mega_rip_pull"
   | "mega_rip_settle"
   | "mega_rip_recover"
+  | "gacha_executor_deploy"
+  | "gacha_fire"
+  | "gacha_settle"
+  | "gacha_default"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -4846,6 +4852,22 @@ async function planJobs(parameters: {
           parameters.config.megaRipBuilderBidBps,
       })
     : Promise.resolve(undefined);
+  const gachaTablePromise = parameters.config.enableGachaTable
+    ? planGachaTableJobs({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        blockTimestamp: parameters.headTimestamp,
+        maxFeePerGas: parameters.maxFeePerGas,
+        gasLimitMultiplierBps:
+          parameters.config.gasLimitMultiplierBps,
+        minProfitWei: parameters.config.minProfitWei,
+        defaultBuilderBidBps:
+          parameters.config.gachaTableDefaultBuilderBidBps,
+        lifecycleBuilderBidBps:
+          parameters.config.gachaTableLifecycleBuilderBidBps,
+      })
+    : Promise.resolve(undefined);
   const {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
@@ -4959,11 +4981,39 @@ async function planJobs(parameters: {
                   ? 1
                   : selectedBase.minimumViablePrefix,
             };
+  const gachaTablePlan = await gachaTablePromise;
+  const selectedWithGachaTable: PlannedJobs =
+    gachaTablePlan === undefined ||
+    gachaTablePlan.jobs.length === 0
+      ? selectedWithMegaRip
+      : gachaTablePlan.minimumViablePrefix > 1
+        ? {
+            jobs: gachaTablePlan.jobs,
+            minimumViablePrefix:
+              gachaTablePlan.minimumViablePrefix,
+            orders: selectedWithMegaRip.orders,
+            skipped: selectedWithMegaRip.skipped,
+          }
+        : selectedWithMegaRip.jobs.length >=
+            maxJobs(parameters.config)
+          ? selectedWithMegaRip
+          : {
+              ...selectedWithMegaRip,
+              jobs: [
+                ...selectedWithMegaRip.jobs,
+                ...gachaTablePlan.jobs,
+              ],
+              minimumViablePrefix:
+                selectedWithMegaRip.minimumViablePrefix === 0
+                  ? 1
+                  : selectedWithMegaRip.minimumViablePrefix,
+            };
   const groupPullStandingOrderJobs =
     await groupPullStandingOrderPromise;
   const availableGroupPullStandingOrderSlots = Math.max(
     0,
-    maxJobs(parameters.config) - selectedWithMegaRip.jobs.length,
+    maxJobs(parameters.config) -
+      selectedWithGachaTable.jobs.length,
   );
   const appendedGroupPullStandingOrderJobs =
     groupPullStandingOrderJobs.slice(
@@ -4972,19 +5022,19 @@ async function planJobs(parameters: {
     );
   const selected: PlannedJobs =
     appendedGroupPullStandingOrderJobs.length === 0
-      ? selectedWithMegaRip
+      ? selectedWithGachaTable
       : {
-          ...selectedWithMegaRip,
+          ...selectedWithGachaTable,
           jobs: [
-            ...selectedWithMegaRip.jobs,
+            ...selectedWithGachaTable.jobs,
             ...appendedGroupPullStandingOrderJobs,
           ],
           minimumViablePrefix:
-            selectedWithMegaRip.minimumViablePrefix === 0
+            selectedWithGachaTable.minimumViablePrefix === 0
               ? 1
-              : selectedWithMegaRip.minimumViablePrefix,
+              : selectedWithGachaTable.minimumViablePrefix,
           orders:
-            selectedWithMegaRip.orders +
+            selectedWithGachaTable.orders +
             appendedGroupPullStandingOrderJobs.length,
         };
   log("info", "pull_pool_adapter_plans_merged", {
@@ -5042,6 +5092,19 @@ async function planJobs(parameters: {
     megaRipPlannedJobs: megaRipPlan?.jobs.length ?? 0,
     megaRipSelected: selected.jobs.some((job) =>
       job.kind.startsWith("mega_rip_"),
+    ),
+    gachaTableEnabled: parameters.config.enableGachaTable,
+    gachaTableCurrentBattle:
+      gachaTablePlan?.currentBattleId.toString() ?? "",
+    gachaTableFirstScannedBattle:
+      gachaTablePlan?.firstBattleId.toString() ?? "",
+    gachaTableScannedBattles:
+      gachaTablePlan?.scannedBattles ?? 0,
+    gachaTableFeePool:
+      gachaTablePlan?.feePool.toString() ?? "",
+    gachaTablePlannedJobs: gachaTablePlan?.jobs.length ?? 0,
+    gachaTableSelected: selected.jobs.some((job) =>
+      job.kind.startsWith("gacha_"),
     ),
   });
   return selected;
@@ -5306,6 +5369,34 @@ function actualJobReward(
       try {
         const decoded = decodeEventLog({
           abi: megaRipKeeperExecutorAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (decoded.eventName === "RewardedExecution") {
+          total += decoded.args.bounty;
+        }
+      } catch {
+        // Ignore unrelated executor logs.
+      }
+    }
+    return total;
+  }
+  if (request.kind === "gacha_executor_deploy") {
+    return 0n;
+  }
+  if (
+    request.kind === "gacha_fire" ||
+    request.kind === "gacha_settle" ||
+    request.kind === "gacha_default"
+  ) {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
+        continue;
+      }
+      try {
+        const decoded = decodeEventLog({
+          abi: gachaTableKeeperExecutorAbi,
           data: entry.data,
           topics: entry.topics,
         });

@@ -17,7 +17,10 @@ private-only lane watches canonical Inverse FiRM markets for capital-free,
 DOLA-paid forced DBR replenishments. An opt-in private pending-funding lane
 can also copy a public ETH transfer to a canonical standing order into the
 same bundle as the dependent `crank`, allowing the keeper to compete when an
-order becomes funded between confirmed heads.
+order becomes funded between confirmed heads. A default-off GachaTable lane
+uses an owner-bound reward-gated executor for `fire`, terminal `settle`, and
+batched `crankDefault` work, so a successful zero-bounty or partial-progress
+branch reverts atomically.
 
 ## Examined transaction
 
@@ -501,6 +504,17 @@ successful `crank` fees are sent to that keeper address.
 - `ENABLE_FIRM_REPLENISHMENTS`: enables the canonical Inverse FiRM
   forced-replenishment watcher. It defaults to `false` and configuration fails
   closed unless `SUBMISSION_MODE=flashbots`.
+- `ENABLE_GACHA_TABLE`: enables the pinned GachaTable adapter. It verifies the
+  exact table and escrow runtime hashes and immutable FWA relationship, scans
+  recent nonterminal battles at the exact parent, and permits only bountied
+  `fire`, fully terminal `settle`, or due `crankDefault` calls through a
+  deterministic owner-bound executor. The executor requires and forwards the
+  planned ETH bounty, making partial FWA progress and stale same-block work
+  revert. It defaults to `false` and requires private bundle submission.
+- `GACHA_TABLE_DEFAULT_BUILDER_BID_BPS` and
+  `GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS`: independent starting bids for
+  default elections and fire/settle work. Exact signed-bundle gas and the
+  retained-profit floor remain the final pricing boundary.
 - `POOL_BOUNTY_ESTIMATE_BPS`: conservative haircut on simulated gas when
   estimating PullPool's internal gas-indexed reimbursement for sync and settle
   work.

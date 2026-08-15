@@ -22,6 +22,11 @@ const originalLiveBidSweep =
   process.env.ENABLE_LIVE_BID_SWEEP;
 const originalLiquityLiquidations =
   process.env.ENABLE_LIQUITY_LIQUIDATIONS;
+const originalGachaTable = process.env.ENABLE_GACHA_TABLE;
+const originalGachaTableDefaultBuilderBidBps =
+  process.env.GACHA_TABLE_DEFAULT_BUILDER_BID_BPS;
+const originalGachaTableLifecycleBuilderBidBps =
+  process.env.GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
 const originalBuybackBuilderBidBps =
@@ -87,6 +92,23 @@ afterEach(() => {
   } else {
     process.env.ENABLE_LIQUITY_LIQUIDATIONS =
       originalLiquityLiquidations;
+  }
+  if (originalGachaTable === undefined) {
+    delete process.env.ENABLE_GACHA_TABLE;
+  } else {
+    process.env.ENABLE_GACHA_TABLE = originalGachaTable;
+  }
+  if (originalGachaTableDefaultBuilderBidBps === undefined) {
+    delete process.env.GACHA_TABLE_DEFAULT_BUILDER_BID_BPS;
+  } else {
+    process.env.GACHA_TABLE_DEFAULT_BUILDER_BID_BPS =
+      originalGachaTableDefaultBuilderBidBps;
+  }
+  if (originalGachaTableLifecycleBuilderBidBps === undefined) {
+    delete process.env.GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS;
+  } else {
+    process.env.GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS =
+      originalGachaTableLifecycleBuilderBidBps;
   }
   if (originalPendingFundingBuilderBidBps === undefined) {
     delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
@@ -194,6 +216,28 @@ describe("Liquity liquidations", () => {
     process.env.ENABLE_LIQUITY_LIQUIDATIONS = "true";
 
     expect(loadConfig().enableLiquityLiquidations).toBe(true);
+  });
+});
+
+describe("GachaTable keeper lane", () => {
+  it("defaults off with evidence-backed independent bids", () => {
+    delete process.env.ENABLE_GACHA_TABLE;
+    delete process.env.GACHA_TABLE_DEFAULT_BUILDER_BID_BPS;
+    delete process.env.GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS;
+
+    const config = loadConfig();
+    expect(config.enableGachaTable).toBe(false);
+    expect(config.gachaTableDefaultBuilderBidBps).toBe(5_001n);
+    expect(config.gachaTableLifecycleBuilderBidBps).toBe(8_100n);
+  });
+
+  it("requires private bundle submission when enabled", () => {
+    process.env.ENABLE_GACHA_TABLE = "true";
+    process.env.SUBMISSION_MODE = "public";
+
+    expect(() => loadConfig()).toThrow(
+      "ENABLE_GACHA_TABLE requires SUBMISSION_MODE=flashbots",
+    );
   });
 });
 

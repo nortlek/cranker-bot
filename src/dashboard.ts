@@ -222,6 +222,24 @@ function laneForKind(kind: string): {
                 : "recover",
         accent: "#ff8ac8",
       };
+    case "gacha_executor_deploy":
+    case "gacha_fire":
+    case "gacha_settle":
+    case "gacha_default":
+      return {
+        laneKey: "other",
+        lane: "GachaTable",
+        contract: "GachaTable",
+        strategy:
+          kind === "gacha_executor_deploy"
+            ? "deploy executor"
+            : kind === "gacha_fire"
+              ? "fire"
+              : kind === "gacha_settle"
+                ? "settle"
+                : "crankDefault",
+        accent: "#9f8cff",
+      };
     case "convex_earmark":
       return {
         laneKey: "other",

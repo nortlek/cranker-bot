@@ -40,6 +40,8 @@ export interface KeeperConfig {
   readonly groupPullCollectBuilderBidBps: bigint;
   readonly groupPullStandingOrderBuilderBidBps: bigint;
   readonly megaRipBuilderBidBps: bigint;
+  readonly gachaTableDefaultBuilderBidBps: bigint;
+  readonly gachaTableLifecycleBuilderBidBps: bigint;
   readonly liveBidSweepBuilderBidBps: bigint;
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
@@ -73,6 +75,7 @@ export interface KeeperConfig {
   readonly enablePoolLifecycle: boolean;
   readonly enableGroupPull: boolean;
   readonly enableMegaRip: boolean;
+  readonly enableGachaTable: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
   readonly enableLiveBidSweep: boolean;
@@ -311,9 +314,14 @@ export function loadConfig(): KeeperConfig {
     "ENABLE_FIRM_REPLENISHMENTS",
     false,
   );
+  const enableGachaTable = booleanEnv(
+    "ENABLE_GACHA_TABLE",
+    false,
+  );
   if (
     (enableStakeDaoCurveHarvests ||
       enableFirmReplenishments ||
+      enableGachaTable ||
       enableDirectCoinbasePayments ||
       enablePendingFundingBackruns ||
       enablePendingFwaFulfillmentBackruns) &&
@@ -329,6 +337,8 @@ export function loadConfig(): KeeperConfig {
           ? "ENABLE_DIRECT_COINBASE_PAYMENTS"
           : enableFirmReplenishments
           ? "ENABLE_FIRM_REPLENISHMENTS"
+          : enableGachaTable
+          ? "ENABLE_GACHA_TABLE"
           : "ENABLE_STAKEDAO_CURVE_HARVESTS"
       } requires SUBMISSION_MODE=flashbots`,
     );
@@ -417,6 +427,22 @@ export function loadConfig(): KeeperConfig {
   const megaRipBuilderBidBps = integerEnv(
     "MEGA_RIP_BUILDER_BID_BPS",
     1_000,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
+  const gachaTableDefaultBuilderBidBps = integerEnv(
+    "GACHA_TABLE_DEFAULT_BUILDER_BID_BPS",
+    5_001,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
+  const gachaTableLifecycleBuilderBidBps = integerEnv(
+    "GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS",
+    8_100,
     {
       min: 0,
       max: 10_000,
@@ -531,6 +557,12 @@ export function loadConfig(): KeeperConfig {
       groupPullStandingOrderBuilderBidBps,
     ),
     megaRipBuilderBidBps: BigInt(megaRipBuilderBidBps),
+    gachaTableDefaultBuilderBidBps: BigInt(
+      gachaTableDefaultBuilderBidBps,
+    ),
+    gachaTableLifecycleBuilderBidBps: BigInt(
+      gachaTableLifecycleBuilderBidBps,
+    ),
     liveBidSweepBuilderBidBps:
       BigInt(liveBidSweepBuilderBidBps),
     liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
@@ -610,6 +642,7 @@ export function loadConfig(): KeeperConfig {
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
     enableGroupPull: booleanEnv("ENABLE_GROUP_PULL", true),
     enableMegaRip: booleanEnv("ENABLE_MEGA_RIP", true),
+    enableGachaTable,
     enableVaults: booleanEnv("ENABLE_VAULTS", true),
     enableBuyback: booleanEnv("ENABLE_BUYBACK", true),
     enableLiveBidSweep: booleanEnv(

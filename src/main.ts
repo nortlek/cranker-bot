@@ -1418,6 +1418,23 @@ async function main(): Promise<void> {
             requestBidPolicy = "mega_rip";
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
+          } else if (
+            request.kind === "gacha_executor_deploy" ||
+            request.kind === "gacha_fire" ||
+            request.kind === "gacha_settle" ||
+            request.kind === "gacha_default"
+          ) {
+            requestBidBps =
+              request.configuredBuilderBidBps ??
+              (request.kind === "gacha_default"
+                ? config.gachaTableDefaultBuilderBidBps
+                : config.gachaTableLifecycleBuilderBidBps);
+            requestBidPolicy =
+              request.kind === "gacha_default"
+                ? "gacha_table_default"
+                : "gacha_table_lifecycle";
+            requestMinimumPriorityFeePerGas =
+              config.poolMinPriorityFeePerGas;
           } else if (request.kind === "liquity_liquidation") {
             requestBidBps = config.liquityBuilderBidBps;
             requestBidPolicy = "liquity";
@@ -1720,6 +1737,10 @@ async function main(): Promise<void> {
             config.groupPullStandingOrderBuilderBidBps.toString(),
           configuredMegaRipBuilderBidBps:
             config.megaRipBuilderBidBps.toString(),
+          configuredGachaTableDefaultBuilderBidBps:
+            config.gachaTableDefaultBuilderBidBps.toString(),
+          configuredGachaTableLifecycleBuilderBidBps:
+            config.gachaTableLifecycleBuilderBidBps.toString(),
           configuredLiveBidSweepBuilderBidBps:
             config.liveBidSweepBuilderBidBps.toString(),
           configuredLiquityBuilderBidBps:
@@ -4077,6 +4098,11 @@ async function main(): Promise<void> {
       config.groupPullStandingOrderBuilderBidBps.toString(),
     configuredMegaRipBuilderBidBps:
       config.megaRipBuilderBidBps.toString(),
+    gachaTableEnabled: config.enableGachaTable,
+    configuredGachaTableDefaultBuilderBidBps:
+      config.gachaTableDefaultBuilderBidBps.toString(),
+    configuredGachaTableLifecycleBuilderBidBps:
+      config.gachaTableLifecycleBuilderBidBps.toString(),
     activeV2PoolFulfilledBuilderBidBps:
       v2Config === undefined
         ? ""

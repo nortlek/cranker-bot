@@ -2762,6 +2762,66 @@ pull; slow, stale, unavailable, or uncovered discovery falls back to the
 unchanged lifecycle-only prefixes. Lifecycle, standing-order, and pull bids
 remain reward-weighted under their existing independent policies.
 
+### GachaTable battle cranks
+
+Status: implemented and dry-run validated on 2026-08-14; production activation
+authorized on 2026-08-14 with `ENABLE_GACHA_TABLE=true` through the existing
+private-bundle signer.
+
+The exact-match, nonproxy `GachaTable` at
+`0xA936351838d1C85003e736deA03AC6666c1F9c73` was deployed in block
+`25,744,145`. Its pinned runtime hash is
+`0x2cba54c281d3c5b4b940484afba18291262b7a7d07d0791485ea36f80adb14c5`;
+its immutable FWA is the canonical
+`0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c`, and its pinned escrow
+implementation is `0xbD361213eC3387a39D6E031d91E3C56e3662a1d0` with runtime hash
+`0xc29dc6351b3ebdafff9480154fbaff49840f567100e40f7b314d161a6c2ac8e8`.
+The flat bounty is `0.001 ETH`. At block `25,754,907`, the table retained a
+`0.108846278402854388 ETH` fee pool, battle 23 was the only nonterminal battle,
+and it was an empty OPEN table.
+
+The permissionless paid surface is `fire`, terminal `settle`, and
+`crankDefault`. Plain `settle` is unsafe for a keeper: when its bounded
+`processAcquisitions(16)` push advances the FWA head but does not finish all
+four requests, it returns successfully and pays no bounty. The implementation
+therefore uses a deterministic owner-bound CREATE2 executor for every action.
+It measures the exact ETH delta, requires the planned aggregate bounty,
+forwards it to the signer, and reverts the entire target call or default batch
+when the reward is short. This makes partial settlement work, stale
+same-block actions, and fee-pool depletion fail closed. The executor never
+joins, funds, elects, or receives an NFT.
+
+Historical receipts through the research snapshot contained 46 bounties for
+`0.046 ETH` gross. Winners spent `0.005399498859520945 ETH` on gas and paid
+builders `0.023940350638373298 ETH`, retaining
+`0.016660150502105757 ETH`. The prior four-leg default window was captured in
+the exact eligible blocks with roughly 47.8–48.1% direct BuilderNet payments;
+`GACHA_TABLE_DEFAULT_BUILDER_BID_BPS=5001` starts just above that evidence.
+Recent fire/settle winners paid roughly 78–80% of gross, so the independent
+`GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS=8100` starts above the observed
+clearing range. Exact bundle gas, the global fee ceiling, and the retained
+profit floor can still reject an unaffordable lifecycle bid.
+
+Default timing is derived from each exact FWA listing's `allocatedAt` and live
+`settlementWindow`. A deadline inside the immediate 12-second child is armed
+from the parent with a funded protocol-valid gas envelope; target-block bundle
+simulation must then prove callability, aggregate reward, actual gas, and
+retained profit. This avoids conceding the first eligible block to an
+incumbent while retaining the same fail-closed executor boundary.
+
+`ENABLE_GACHA_TABLE` defaults to `false` and requires Flashbots-mode private
+submission. `npm run inspect:gacha-table` validated all pinned relationships
+and the current snapshot at block `25,754,907`. A full
+`ENABLE_GACHA_TABLE=true DRY_RUN=true RUN_ONCE=true` worker pass at block
+`25,754,913` scanned all 23 battles through the authoritative exact-state
+transport, planned no false opportunity, signed nothing, and completed
+without failure. The historical battle-21 fork additionally executed all four
+defaults atomically and proved the exact `0.004 ETH` executor/fee-pool delta.
+Repeat the inspector and dry-run if activation happens against materially
+newer state. Add durable lane-specific competitor learning only after live
+misses provide exact target-block evidence; never feed these results into the
+standing-order or PullPool controllers.
+
 ### FWAToken buyback
 
 Status: live, exact-simulated.

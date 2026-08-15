@@ -688,6 +688,25 @@ These constraints prevent expensive or unsafe regressions:
   independent and preserve exact retained-profit, nonce, balance, lease, and
   private-delivery gates. Never deposit, bid, approve tokens, or take NFT
   custody for this lane.
+- GachaTable execution is limited to the verified nonproxy at
+  `0xA936351838d1C85003e736deA03AC6666c1F9c73` while its runtime hash,
+  canonical FWA immutable, and pinned escrow implementation/runtime remain
+  exact. Only `fire`, terminal `settle`, and due `crankDefault` calls may be
+  priced; OPEN/FILLED abandonment, void-leg cleanup, and every other
+  unbountied method are excluded. Every call must go through the deterministic
+  owner-bound reward-gated executor. Its ETH-delta floor must revert a
+  `settle` that merely advances the FWA head without paying, a stale default,
+  and any same-block fee-pool race. Batch at most the four unique unresolved
+  default legs of one battle, price the exact aggregate bounty, forward it to
+  the signer, and account only the executor's `RewardedExecution` event. Arm a
+  default whose deadline falls in the immediate 12-second child and defer its
+  gas/economics to exact target-block bundle simulation; do not wait one more
+  confirmed block. An absent executor may be deployed only as the mandatory
+  first member of an exact-simulated `[deploy, rewarded action]` private
+  bundle. Keep default and
+  lifecycle bids independent, preserve the shared retained-profit, nonce,
+  balance, signer-lease, and immediate-child delivery gates, and never join a
+  table, fund a battle, elect a winner's asset, or take NFT custody.
 - A pending FWA fulfillment backrun is always one exact bounded bundle:
   `[contiguous public coordinator nonce prefix ending in the target
   fulfillRandomWords, keeper syncFwaResult, keeper settle]`, or

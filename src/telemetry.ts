@@ -65,6 +65,7 @@ const IMPORTANT_EVENTS = new Set([
   "firm_replenish_accounting_failed",
   "firm_replenish_opportunity",
   "firm_replenish_scan_failed",
+  "gacha_table_opportunity",
   "keeper_receipt",
   "keeper_receipt_availability_waited",
   "keeper_pass_stage_timing",
