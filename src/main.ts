@@ -4242,7 +4242,8 @@ async function main(): Promise<void> {
           },
           async () => {
             log("debug", "new_block", { block: block.toString() });
-            const additionalPoolConfigs = (async () => {
+            const additionalPoolConfigs = config.enablePullPoolPlanning
+              ? (async () => {
               const activation =
                 await readPullPoolV2ActivationSignal(
                   exactStateClient,
@@ -4292,7 +4293,8 @@ async function main(): Promise<void> {
               return shouldEnable && v2Config !== undefined
                 ? [v2Config]
                 : [];
-            })();
+                })()
+              : Promise.resolve([]);
             const assertPoolAdaptersCurrent =
               async (): Promise<void> => {
                 await additionalPoolConfigs;
