@@ -2764,9 +2764,10 @@ remain reward-weighted under their existing independent policies.
 
 ### GachaTable battle cranks
 
-Status: implemented and dry-run validated on 2026-08-14; production activation
-authorized on 2026-08-14 with `ENABLE_GACHA_TABLE=true` through the existing
-private-bundle signer.
+Status: production-enabled on 2026-08-14 in deployment
+`f0a7e3e2-4439-4a9a-a37e-e110d270080d` from revision
+`ed4fafa83ac3ea7df31548d8f8f94fbe5e4e442c`, with
+`ENABLE_GACHA_TABLE=true` through the existing private-bundle signer.
 
 The exact-match, nonproxy `GachaTable` at
 `0xA936351838d1C85003e736deA03AC6666c1F9c73` was deployed in block
@@ -2821,6 +2822,38 @@ Repeat the inspector and dry-run if activation happens against materially
 newer state. Add durable lane-specific competitor learning only after live
 misses provide exact target-block evidence; never feed these results into the
 standing-order or PullPool controllers.
+
+### fwa.gg launch surfaces
+
+Status: investigated and rejected as unpaid maintenance on 2026-08-14.
+
+The fwa.gg soft launch announced pack battles, Cheap Pulls, Last King jackpot,
+and future predictions. The live client currently pins a different battle
+contract from the bounty-paying GachaTable above:
+`FwaBattle` at `0xEBc1783a63939BccbE39FD1b1500f5b1beE1396d`.
+Its verified source exposes permissionless `settle`, but pays no caller reward;
+all resulting NFTs, bid proceeds, and refunds remain attributed to the battle
+participants. It is therefore not a keeper-profit extension of the enabled
+GachaTable lane.
+
+`CheapPulls` is the verified deployment at
+`0x45b44F9b602D55D4eC2867109c11420D44FF9405`. Anyone may call `poke`,
+`pokeMany`, recovery methods, and `cashOut` after the six-hour player choice
+window, but the exact source allocates realized value only to float recovery
+and the player upside. The caller receives no bounty or fee.
+
+The Last King jackpot is the verified `LastKingPulls` at
+`0x84a33b11E771910735F8a8a684f78419B376aD40`. Its permissionless `crown`
+credits the entire pot to the final king and opens the next round; `poke`,
+`pokeMany`, cash-out, and recovery paths bank value only to the pot, vault, or
+player. There is no caller reward. At the research snapshot the public app
+showed round 1 with one ticket and a `0.2700 ETH` pot, and no completed kings.
+Predictions were labeled `Soon` and exposed no live opportunity.
+
+Do not add any of these calls to the signer without a source/runtime change
+that creates an explicit, exactly measurable caller payment. Recheck the
+deployed addresses and verified source if predictions launch or the app changes
+its configured contracts.
 
 ### FWAToken buyback
 
