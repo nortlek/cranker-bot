@@ -2855,6 +2855,56 @@ that creates an explicit, exactly measurable caller payment. Recheck the
 deployed addresses and verified source if predictions launch or the app changes
 its configured contracts.
 
+### Bithook maintenance and mining
+
+Status: investigated and rejected as unpaid maintenance on 2026-08-14.
+
+The announced mainnet deployment is the exact-match, nonproxy
+`BithookMiningHook` at `0x65DeBe0205E7c5395FBD31c894eb96AD1c92da44`,
+created in block `25,753,335`. Its runtime hash is
+`0xded0486804cb8d4fdf689b460dcd9efe42623a7997da8eeb64afc73e86945837`.
+At block `25,757,975`, its immutable token was
+`0x386c4CB30d2861AdB02eCBdFEA76f6a67eD2cddC`, its PoolManager was the
+canonical Uniswap v4 deployment
+`0x000000000004444c5dc75cB358380D2e3dE08A90`, and the token's finalized
+minter was the hook. Mining had not started: `miningStart == 0`.
+
+The exact deployed source exposes five permissionless maintenance actions,
+none of which pays its caller. `poke` only advances TWAP checkpoints;
+`finalizeBlock` either records the predetermined winner reward or mints and
+burns an unawarded emission; `burnUnrevealed` burns forfeited participant
+stakes; `burnFees` destroys token-denominated fee claims; and
+`buybackAndBurn` spends ETH-denominated fee claims inside the sealed pool and
+burns every token received. The hook never transfers any output from these
+paths to `msg.sender`. The project's own live interface independently labels
+the fee burns and oracle advance as callable by anyone with no reward.
+
+This is active unpaid work rather than a dormant surface. Through block
+`25,757,982`, seven distinct callers had executed nine `buybackAndBurn` calls,
+using `999,608` gas and spending `0.000436519834395685 ETH`; six callers had
+executed eight `burnFees` calls, using `624,256` gas and spending
+`0.000300986075040324 ETH`. At the state snapshot, another
+`0.123323620277754030 ETH` and `6,751.083798041047331301 BITHOOK` of fee
+claims were pending, but clearing either balance still offered exactly zero
+gross caller reward and therefore negative net economics at every positive gas
+price.
+
+The advertised ten-minute block reward is a mining-contest payout, not a
+keeper bounty. `commit` transfers a BITHOOK stake equal to 1% of the scheduled
+reward from the participant, `reveal` locks a successful stake for an era
+slice, and `claimBlock` succeeds only for the address already recorded as the
+closest predictor. The reward then vests for the era. Automating that path
+would require buying and approving the unaudited token, accepting prediction
+and reveal risk, locking capital, and competing across funded addresses. It is
+outside the bot's capital-free keeper boundary and cannot be valued from the
+pre-start spot price as realized profit.
+
+Do not add a Bithook lane or call its maintenance functions. Recheck only if a
+new exact deployed runtime introduces an explicit caller payment. A mining
+strategy would require separate explicit authority for token acquisition,
+approval, custody, and capital lock, plus live post-launch competition and
+sell-liquidity evidence.
+
 ### FWAToken buyback
 
 Status: live, exact-simulated.
