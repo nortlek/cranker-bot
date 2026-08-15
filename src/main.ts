@@ -4099,6 +4099,8 @@ async function main(): Promise<void> {
     configuredMegaRipBuilderBidBps:
       config.megaRipBuilderBidBps.toString(),
     gachaTableEnabled: config.enableGachaTable,
+    pullPoolPlanningEnabled: config.enablePullPoolPlanning,
+    standingOrdersEnabled: config.enableStandingOrders,
     configuredGachaTableDefaultBuilderBidBps:
       config.gachaTableDefaultBuilderBidBps.toString(),
     configuredGachaTableLifecycleBuilderBidBps:

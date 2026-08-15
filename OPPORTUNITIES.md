@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-14 (America/Denver)
+Last updated: 2026-08-15 (America/Denver)
 
 ## Production shutdown and restart gate
 
@@ -568,6 +568,13 @@ successor relationship corroborates the teaser yet. Production remains pinned
 to the finalized S01 successor and has no remaining rewarded S01 allocation.
 Continue watching from deployer transaction count 3470 and require verified
 source plus exact reward authority before implementing Season 02.
+
+Release watch, 2026-08-15: no new MegaRip implementation evidence appeared.
+The only new visible @ripe0x post since the Season 02 teaser concerned TRUST,
+not FWA, PullPool, GroupPull, or MegaRip. The canonical deployer transaction
+count remains exactly 3470, so there is still no successor creation,
+configuration mutation, or downstream event to inspect. Keep the same 3470
+boundary and treat the teaser as uncorroborated until canonical code appears.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
@@ -2843,6 +2850,39 @@ Repeat the inspector and dry-run if activation happens against materially
 newer state. Add durable lane-specific competitor learning only after live
 misses provide exact target-block evidence; never feed these results into the
 standing-order or PullPool controllers.
+
+The first live battle-24 fire attempt targeted block `25,757,172` as one
+deploy/fire economic batch. All seven private routes accepted the exact bundle
+with a `0.0008100000013641 ETH` builder payment, but both members expired. A
+competitor transaction
+`0x286f9dce6c31e4f1735b40d080cd59bc52bfc820bd20694a55e98cab7c059698`
+captured the `0.001 ETH` fire bounty in that same block as one action inside a
+much larger transaction containing several FWA operations. A separate direct
+fire in the block reverted. This is cross-lane construction evidence, not
+evidence that a higher isolated Gacha percentage would have won. The keeper
+then won battle 24's settle in block `25,757,179`. Its deploy/settle receipts
+retained exactly `0.000132751740809088 ETH`; the wallet increased by the same
+amount from `0.706983584282464734` to `0.707116336023273822 ETH` while WETH was
+unchanged.
+
+At block `25,761,234`, battle 24 was SETTLED with four unresolved FWA auction
+legs. Their exact default boundaries are `1786822307`, `1786822307`,
+`1786822319`, and `1786822319`; all four are expected to become callable in a
+single reward-gated batch on 2026-08-15 around 13:31 America/Denver. The live
+fee pool is `0.118731080996386639 ETH`, so the maximum protocol-authorized
+gross bounty is `0.004 ETH`. At the independent 5,001 bps default bid, the
+planned builder payment is just over `0.002 ETH`; actual retained profit must
+still pass exact target-block bundle simulation and gas accounting.
+
+The exhausted Alchemy discovery/WebSocket path cannot be used for this window.
+The already configured PublicNode HTTP path and its matching WebSocket were
+validated read-only, but a full dormant-lane pass took 15-25 seconds. The new
+default-on `ENABLE_PULL_POOL_PLANNING` and `ENABLE_STANDING_ORDERS` gates allow
+a temporary Gacha-only activation without changing normal deployments. With
+both disabled and the other dormant lanes off, an exact-state dry pass scanned
+all 25 battles and completed planning in 440 ms. Restore the full planner only
+with production-grade RPC capacity; do not use the narrow mode as a silent
+permanent reduction in lane coverage.
 
 ### fwa.gg launch surfaces
 

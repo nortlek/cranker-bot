@@ -4434,15 +4434,17 @@ async function planJobsForPool(parameters: {
         performance.now() - startedAt;
     }
   };
-  const candidatesPromise = trackPlanner(
-    "orderCandidates",
-    () =>
-      getOrderCandidates(
-        parameters.client,
-        parameters.config,
-        parameters.headBlockNumber,
-      ),
-  );
+  const candidatesPromise = parameters.config.enableStandingOrders
+    ? trackPlanner(
+        "orderCandidates",
+        () =>
+          getOrderCandidates(
+            parameters.client,
+            parameters.config,
+            parameters.headBlockNumber,
+          ),
+      )
+    : Promise.resolve([]);
   const liquityPromise = trackPlanner(
     "liquity",
     () =>
@@ -4872,21 +4874,26 @@ async function planJobs(parameters: {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
   } = parameters;
-  const primaryPromise =
-    planJobsForPool(singlePoolParameters);
   const additionalConfigs = await Promise.resolve(
     additionalPoolConfigsInput ?? [],
   );
-  const poolPlans = await Promise.all([
-    primaryPromise,
-    ...additionalConfigs.map((config) =>
-      planJobsForPool({
-        ...singlePoolParameters,
-        config,
-      }),
-    ),
-  ]);
   const configs = [parameters.config, ...additionalConfigs];
+  const poolPlans = parameters.config.enablePullPoolPlanning
+    ? await Promise.all([
+        planJobsForPool(singlePoolParameters),
+        ...additionalConfigs.map((config) =>
+          planJobsForPool({
+            ...singlePoolParameters,
+            config,
+          }),
+        ),
+      ])
+    : configs.map(() => ({
+        jobs: [],
+        minimumViablePrefix: 0,
+        orders: 0,
+        skipped: new Map<string, number>(),
+      }));
   const plans = poolPlans.map((plan, index) => {
     const config = configs[index]!;
     const estimatedProfit = plan.jobs.reduce(

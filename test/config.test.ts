@@ -242,6 +242,24 @@ describe("GachaTable keeper lane", () => {
 });
 
 describe("standing-order builder bid", () => {
+  it("can disable PullPool planning without changing the default", () => {
+    delete process.env.ENABLE_PULL_POOL_PLANNING;
+    expect(loadConfig().enablePullPoolPlanning).toBe(true);
+
+    process.env.ENABLE_PULL_POOL_PLANNING = "false";
+    expect(loadConfig().enablePullPoolPlanning).toBe(false);
+    delete process.env.ENABLE_PULL_POOL_PLANNING;
+  });
+
+  it("can disable standing-order discovery without changing the default", () => {
+    delete process.env.ENABLE_STANDING_ORDERS;
+    expect(loadConfig().enableStandingOrders).toBe(true);
+
+    process.env.ENABLE_STANDING_ORDERS = "false";
+    expect(loadConfig().enableStandingOrders).toBe(false);
+    delete process.env.ENABLE_STANDING_ORDERS;
+  });
+
   it("starts new targets at ten percent", () => {
     delete process.env.BUILDER_BID_BPS;
 

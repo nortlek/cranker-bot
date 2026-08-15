@@ -72,10 +72,12 @@ export interface KeeperConfig {
   readonly enableDirectCoinbasePayments: boolean;
   readonly enablePendingFundingBackruns: boolean;
   readonly enablePendingFwaFulfillmentBackruns: boolean;
+  readonly enablePullPoolPlanning: boolean;
   readonly enablePoolLifecycle: boolean;
   readonly enableGroupPull: boolean;
   readonly enableMegaRip: boolean;
   readonly enableGachaTable: boolean;
+  readonly enableStandingOrders: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
   readonly enableLiveBidSweep: boolean;
@@ -639,10 +641,18 @@ export function loadConfig(): KeeperConfig {
     enableDirectCoinbasePayments,
     enablePendingFundingBackruns,
     enablePendingFwaFulfillmentBackruns,
+    enablePullPoolPlanning: booleanEnv(
+      "ENABLE_PULL_POOL_PLANNING",
+      true,
+    ),
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
     enableGroupPull: booleanEnv("ENABLE_GROUP_PULL", true),
     enableMegaRip: booleanEnv("ENABLE_MEGA_RIP", true),
     enableGachaTable,
+    enableStandingOrders: booleanEnv(
+      "ENABLE_STANDING_ORDERS",
+      true,
+    ),
     enableVaults: booleanEnv("ENABLE_VAULTS", true),
     enableBuyback: booleanEnv("ENABLE_BUYBACK", true),
     enableLiveBidSweep: booleanEnv(
