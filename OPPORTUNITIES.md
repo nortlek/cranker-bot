@@ -2884,6 +2884,20 @@ all 25 battles and completed planning in 440 ms. Restore the full planner only
 with production-grade RPC capacity; do not use the narrow mode as a silent
 permanent reduction in lane coverage.
 
+The temporary Gacha-only worker was deployed from exact revision
+`ae463d6d092f7187d9a9ad81d6e8ec95eca81d85` as Railway deployment
+`01d813b4-52bc-48aa-97b7-49d34f0b03fc`. PublicNode supplies both foreground
+HTTP and authoritative `newHeads`; pending subscriptions, PullPool planning,
+standing orders, GroupPull, MegaRip, vaults, and buyback are intentionally
+disabled for this bounded window. Startup acquired exactly one advisory signer
+lease, reported the exact revision and flags, and completed nine observed
+passes with 401-485 ms planning and no fatal, pass failure, or lost lease.
+Immediately after rollout, `latest == pending == 2243` and verified net ETH
+equivalent remained `0.699942998027875896`; no live transaction was pending.
+Keep this deployment only through the battle-24 default window and its receipt
+reconciliation, then shut it down again unless another exact positive-EV
+Gacha opportunity is present.
+
 ### fwa.gg launch surfaces
 
 Status: investigated and rejected as unpaid maintenance on 2026-08-14.
