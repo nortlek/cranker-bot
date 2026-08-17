@@ -29,6 +29,7 @@ import {
   MEGA_RIP_KEEPER_EXECUTOR_DEPLOY_GAS_LIMIT,
   megaRipKeeperExecutorDeployment,
 } from "../src/mega-rip-keeper-executor.js";
+import { errorFingerprint } from "../src/format.js";
 import { SINGLETON_FACTORY_ADDRESS } from "../src/standing-order-batch-executor.js";
 
 const CANONICAL_DEPLOYER = getAddress(
@@ -291,4 +292,12 @@ async function main(): Promise<void> {
   );
 }
 
-await main();
+await main().catch((error: unknown) => {
+  console.error(
+    JSON.stringify({
+      event: "mega_rip_inspection_failed",
+      ...errorFingerprint(error),
+    }),
+  );
+  process.exitCode = 1;
+});

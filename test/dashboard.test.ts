@@ -1,7 +1,98 @@
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
-import { buildDashboardData } from "../src/dashboard.js";
+import {
+  buildDashboardData,
+  createDashboardDataReader,
+  createDashboardEthUsdReader,
+} from "../src/dashboard.js";
+
+describe("dashboard refresh resilience", () => {
+  it("bounds and coalesces a slow ETH/USD refresh while retaining its result", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolvePrice: ((value: number) => void) | undefined;
+      const resolver = vi.fn(
+        () =>
+          new Promise<number>((resolve) => {
+            resolvePrice = resolve;
+          }),
+      );
+      const onRefreshTimedOut = vi.fn();
+      const readEthUsd = createDashboardEthUsdReader({
+        configuredValue: 1_800,
+        refreshTimeoutMs: 50,
+        resolver,
+        onRefreshTimedOut,
+      });
+
+      const first = readEthUsd();
+      const second = readEthUsd();
+      await vi.advanceTimersByTimeAsync(50);
+
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        1_800,
+        1_800,
+      ]);
+      expect(resolver).toHaveBeenCalledTimes(1);
+      expect(onRefreshTimedOut).toHaveBeenCalledTimes(1);
+
+      resolvePrice?.(2_100);
+      await Promise.resolve();
+      await Promise.resolve();
+      await expect(readEthUsd()).resolves.toBe(2_100);
+      expect(resolver).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces cold data reads and serves stale data during one refresh", async () => {
+    let currentTime = 1_000;
+    let resolveCold: ((value: Record<string, unknown>) => void) | undefined;
+    let resolveRefresh: ((value: Record<string, unknown>) => void) | undefined;
+    const read = vi
+      .fn<() => Promise<Record<string, unknown>>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveCold = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+    const readData = createDashboardDataReader({
+      cacheIntervalMs: 100,
+      now: () => currentTime,
+      read,
+    });
+
+    const first = readData();
+    const second = readData();
+    await Promise.resolve();
+    resolveCold?.({ version: 1 });
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      '{"version":1}',
+      '{"version":1}',
+    ]);
+    expect(read).toHaveBeenCalledTimes(1);
+
+    currentTime = 1_101;
+    await expect(readData()).resolves.toBe('{"version":1}');
+    await expect(readData()).resolves.toBe('{"version":1}');
+    await Promise.resolve();
+    expect(read).toHaveBeenCalledTimes(2);
+
+    resolveRefresh?.({ version: 2 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await expect(readData()).resolves.toBe('{"version":2}');
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("dashboard telemetry", () => {
   it("reports live lane, batch, relay, and signer health metrics", async () => {
@@ -50,6 +141,13 @@ describe("dashboard telemetry", () => {
     const data = await buildDashboardData(pool, 2_000);
 
     expect(query).toHaveBeenCalledTimes(8);
+    const queryCalls = query.mock.calls as unknown as Array<[string]>;
+    expect(queryCalls[7]?.[0]).toContain(
+      "COUNT(DISTINCT run_id)",
+    );
+    expect(queryCalls[7]?.[0]).toContain(
+      "pull-pool-keeper:signer-lease",
+    );
     expect(data.summary).toEqual({
       receiptProfitUsd: 80,
       receiptProfitEth: 0.04,

@@ -21,6 +21,7 @@ import {
   conservativeDolaToUsd,
   firmOracleRoundStatus,
 } from "../src/firm.js";
+import { errorFingerprint } from "../src/format.js";
 
 const BASELINE_ETH = 11_476_458_190_761_693n;
 const GOAL_USD = process.env.PROFIT_GOAL_USD ?? "250";
@@ -282,7 +283,7 @@ main().catch((error: unknown) => {
   console.error(
     JSON.stringify({
       event: "goal_status_failed",
-      reason: error instanceof Error ? error.message : String(error),
+      ...errorFingerprint(error),
     }),
   );
   process.exitCode = 1;

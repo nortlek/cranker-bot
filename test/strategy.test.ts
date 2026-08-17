@@ -6,6 +6,7 @@ import {
   InvalidInputRpcError,
   InvalidParamsRpcError,
   parseAbi,
+  ResourceNotFoundRpcError,
   RpcRequestError,
   TransactionReceiptNotFoundError,
 } from "viem";
@@ -198,6 +199,31 @@ describe("isFreshBlockStateUnavailable", () => {
     ).toBe(true);
   });
 
+  it("recognizes viem's typed -32001 exact-state publication lag", () => {
+    const requestError = new RpcRequestError({
+      body: {
+        method: "eth_call",
+        params: [],
+      },
+      error: {
+        code: ResourceNotFoundRpcError.code,
+        message: "requested state is not available yet",
+      },
+      url: "https://example.invalid",
+    });
+
+    expect(
+      isFreshBlockStateUnavailable(
+        new ResourceNotFoundRpcError(requestError),
+      ),
+    ).toBe(true);
+    expect(
+      isFreshBlockReadUnavailable(
+        new ResourceNotFoundRpcError(requestError),
+      ),
+    ).toBe(true);
+  });
+
   it("does not classify unrelated invalid parameters as state lag", () => {
     const requestError = new RpcRequestError({
       body: {
@@ -235,6 +261,21 @@ describe("isFreshBlockStateUnavailable", () => {
     });
     expect(
       isFreshBlockStateUnavailable(untypedInputError),
+    ).toBe(false);
+
+    const untypedResourceNotFound = new RpcRequestError({
+      body: {
+        method: "eth_call",
+        params: [],
+      },
+      error: {
+        code: ResourceNotFoundRpcError.code,
+        message: "requested resource not found",
+      },
+      url: "https://example.invalid",
+    });
+    expect(
+      isFreshBlockStateUnavailable(untypedResourceNotFound),
     ).toBe(false);
   });
 });

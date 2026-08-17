@@ -10,6 +10,7 @@ import {
   InvalidParamsRpcError,
   isAddressEqual,
   keccak256,
+  ResourceNotFoundRpcError,
   RpcRequestError,
   TransactionReceiptNotFoundError,
   type Account,
@@ -1392,6 +1393,10 @@ export function isFreshBlockStateUnavailable(
   error: unknown,
 ): boolean {
   if (!(error instanceof BaseError)) return false;
+  const resourceNotFound = error.walk(
+    (candidate) => candidate instanceof ResourceNotFoundRpcError,
+  );
+  if (resourceNotFound instanceof ResourceNotFoundRpcError) return true;
   const invalidInput = error.walk(
     (candidate) => candidate instanceof InvalidInputRpcError,
   );

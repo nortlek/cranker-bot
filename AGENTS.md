@@ -147,8 +147,9 @@ worker exits for a supervised restart instead of silently degrading to a
 second head path. Exact fixed-block state reads tolerate up to one second of
 publication skew by retrying only classified `BlockNotFound`, the observed
 provider `-32602` fresh-state messages, and viem's typed
-`InvalidInputRpcError[-32000]`; raw or untyped `-32000` errors and all other
-classes remain immediate failures. The subscribed head is also the
+`InvalidInputRpcError[-32000]` and `ResourceNotFoundRpcError[-32001]`;
+raw or untyped `-32000`/`-32001` errors and all other classes remain immediate
+failures. The subscribed head is also the
 authoritative private-submission deadline. The final exact-parent nonce and
 balance gate races arrival of the target head, so a stalled or lagging RPC
 response cannot authorize a stale bundle. Do not reintroduce a duplicate HTTP

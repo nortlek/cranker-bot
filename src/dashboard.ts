@@ -23,6 +23,23 @@ interface DashboardOptions {
   readonly port?: number;
 }
 
+export interface DashboardEthUsdReaderOptions {
+  readonly configuredValue?: number;
+  readonly now?: () => number;
+  readonly onRefreshFailed?: (error: unknown) => void;
+  readonly onRefreshTimedOut?: () => void;
+  readonly refreshIntervalMs?: number;
+  readonly refreshTimeoutMs?: number;
+  readonly resolver?: () => Promise<number>;
+}
+
+export interface DashboardDataReaderOptions {
+  readonly cacheIntervalMs?: number;
+  readonly now?: () => number;
+  readonly onBackgroundRefreshFailed?: (error: unknown) => void;
+  readonly read: () => Promise<Record<string, unknown>>;
+}
+
 export interface DashboardRuntime {
   readonly port: number;
   close(): Promise<void>;
@@ -84,6 +101,170 @@ const mimeTypes: Readonly<Record<string, string>> = {
   ".webp": "image/webp",
   ".woff2": "font/woff2",
 };
+
+const DASHBOARD_ETH_USD_SNAPSHOT = 1_923.19;
+const DASHBOARD_ETH_USD_REFRESH_INTERVAL_MS = 60_000;
+const DASHBOARD_ETH_USD_REFRESH_TIMEOUT_MS = 2_000;
+const DASHBOARD_DATA_CACHE_INTERVAL_MS = 15_000;
+
+function positiveDuration(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+export function createDashboardEthUsdReader(
+  options: DashboardEthUsdReaderOptions,
+): () => Promise<number> {
+  const now = options.now ?? Date.now;
+  const refreshIntervalMs = positiveDuration(
+    options.refreshIntervalMs ?? DASHBOARD_ETH_USD_REFRESH_INTERVAL_MS,
+    "dashboard ETH/USD refresh interval",
+  );
+  const refreshTimeoutMs = positiveDuration(
+    options.refreshTimeoutMs ?? DASHBOARD_ETH_USD_REFRESH_TIMEOUT_MS,
+    "dashboard ETH/USD refresh timeout",
+  );
+  let cached:
+    | { readonly expiresAt: number; readonly value: number }
+    | undefined;
+  let inFlight: Promise<number> | undefined;
+  let timedOutRefresh: Promise<number> | undefined;
+
+  const fallbackValue = (): number => {
+    if (
+      options.configuredValue !== undefined &&
+      Number.isFinite(options.configuredValue) &&
+      options.configuredValue > 0
+    ) {
+      return options.configuredValue;
+    }
+    return cached?.value ?? DASHBOARD_ETH_USD_SNAPSHOT;
+  };
+
+  const startRefresh = (fallback: number): Promise<number> => {
+    if (inFlight !== undefined) return inFlight;
+    const refresh = Promise.resolve()
+      .then(async () => {
+        const value = await options.resolver?.();
+        if (value === undefined || !Number.isFinite(value) || value <= 0) {
+          throw new Error("ETH/USD resolver returned an invalid value");
+        }
+        cached = {
+          value,
+          expiresAt: now() + refreshIntervalMs,
+        };
+        return value;
+      })
+      .catch((error: unknown) => {
+        options.onRefreshFailed?.(error);
+        return fallback;
+      });
+    inFlight = refresh;
+    const clearRefresh = (): void => {
+      if (inFlight === refresh) inFlight = undefined;
+      if (timedOutRefresh === refresh) timedOutRefresh = undefined;
+    };
+    void refresh.then(clearRefresh, clearRefresh);
+    return refresh;
+  };
+
+  return async (): Promise<number> => {
+    if (cached !== undefined && cached.expiresAt > now()) {
+      return cached.value;
+    }
+    const fallback = fallbackValue();
+    if (options.resolver === undefined) return fallback;
+
+    const refresh = startRefresh(fallback);
+    let timeout: NodeJS.Timeout | undefined;
+    const timeoutResult = new Promise<number>((resolveTimeout) => {
+      timeout = setTimeout(() => {
+        if (timedOutRefresh !== refresh) {
+          timedOutRefresh = refresh;
+          options.onRefreshTimedOut?.();
+        }
+        resolveTimeout(fallback);
+      }, refreshTimeoutMs);
+      timeout.unref();
+    });
+    try {
+      return await Promise.race([refresh, timeoutResult]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+    }
+  };
+}
+
+export function createDashboardDataReader(
+  options: DashboardDataReaderOptions,
+): () => Promise<string> {
+  const now = options.now ?? Date.now;
+  const cacheIntervalMs = positiveDuration(
+    options.cacheIntervalMs ?? DASHBOARD_DATA_CACHE_INTERVAL_MS,
+    "dashboard data cache interval",
+  );
+  let cached:
+    | { readonly expiresAt: number; readonly body: string }
+    | undefined;
+  let inFlight:
+    | Promise<{ readonly expiresAt: number; readonly body: string }>
+    | undefined;
+  let observedBackgroundRefresh:
+    | Promise<{ readonly expiresAt: number; readonly body: string }>
+    | undefined;
+
+  const startRefresh = (): Promise<{
+    readonly expiresAt: number;
+    readonly body: string;
+  }> => {
+    if (inFlight !== undefined) return inFlight;
+    const refresh = Promise.resolve()
+      .then(options.read)
+      .then((data) => ({
+        body: JSON.stringify(data),
+        expiresAt: now() + cacheIntervalMs,
+      }));
+    inFlight = refresh;
+    void refresh.then(
+      (value) => {
+        cached = value;
+        if (inFlight === refresh) inFlight = undefined;
+      },
+      () => {
+        if (inFlight === refresh) inFlight = undefined;
+      },
+    );
+    return refresh;
+  };
+
+  return async (): Promise<string> => {
+    if (cached !== undefined && cached.expiresAt > now()) {
+      return cached.body;
+    }
+    const refresh = startRefresh();
+    if (cached === undefined) return (await refresh).body;
+
+    if (observedBackgroundRefresh !== refresh) {
+      observedBackgroundRefresh = refresh;
+      void refresh.then(
+        () => {
+          if (observedBackgroundRefresh === refresh) {
+            observedBackgroundRefresh = undefined;
+          }
+        },
+        (error: unknown) => {
+          options.onBackgroundRefreshFailed?.(error);
+          if (observedBackgroundRefresh === refresh) {
+            observedBackgroundRefresh = undefined;
+          }
+        },
+      );
+    }
+    return cached.body;
+  };
+}
 
 function fileExtension(pathname: string): string {
   const lastDot = pathname.lastIndexOf(".");
@@ -515,8 +696,20 @@ export async function buildDashboardData(
     pool.query<HealthSummaryRow>(
       `
         SELECT
-          (SELECT COUNT(*) FROM keeper_runs WHERE stopped_at IS NULL)::text AS active_runs,
-          (SELECT COUNT(*) FROM pg_locks WHERE locktype = 'advisory' AND granted)::text AS signer_leases,
+          (
+            SELECT COUNT(DISTINCT run_id)
+            FROM keeper_events
+            WHERE event_name = 'pass_complete'
+              AND occurred_at >= NOW() - INTERVAL '60 seconds'
+          )::text AS active_runs,
+          (
+            SELECT COUNT(*)
+            FROM pg_locks
+            JOIN pg_stat_activity USING (pid)
+            WHERE pg_locks.locktype = 'advisory'
+              AND pg_locks.granted
+              AND pg_stat_activity.application_name = 'pull-pool-keeper:signer-lease'
+          )::text AS signer_leases,
           (
             SELECT COUNT(*)
             FROM keeper_events
@@ -801,43 +994,41 @@ export async function startDashboardServer(
       : new Pool({
           connectionString: options.databaseUrl,
           max: 2,
+          connectionTimeoutMillis: 2_000,
+          idleTimeoutMillis: 30_000,
+          query_timeout: 5_000,
+          statement_timeout: 4_000,
           application_name: "keeper-dashboard",
         });
-
-  let cachedData:
-    | { readonly expiresAt: number; readonly body: string }
-    | undefined;
-  let cachedEthUsd:
-    | { readonly expiresAt: number; readonly value: number }
-    | undefined;
-  const currentEthUsd = async (): Promise<number> => {
-    if (cachedEthUsd !== undefined && cachedEthUsd.expiresAt > Date.now()) {
-      return cachedEthUsd.value;
-    }
-    const configured = Number(process.env.DASHBOARD_ETH_USD);
-    const fallback =
-      Number.isFinite(configured) && configured > 0
-        ? configured
-        : cachedEthUsd?.value ?? 1_923.19;
-    if (options.ethUsd === undefined) return fallback;
-    try {
-      const value = await options.ethUsd();
-      if (!Number.isFinite(value) || value <= 0) {
-        throw new Error("ETH/USD resolver returned an invalid value");
-      }
-      cachedEthUsd = {
-        value,
-        expiresAt: Date.now() + 60_000,
-      };
-      return value;
-    } catch (error) {
+  const currentEthUsd = createDashboardEthUsdReader({
+    configuredValue: Number(process.env.DASHBOARD_ETH_USD),
+    ...(options.ethUsd === undefined ? {} : { resolver: options.ethUsd }),
+    onRefreshFailed(error) {
       log("warn", "dashboard_eth_usd_refresh_failed", {
         ...errorFingerprint(error),
         action: "using_last_known_or_snapshot_price",
       });
-      return fallback;
-    }
-  };
+    },
+    onRefreshTimedOut() {
+      log("warn", "dashboard_eth_usd_refresh_timed_out", {
+        timeoutMs: DASHBOARD_ETH_USD_REFRESH_TIMEOUT_MS,
+        action: "using_last_known_or_snapshot_price",
+      });
+    },
+  });
+  const readDashboardData =
+    pool === undefined
+      ? undefined
+      : createDashboardDataReader({
+          read: async () =>
+            buildDashboardData(pool, await currentEthUsd()),
+          onBackgroundRefreshFailed(error) {
+            log("warn", "dashboard_background_refresh_failed", {
+              ...errorFingerprint(error),
+              action: "serving_stale_dashboard_data",
+            });
+          },
+        });
   const server = createServer(async (request, response) => {
     try {
       const headers = requestHeaders(request);
@@ -861,7 +1052,7 @@ export async function startDashboardServer(
       }
 
       if (url.pathname === "/api/dashboard") {
-        if (pool === undefined) {
+        if (readDashboardData === undefined) {
           await writeResponse(
             request,
             response,
@@ -875,18 +1066,10 @@ export async function startDashboardServer(
           );
           return;
         }
-        if (cachedData === undefined || cachedData.expiresAt <= Date.now()) {
-          cachedData = {
-            body: JSON.stringify(
-              await buildDashboardData(pool, await currentEthUsd()),
-            ),
-            expiresAt: Date.now() + 15_000,
-          };
-        }
         await writeResponse(
           request,
           response,
-          new Response(cachedData.body, {
+          new Response(await readDashboardData(), {
             headers: {
               "cache-control": "private, max-age=10",
               "content-type": "application/json; charset=utf-8",
