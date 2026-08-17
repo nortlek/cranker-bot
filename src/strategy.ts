@@ -159,6 +159,7 @@ export type KeeperJobKind =
   | "mega_rip_executor_deploy"
   | "mega_rip_lock"
   | "mega_rip_pull"
+  | "mega_rip_reveal"
   | "mega_rip_settle"
   | "mega_rip_recover"
   | "gacha_executor_deploy"
@@ -5096,6 +5097,12 @@ async function planJobs(parameters: {
     megaRipPullsDone: megaRipPlan?.pullsDone.toString() ?? "",
     megaRipEstimatedPullsRemaining:
       megaRipPlan?.estimatedPullsRemaining.toString() ?? "",
+    megaRipPendingSyncCount:
+      megaRipPlan?.pendingSyncCount.toString() ?? "",
+    megaRipMinRequestInterval:
+      megaRipPlan?.minRequestInterval.toString() ?? "",
+    megaRipLastRequestAt:
+      megaRipPlan?.lastRequestAt.toString() ?? "",
     megaRipPlannedJobs: megaRipPlan?.jobs.length ?? 0,
     megaRipSelected: selected.jobs.some((job) =>
       job.kind.startsWith("mega_rip_"),
@@ -5365,6 +5372,7 @@ function actualJobReward(
   }
   if (
     request.kind === "mega_rip_pull" ||
+    request.kind === "mega_rip_reveal" ||
     request.kind === "mega_rip_settle" ||
     request.kind === "mega_rip_recover"
   ) {

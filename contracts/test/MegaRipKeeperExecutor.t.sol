@@ -14,6 +14,9 @@ contract MockMegaRip {
     uint256 public bounty;
     mapping(uint256 => bool) public rewardedSettlement;
     mapping(uint256 => bool) public rewardedRecovery;
+    uint256 public revealBounties;
+
+    address internal constant FWA = 0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c;
 
     receive() external payable {}
 
@@ -33,10 +36,21 @@ contract MockMegaRip {
         rewardedRecovery[listingId] = rewarded;
     }
 
+    function setRevealBounties(uint256 count) external {
+        revealBounties = count;
+    }
+
     function pull(uint256 maxPulls) external {
         uint256 made = maxPulls < pullsAvailable ? maxPulls : pullsAvailable;
         pullsAvailable -= made;
         _pay(msg.sender, made * bounty);
+    }
+
+    function crankReveal(uint256 maxCount) external {
+        MockFwa(FWA).advance(maxCount);
+        uint256 count = revealBounties;
+        revealBounties = 0;
+        _pay(msg.sender, count * bounty);
     }
 
     function settle(uint256 listingId) external {
@@ -59,9 +73,22 @@ contract MockMegaRip {
     }
 }
 
+contract MockFwa {
+    uint64 public nextSequenceToProcess;
+
+    function setNext(uint64 next) external {
+        nextSequenceToProcess = next;
+    }
+
+    function advance(uint256 count) external {
+        nextSequenceToProcess += uint64(count);
+    }
+}
+
 contract MegaRipKeeperExecutorTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-    address private constant MEGA_RIP = 0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25;
+    address private constant MEGA_RIP = 0x6769944589f5CC96d5F900F06539681Db84AC5c6;
+    address private constant FWA = 0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c;
 
     receive() external payable {}
 
@@ -71,6 +98,13 @@ contract MegaRipKeeperExecutorTest {
         mock = MockMegaRip(payable(MEGA_RIP));
         vm.deal(MEGA_RIP, 100 ether);
         mock.setBounty(0.0003 ether);
+    }
+
+    function installFwaMock(uint64 next) internal returns (MockFwa mock) {
+        MockFwa implementation = new MockFwa();
+        vm.etch(FWA, address(implementation).code);
+        mock = MockFwa(FWA);
+        mock.setNext(next);
     }
 
     function testPullsManyAndReturnsTheExactBounty() external {
@@ -91,12 +125,35 @@ contract MegaRipKeeperExecutorTest {
         mock.setPulls(2);
         MegaRipKeeperExecutor executor = new MegaRipKeeperExecutor(address(this));
 
-        (bool success,) = address(executor).call(
-            abi.encodeCall(executor.pullExact, (10, 10 * 0.0003 ether))
-        );
+        (bool success,) = address(executor).call(abi.encodeCall(executor.pullExact, (10, 10 * 0.0003 ether)));
 
         require(!success, "short pull succeeded");
         require(mock.pullsAvailable() == 2, "pull state did not roll back");
+    }
+
+    function testRevealBindsTheFwaPrefixAndReturnsTheExactBounty() external {
+        MockMegaRip mock = installMock();
+        MockFwa fwa = installFwaMock(100);
+        mock.setRevealBounties(2);
+        MegaRipKeeperExecutor executor = new MegaRipKeeperExecutor(address(this));
+
+        uint256 bounty = executor.crankRevealExact(100, 103, 0.0006 ether);
+
+        require(bounty == 0.0006 ether, "wrong reveal bounty");
+        require(fwa.nextSequenceToProcess() == 103, "wrong FWA pointer");
+    }
+
+    function testRevealRejectsAMovedFwaPrefix() external {
+        MockMegaRip mock = installMock();
+        MockFwa fwa = installFwaMock(101);
+        mock.setRevealBounties(2);
+        MegaRipKeeperExecutor executor = new MegaRipKeeperExecutor(address(this));
+
+        (bool success,) = address(executor).call(abi.encodeCall(executor.crankRevealExact, (100, 103, 0.0006 ether)));
+
+        require(!success, "moved reveal succeeded");
+        require(fwa.nextSequenceToProcess() == 101, "FWA pointer changed");
+        require(mock.revealBounties() == 2, "reveal state changed");
     }
 
     function testBatchesRewardedSettlements() external {
@@ -122,9 +179,7 @@ contract MegaRipKeeperExecutorTest {
         ids[0] = 11;
         ids[1] = 12;
 
-        (bool success,) = address(executor).call(
-            abi.encodeCall(executor.settleExact, (ids, 0.0006 ether))
-        );
+        (bool success,) = address(executor).call(abi.encodeCall(executor.settleExact, (ids, 0.0006 ether)));
 
         require(!success, "unrewarded settlement succeeded");
         require(mock.rewardedSettlement(11), "first settlement did not roll back");
@@ -148,9 +203,7 @@ contract MegaRipKeeperExecutorTest {
         installMock();
         MegaRipKeeperExecutor executor = new MegaRipKeeperExecutor(address(this));
         vm.prank(address(0xBAD));
-        (bool success,) = address(executor).call(
-            abi.encodeCall(executor.pullExact, (1, 0.0003 ether))
-        );
+        (bool success,) = address(executor).call(abi.encodeCall(executor.pullExact, (1, 0.0003 ether)));
         require(!success, "unauthorized caller succeeded");
     }
 }

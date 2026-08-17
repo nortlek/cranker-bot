@@ -3,8 +3,13 @@ pragma solidity 0.8.28;
 
 interface IMegaRipKeeperTarget {
     function pull(uint256 maxPulls) external;
+    function crankReveal(uint256 maxCount) external;
     function settle(uint256 listingId) external;
     function syncStuck(uint256 listingId) external;
+}
+
+interface IFwaSequenceTarget {
+    function nextSequenceToProcess() external view returns (uint64);
 }
 
 /// @notice Executes only owner-selected MegaRip keeper calls and proves the
@@ -17,6 +22,7 @@ contract MegaRipKeeperExecutor {
     error EmptyBatch();
     error InvalidOwner();
     error PaymentFailed();
+    error ProcessorMoved(uint64 expected, uint64 actual);
     error TooManyCalls();
     error Unauthorized();
     error UnauthorizedPayment();
@@ -25,8 +31,8 @@ contract MegaRipKeeperExecutor {
     event RewardedExecution(bytes4 indexed selector, uint256 calls, uint256 bounty);
 
     uint256 public constant MAX_CALLS = 64;
-    IMegaRipKeeperTarget public constant MEGA_RIP =
-        IMegaRipKeeperTarget(0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25);
+    IMegaRipKeeperTarget public constant MEGA_RIP = IMegaRipKeeperTarget(0x6769944589f5CC96d5F900F06539681Db84AC5c6);
+    IFwaSequenceTarget public constant FWA = IFwaSequenceTarget(0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c);
     address public immutable owner;
 
     constructor(address owner_) {
@@ -38,10 +44,7 @@ contract MegaRipKeeperExecutor {
         if (msg.sender != address(MEGA_RIP)) revert UnauthorizedPayment();
     }
 
-    function pullExact(uint256 maxPulls, uint256 minimumBounty)
-        external
-        returns (uint256 bounty)
-    {
+    function pullExact(uint256 maxPulls, uint256 minimumBounty) external returns (uint256 bounty) {
         _authorize();
         if (maxPulls == 0 || maxPulls > MAX_CALLS) revert TooManyCalls();
         uint256 beforeBalance = address(this).balance;
@@ -50,10 +53,33 @@ contract MegaRipKeeperExecutor {
         emit RewardedExecution(IMegaRipKeeperTarget.pull.selector, maxPulls, bounty);
     }
 
-    function settleExact(uint256[] calldata listingIds, uint256 minimumBounty)
+    /// @notice Processes one exact FWA sequence prefix through MegaRip's
+    ///         reveal crank and proves both pointer movement and reward.
+    /// @dev This prevents a builder from moving the shared FWA queue ahead of
+    ///      the priced prefix and making this call process different work.
+    function crankRevealExact(uint64 expectedNext, uint64 expectedAfter, uint256 minimumBounty)
         external
         returns (uint256 bounty)
     {
+        _authorize();
+        if (expectedAfter <= expectedNext) revert EmptyBatch();
+        uint256 count = uint256(expectedAfter - expectedNext);
+        _validateLength(count);
+
+        uint64 actual = FWA.nextSequenceToProcess();
+        if (actual != expectedNext) revert ProcessorMoved(expectedNext, actual);
+
+        uint256 beforeBalance = address(this).balance;
+        MEGA_RIP.crankReveal(count);
+
+        actual = FWA.nextSequenceToProcess();
+        if (actual != expectedAfter) revert ProcessorMoved(expectedAfter, actual);
+
+        bounty = _finish(beforeBalance, minimumBounty);
+        emit RewardedExecution(IMegaRipKeeperTarget.crankReveal.selector, count, bounty);
+    }
+
+    function settleExact(uint256[] calldata listingIds, uint256 minimumBounty) external returns (uint256 bounty) {
         _authorize();
         uint256 length = listingIds.length;
         _validateLength(length);
@@ -65,10 +91,7 @@ contract MegaRipKeeperExecutor {
         emit RewardedExecution(IMegaRipKeeperTarget.settle.selector, length, bounty);
     }
 
-    function syncStuckExact(uint256[] calldata listingIds, uint256 minimumBounty)
-        external
-        returns (uint256 bounty)
-    {
+    function syncStuckExact(uint256[] calldata listingIds, uint256 minimumBounty) external returns (uint256 bounty) {
         _authorize();
         uint256 length = listingIds.length;
         _validateLength(length);
@@ -89,10 +112,7 @@ contract MegaRipKeeperExecutor {
         if (length > MAX_CALLS) revert TooManyCalls();
     }
 
-    function _finish(uint256 beforeBalance, uint256 minimumBounty)
-        internal
-        returns (uint256 bounty)
-    {
+    function _finish(uint256 beforeBalance, uint256 minimumBounty) internal returns (uint256 bounty) {
         bounty = address(this).balance - beforeBalance;
         if (minimumBounty == 0 || bounty < minimumBounty) {
             revert UnexpectedBounty(bounty, minimumBounty);

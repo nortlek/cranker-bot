@@ -1409,6 +1409,7 @@ async function main(): Promise<void> {
             request.kind === "mega_rip_executor_deploy" ||
             request.kind === "mega_rip_lock" ||
             request.kind === "mega_rip_pull" ||
+            request.kind === "mega_rip_reveal" ||
             request.kind === "mega_rip_settle" ||
             request.kind === "mega_rip_recover"
           ) {

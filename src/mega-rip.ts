@@ -12,6 +12,7 @@ import {
 import {
   ETHEREUM_TRANSACTION_GAS_LIMIT,
 } from "./config.js";
+import { fwaAbi } from "./abi.js";
 import {
   FWA_TOKEN_ADDRESS,
   MEGA_RIP_ADDRESS,
@@ -23,6 +24,7 @@ import { bufferedGas, requiredProfit } from "./economics.js";
 import { errorMessage, log } from "./format.js";
 import {
   encodeMegaRipExactPull,
+  encodeMegaRipExactReveal,
   encodeMegaRipExactSettlements,
   MEGA_RIP_KEEPER_EXECUTOR_DEPLOY_GAS_LIMIT,
   MEGA_RIP_KEEPER_EXECUTOR_MAX_CALLS,
@@ -51,10 +53,7 @@ export const MEGA_RIP_ACQUISITION_STATE = {
 } as const;
 
 const MAX_ACQUISITIONS_TO_SCAN = 512n;
-// Current live-fork gas is ~13.6m for 40 pulls. This preserves room inside the
-// keeper's 16,777,216 signing envelope; the executor's hard ABI bound remains
-// 64 for lower-gas terminal batches.
-const MAX_REWARDED_PULLS_PER_TRANSACTION = 40n;
+const TARGET_SLOT_SECONDS = 12n;
 
 // Same-lane clearing evidence does not exist yet. Start terminal settlement at
 // the observed low-cluster boundary for comparable keeper work; raise it only
@@ -128,6 +127,27 @@ export const megaRipAbi = [
   },
   {
     type: "function",
+    name: "minRequestInterval",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint32" }],
+  },
+  {
+    type: "function",
+    name: "lastRequestAt",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint64" }],
+  },
+  {
+    type: "function",
+    name: "pendingSyncCount",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "count", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "quoteAcquisitionPrice",
     stateMutability: "view",
     inputs: [],
@@ -164,6 +184,7 @@ export const megaRipAbi = [
           { name: "status", type: "uint8" },
           { name: "auctionOpen", type: "bool" },
           { name: "reserved", type: "bool" },
+          { name: "syncReserved", type: "bool" },
         ],
       },
     ],
@@ -180,6 +201,13 @@ export const megaRipAbi = [
     name: "pull",
     stateMutability: "nonpayable",
     inputs: [{ name: "maxPulls", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "crankReveal",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "maxCount", type: "uint256" }],
     outputs: [],
   },
   {
@@ -253,10 +281,45 @@ export function megaRipInitialPullCount(parameters: {
   readonly acquisitionPrice: bigint;
   readonly bounty: bigint;
 }): bigint {
-  const unitCost = parameters.acquisitionPrice + parameters.bounty * 2n;
-  return unitCost === 0n
-    ? 0n
-    : boundedMegaRipCallCount(parameters.totalDeposited / unitCost);
+  const unitCost = parameters.acquisitionPrice + parameters.bounty * 3n;
+  if (unitCost === 0n || parameters.totalDeposited < unitCost) return 0n;
+  // The pinned successor spaces requests by ten seconds. One block can create
+  // at most one request even when `pull(maxPulls)` receives a larger bound.
+  return 1n;
+}
+
+export function megaRipNextBlockRequestCount(parameters: {
+  readonly estimatedPullsRemaining: bigint;
+  readonly minRequestInterval: bigint;
+  readonly lastRequestAt: bigint;
+  readonly parentTimestamp: bigint;
+}): bigint {
+  return megaRipRequestCountAtTimestamp({
+    estimatedPullsRemaining:
+      parameters.estimatedPullsRemaining,
+    minRequestInterval: parameters.minRequestInterval,
+    lastRequestAt: parameters.lastRequestAt,
+    timestamp: parameters.parentTimestamp + TARGET_SLOT_SECONDS,
+  });
+}
+
+function megaRipRequestCountAtTimestamp(parameters: {
+  readonly estimatedPullsRemaining: bigint;
+  readonly minRequestInterval: bigint;
+  readonly lastRequestAt: bigint;
+  readonly timestamp: bigint;
+}): bigint {
+  if (parameters.estimatedPullsRemaining === 0n) return 0n;
+  if (parameters.minRequestInterval === 0n) {
+    return boundedMegaRipCallCount(
+      parameters.estimatedPullsRemaining,
+    );
+  }
+  return parameters.lastRequestAt === 0n ||
+    parameters.timestamp >=
+      parameters.lastRequestAt + parameters.minRequestInterval
+    ? 1n
+    : 0n;
 }
 
 export interface MegaRipPlan {
@@ -267,6 +330,9 @@ export interface MegaRipPlan {
   readonly totalDeposited: bigint;
   readonly pullsDone: bigint;
   readonly estimatedPullsRemaining: bigint;
+  readonly pendingSyncCount: bigint;
+  readonly minRequestInterval: bigint;
+  readonly lastRequestAt: bigint;
 }
 
 export async function verifyMegaRipRuntime(parameters: {
@@ -338,6 +404,7 @@ export async function readMegaRipAcquisitions(parameters: {
   readonly blockNumber: bigint;
   readonly count: bigint;
 }): Promise<readonly MegaRipAcquisition[]> {
+  if (parameters.count === 0n) return [];
   return parameters.client.multicall({
     allowFailure: false,
     blockNumber: parameters.blockNumber,
@@ -360,9 +427,21 @@ export async function readMegaRipState(parameters: {
   readonly pullsDone: bigint;
   readonly estimatedPullsRemaining: bigint;
   readonly bounty: bigint;
+  readonly pendingSyncCount: bigint;
+  readonly minRequestInterval: bigint;
+  readonly lastRequestAt: bigint;
 }> {
-  const [state, fundingEndsAt, totalDeposited, pullsDone, remaining, bounty] =
-    await parameters.client.multicall({
+  const [
+    state,
+    fundingEndsAt,
+    totalDeposited,
+    pullsDone,
+    remaining,
+    bounty,
+    pendingSyncCount,
+    minRequestInterval,
+    lastRequestAt,
+  ] = await parameters.client.multicall({
       allowFailure: false,
       blockNumber: parameters.blockNumber,
       contracts: [
@@ -396,6 +475,21 @@ export async function readMegaRipState(parameters: {
           abi: megaRipAbi,
           functionName: "crankBounty" as const,
         },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "pendingSyncCount" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "minRequestInterval" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "lastRequestAt" as const,
+        },
       ],
     });
   return {
@@ -405,12 +499,16 @@ export async function readMegaRipState(parameters: {
     pullsDone,
     estimatedPullsRemaining: remaining,
     bounty,
+    pendingSyncCount,
+    minRequestInterval: BigInt(minRequestInterval),
+    lastRequestAt,
   };
 }
 
 function profitableJob(parameters: {
   readonly kind:
     | "mega_rip_pull"
+    | "mega_rip_reveal"
     | "mega_rip_settle"
     | "mega_rip_recover";
   readonly label: string;
@@ -486,9 +584,9 @@ async function megaRipExecutorState(parameters: {
 }
 
 function boundedMegaRipCallCount(count: bigint): bigint {
-  return count < MAX_REWARDED_PULLS_PER_TRANSACTION
+  return count < MEGA_RIP_KEEPER_EXECUTOR_MAX_CALLS
     ? count
-    : MAX_REWARDED_PULLS_PER_TRANSACTION;
+    : MEGA_RIP_KEEPER_EXECUTOR_MAX_CALLS;
 }
 
 async function estimateRewardGatedJob(parameters: {
@@ -510,6 +608,128 @@ async function estimateRewardGatedJob(parameters: {
   );
 }
 
+async function planMegaRipRevealJob(parameters: {
+  readonly client: PublicClient<Transport, Chain>;
+  readonly account: Account | Address;
+  readonly blockNumber: bigint;
+  readonly acquisitions: readonly MegaRipAcquisition[];
+  readonly executor: Address;
+  readonly bounty: bigint;
+  readonly maxFeePerGas: bigint;
+  readonly gasLimitMultiplierBps: bigint;
+  readonly minProfitWei: bigint;
+  readonly builderBidBps: bigint;
+}): Promise<KeeperJob | undefined> {
+  const pendingRequestIds = new Set(
+    parameters.acquisitions
+      .filter(
+        (acquisition) =>
+          Number(acquisition.status) ===
+            MEGA_RIP_ACQUISITION_STATE.PENDING &&
+          acquisition.syncReserved,
+      )
+      .map((acquisition) => acquisition.requestId.toString()),
+  );
+  if (pendingRequestIds.size === 0) return undefined;
+
+  const [nextSequence, lastIssuedSequence] = await Promise.all([
+    parameters.client.readContract({
+      address: PULL_POOL_FWA_ADDRESS,
+      abi: fwaAbi,
+      functionName: "nextSequenceToProcess",
+      blockNumber: parameters.blockNumber,
+    }),
+    parameters.client.readContract({
+      address: PULL_POOL_FWA_ADDRESS,
+      abi: fwaAbi,
+      functionName: "lastIssuedSequence",
+      blockNumber: parameters.blockNumber,
+    }),
+  ]);
+  if (lastIssuedSequence < nextSequence) return undefined;
+
+  const available = boundedMegaRipCallCount(
+    lastIssuedSequence - nextSequence + 1n,
+  );
+  const sequences = Array.from(
+    { length: Number(available) },
+    (_, index) => nextSequence + BigInt(index),
+  );
+  const queuedRequestIds = await parameters.client.multicall({
+    allowFailure: false,
+    blockNumber: parameters.blockNumber,
+    contracts: sequences.map((sequence) => ({
+      address: PULL_POOL_FWA_ADDRESS,
+      abi: fwaAbi,
+      functionName: "requestIdAtSequence" as const,
+      args: [sequence] as const,
+    })),
+  });
+  const candidatePositions = queuedRequestIds.flatMap(
+    (requestId, index) =>
+      pendingRequestIds.has(requestId.toString()) ? [index] : [],
+  );
+  if (candidatePositions.length === 0) return undefined;
+
+  let low = 0;
+  let high = candidatePositions.length - 1;
+  let best:
+    | {
+        readonly processCount: bigint;
+        readonly rewardCount: bigint;
+        readonly data: `0x${string}`;
+        readonly gas: bigint;
+      }
+    | undefined;
+  while (low <= high) {
+    const candidateIndex = Math.floor((low + high) / 2);
+    const position = candidatePositions[candidateIndex];
+    if (position === undefined) break;
+    const processCount = BigInt(position + 1);
+    const rewardCount = BigInt(candidateIndex + 1);
+    const data = encodeMegaRipExactReveal(
+      nextSequence,
+      processCount,
+      rewardCount * parameters.bounty,
+    );
+    try {
+      const gas = await estimateRewardGatedJob({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.blockNumber,
+        target: parameters.executor,
+        data,
+        gasLimitMultiplierBps:
+          parameters.gasLimitMultiplierBps,
+      });
+      best = { processCount, rewardCount, data, gas };
+      low = candidateIndex + 1;
+    } catch (error) {
+      log("debug", "mega_rip_reveal_prefix_not_ready", {
+        nextSequence: nextSequence.toString(),
+        processCount: processCount.toString(),
+        rewardCount: rewardCount.toString(),
+        reason: errorMessage(error),
+      });
+      high = candidateIndex - 1;
+    }
+  }
+  if (best === undefined) return undefined;
+
+  const reward = best.rewardCount * parameters.bounty;
+  return profitableJob({
+    kind: "mega_rip_reveal",
+    label: `mega_rip_reveal:${nextSequence}:${best.processCount}:${best.rewardCount}`,
+    target: parameters.executor,
+    data: best.data,
+    gas: best.gas,
+    reward,
+    maxFeePerGas: parameters.maxFeePerGas,
+    minProfitWei: parameters.minProfitWei,
+    builderBidBps: parameters.builderBidBps,
+  });
+}
+
 export async function planMegaRipJobs(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly account: Account | Address;
@@ -528,6 +748,9 @@ export async function planMegaRipJobs(parameters: {
     pullsDone,
     estimatedPullsRemaining: remaining,
     bounty,
+    pendingSyncCount,
+    minRequestInterval,
+    lastRequestAt,
   } = await readMegaRipState(parameters);
   const base = {
     state,
@@ -535,6 +758,9 @@ export async function planMegaRipJobs(parameters: {
     totalDeposited,
     pullsDone,
     estimatedPullsRemaining: remaining,
+    pendingSyncCount,
+    minRequestInterval,
+    lastRequestAt,
   };
   const executor = await megaRipExecutorState({
     client: parameters.client,
@@ -629,68 +855,114 @@ export async function planMegaRipJobs(parameters: {
     blockNumber: parameters.blockNumber,
     count: pullsDone,
   });
-  if (remaining > 0n) {
-    let pullCount = boundedMegaRipCallCount(remaining);
-    let gas: bigint | undefined;
-    if (executor.deployed) {
-      while (pullCount > 0n) {
-        const data = encodeMegaRipExactPull(
-          pullCount,
-          pullCount * bounty,
-        );
-        try {
-          gas = await estimateRewardGatedJob({
-            client: parameters.client,
-            account: parameters.account,
-            blockNumber: parameters.blockNumber,
-            target: executor.address,
-            data,
-            gasLimitMultiplierBps:
-              parameters.gasLimitMultiplierBps,
-          });
-          break;
-        } catch (error) {
-          log("debug", "mega_rip_pull_batch_not_ready", {
-            pullCount: pullCount.toString(),
-            reason: errorMessage(error),
-          });
-          pullCount /= 2n;
-        }
-      }
-    } else {
-      gas = BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT);
+  const boundedPendingSyncCount = boundedMegaRipCallCount(
+    pendingSyncCount,
+  );
+
+  // Already-terminal requests are cheaper to sync through `pull` than by
+  // invoking the global FWA processor again. If none are waiting, try the
+  // exact sequence-bound reveal before requesting more work so a ready sync
+  // bounty is not left public while the paced request lane continues.
+  if (boundedPendingSyncCount === 0n && executor.deployed) {
+    const revealJob = await planMegaRipRevealJob({
+      client: parameters.client,
+      account: parameters.account,
+      blockNumber: parameters.blockNumber,
+      acquisitions,
+      executor: executor.address,
+      bounty,
+      maxFeePerGas: parameters.maxFeePerGas,
+      gasLimitMultiplierBps: parameters.gasLimitMultiplierBps,
+      minProfitWei: parameters.minProfitWei,
+      builderBidBps: parameters.builderBidBps,
+    });
+    if (revealJob !== undefined) {
+      return {
+        ...base,
+        jobs: [revealJob],
+        minimumViablePrefix: 1,
+      };
     }
-    if (pullCount > 0n && gas !== undefined) {
-      const reward = pullCount * bounty;
-      const pullJob = profitableJob({
+  }
+
+  const nextBlockRequestCount = megaRipNextBlockRequestCount({
+    estimatedPullsRemaining: remaining,
+    minRequestInterval,
+    lastRequestAt,
+    parentTimestamp: parameters.blockTimestamp,
+  });
+  const pullCount =
+    boundedPendingSyncCount > nextBlockRequestCount
+      ? boundedPendingSyncCount
+      : nextBlockRequestCount;
+  const rewardCount =
+    boundedPendingSyncCount + nextBlockRequestCount;
+  if (pullCount > 0n && rewardCount > 0n) {
+    const reward = rewardCount * bounty;
+    const data = encodeMegaRipExactPull(pullCount, reward);
+    const requestCountAtParent = megaRipRequestCountAtTimestamp({
+      estimatedPullsRemaining: remaining,
+      minRequestInterval,
+      lastRequestAt,
+      timestamp: parameters.blockTimestamp,
+    });
+    const deferToTargetSimulation =
+      !executor.deployed ||
+      requestCountAtParent !== nextBlockRequestCount;
+    let pullJob: KeeperJob | undefined;
+    if (deferToTargetSimulation) {
+      pullJob = {
         kind: "mega_rip_pull",
-        label: `mega_rip_pull:${pullCount}`,
+        label: `mega_rip_pull:${pullCount}:${rewardCount}:target_bound`,
         target: executor.address,
-        data: encodeMegaRipExactPull(pullCount, reward),
-        gas,
-        reward,
-        maxFeePerGas: parameters.maxFeePerGas,
-        minProfitWei: parameters.minProfitWei,
-        builderBidBps: parameters.builderBidBps,
-      });
-      if (pullJob !== undefined) {
-        const jobs = [
-          ...(executor.deployJob === undefined
-            ? []
-            : [executor.deployJob]),
-          {
-            ...pullJob,
-            ...(executor.deployed
-              ? {}
-              : { requiresBundleSimulation: true }),
-          },
-        ];
-        return {
-          ...base,
-          jobs,
-          minimumViablePrefix: jobs.length,
-        };
+        data,
+        gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
+        reward: { kind: "fixed", amountWei: reward },
+        configuredBuilderBidBps: parameters.builderBidBps,
+        requiresBundleSimulation: true,
+      };
+    } else {
+      try {
+        const gas = await estimateRewardGatedJob({
+          client: parameters.client,
+          account: parameters.account,
+          blockNumber: parameters.blockNumber,
+          target: executor.address,
+          data,
+          gasLimitMultiplierBps:
+            parameters.gasLimitMultiplierBps,
+        });
+        pullJob = profitableJob({
+          kind: "mega_rip_pull",
+          label: `mega_rip_pull:${pullCount}:${rewardCount}`,
+          target: executor.address,
+          data,
+          gas,
+          reward,
+          maxFeePerGas: parameters.maxFeePerGas,
+          minProfitWei: parameters.minProfitWei,
+          builderBidBps: parameters.builderBidBps,
+        });
+      } catch (error) {
+        log("debug", "mega_rip_pull_not_ready", {
+          pullCount: pullCount.toString(),
+          rewardCount: rewardCount.toString(),
+          reason: errorMessage(error),
+        });
       }
+    }
+    if (pullJob !== undefined) {
+      const jobs = [
+        ...(executor.deployJob === undefined
+          ? []
+          : [executor.deployJob]),
+        pullJob,
+      ];
+      return {
+        ...base,
+        jobs,
+        minimumViablePrefix: jobs.length,
+      };
     }
   }
   const eligibleSettlements = acquisitions

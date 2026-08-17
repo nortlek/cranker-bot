@@ -204,6 +204,7 @@ function laneForKind(kind: string): {
     case "mega_rip_executor_deploy":
     case "mega_rip_lock":
     case "mega_rip_pull":
+    case "mega_rip_reveal":
     case "mega_rip_settle":
     case "mega_rip_recover":
       return {
@@ -217,6 +218,8 @@ function laneForKind(kind: string): {
             ? "lock"
             : kind === "mega_rip_pull"
               ? "pull"
+              : kind === "mega_rip_reveal"
+                ? "reveal"
               : kind === "mega_rip_settle"
                 ? "settle"
                 : "recover",

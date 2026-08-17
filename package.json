@@ -18,6 +18,7 @@
     "inspect": "tsx src/inspect.ts",
     "inspect:aura-earmarks": "tsx scripts/inspect-aura-earmarks.ts",
     "inspect:gacha-table": "tsx scripts/inspect-gacha-table.ts",
+    "inspect:mega-rip": "tsx scripts/inspect-mega-rip.ts",
     "inspect:maker-barks": "tsx scripts/inspect-maker-barks.ts",
     "inspect:maker-redos": "tsx scripts/inspect-maker-redos.ts",
     "inspect:pool-final-purchases": "tsx scripts/inspect-pool-final-purchases.ts",

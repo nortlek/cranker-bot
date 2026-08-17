@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-15 (America/Denver)
+Last updated: 2026-08-16 (America/Denver)
 
 ## Production shutdown and restart gate
 
@@ -575,6 +575,72 @@ not FWA, PullPool, GroupPull, or MegaRip. The canonical deployer transaction
 count remains exactly 3470, so there is still no successor creation,
 configuration mutation, or downstream event to inspect. Keep the same 3470
 boundary and treat the teaser as uncorroborated until canonical code appears.
+
+Season 02 launch, 2026-08-16 America/Denver: the teaser is now corroborated by
+canonical code and live funding. The public `megarip.fun` application pins
+MegaRip `0x6769944589f5CC96d5F900F06539681Db84AC5c6` and deployment block
+`25771992`. Canonical deployer `0xCB43078C32423F5348Cab5885911C3B5faE217F9`
+created that exact nonproxy at nonce 3470 in transaction
+`0x42b70312ce38793a8888b79150255f0b1356ea6d5248ef31ed04e6c195fb1667`.
+Its 22,009-byte runtime hash is
+`0x56b1436bab9f9a603fb91de8fea2d10abbb3adfb2d280e3ac71386b2d5e60661`.
+Blockscout's verified Solidity 0.8.28 source and two independent exact-state
+providers agree on canonical FWA
+`0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c`, FWA token
+`0xa0Df17B5aC76ABaBA36E1450E2cbCd18A620C845`, and rewards
+`0x6a1a1C0CfB3D3C538e13D36d608a5bcaa992fc78`. The decoded constructor fixes a
+24-hour funding window, 30-minute auction, 500-bps minimum bid increment,
+9,500-bps floor, 2% settlement fee, `0.0003 ETH` crank bounty, 10-second request
+interval, one no-auction collection, and fee recipient
+`0xea194A186EBe76A84E2B2027f5f23F81939c05AD`. That recipient scheduled
+`openAt=1786936691`; funding ends at `1787023091` (2026-08-17 21:18:11
+America/Denver).
+
+This runtime is not compatible with the S01 batch assumption. Each acquisition
+now reserves three bounties—request, reveal/sync, and terminal settlement—and
+the ten-second throttle permits only one new request per block timestamp even
+when `pull(maxPulls)` receives a larger bound. It also adds permissionless
+`crankReveal(maxCount)`, a `pendingSyncCount` view, and a per-acquisition
+`syncReserved` flag. The old `[lock,pullExact(40,0.012 ETH)]` prefix would
+create one request, pay only `0.0003 ETH`, and correctly revert at the old
+executor's reward floor. The new pinned executor instead uses
+`pullExact(1,bounty)` at lock, prices the exact sum of paced request and
+already-terminal sync bounties, and exposes a separate sequence-bound
+`crankRevealExact`: both the pre/post FWA queue pointers and aggregate ETH
+reward must match or the whole FWA/MegaRip mutation reverts. Terminal settlement
+retains the existing per-listing and aggregate reward gates.
+
+At exact block `25772329`, funding held `0.89 ETH`, zero pulls, and no sync
+work. The FWA acquisition quote was `0.079423870684798324 ETH`; after all three
+`0.0003 ETH` reserves, the current pool could afford 11 acquisitions and
+therefore exposed `0.0099 ETH` maximum gross bounty inventory. This is live,
+changing inventory, not realized profit. The new read-only
+`npm run inspect:mega-rip` command pins creation provenance, runtime,
+relationships, state, queue, three-leg economics, executor identity, and both
+keeper nonces. A mainnet fork at block `25772203`, warped to the fixed funding
+deadline, proved the atomic `lock -> pullExact(1,0.0003 ETH)` path and exact
+wallet forwarding; the reward-gated pull, settlement, recovery, and
+sequence-moved reveal rollback paths also have focused Solidity and TypeScript
+coverage. The deterministic owner-bound executor is
+`0xd9FB9e5C7936BB878432E5D22aBe89b295252cC5`; its exact factory deployment
+estimated `750523` gas against a `1000000` limit.
+
+The conditional restart gate is satisfied. The full validation passed 416
+Vitest tests, all 25 Solidity tests, TypeScript, both builds, and diff/format
+checks. The live fork's deliberately conservative 1.439M-gas test envelope,
+the observed 0.0411-gwei immediate-child base-fee allowance, and the independent
+1,000-bps MegaRip builder bid still leave the first `deploy -> lock -> pull`
+reward positive; target-block signed-bundle simulation remains authoritative.
+Production is already configured with the replacement public HTTP/WebSocket
+foreground path and public discovery mix. A live WebSocket check delivered a
+complete head and exact fixed-block runtime, nonce, and balance, and a
+MegaRip-only `DRY_RUN=true RUN_ONCE=true` pass completed from that head in
+about 0.46 seconds with no job before the boundary. At that snapshot Railway
+was still offline, PostgreSQL was online, keeper `latest == pending == 2245`,
+the legacy PullPool had no active lifecycle (`pendingLifecycleRound == 0`), and
+the account's reconciled net value was `$1,333.19990935`. Rollout must flip
+only `ENABLE_GACHA_TABLE=false` and `ENABLE_MEGA_RIP=true`, then repeat the
+nonce and exact lifecycle gates before submission.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from

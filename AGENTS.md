@@ -34,14 +34,20 @@ The production worker was intentionally shut down on 2026-08-14
 America/Denver at the user's direction. It was temporarily reactivated for
 GachaTable battle 24's exact four-leg default window, then Railway deployment
 `83f4c00d-b487-4eb3-98f5-b22f69a932c7` was removed after successful receipt
-and wallet reconciliation on 2026-08-15. The worker service is offline and
-PostgreSQL remains online. Do not schedule or perform another deployment
-merely to resume routine operation. Redeploy only after a newly validated
-MegaRip season or another concrete keeper opportunity has positive post-gas,
-post-builder-payment economics and a tested implementation. Before any
-restart, restore or replace the exhausted production RPC capacity, repeat the
-nonce/lifecycle/deployment gates below, and obtain fresh live-state evidence
-that the opportunity is actionable.
+and wallet reconciliation on 2026-08-15. PostgreSQL remained online.
+
+MegaRip Season 02 at `0x6769944589f5CC96d5F900F06539681Db84AC5c6`
+is the next validated exception to that shutdown. Its funding window ends at
+2026-08-17 21:18:11 America/Denver, and its exact paced implementation has
+passed the runtime, fork, profitability, nonce, lifecycle, RPC, and dry-run
+gates recorded in [OPPORTUNITIES.md](./OPPORTUNITIES.md). A temporary worker
+restart for this lifecycle must enable only MegaRip: disable the stale
+GachaTable flag and every other strategy, and keep both pending subscriptions
+off. Exact signed-bundle simulation must still prove positive post-gas,
+post-builder-payment economics for every submission. Shut the worker down
+again after the last actionable Season 02 settlement/recovery, or earlier if
+the pinned runtime/relationships, RPC health, or economics fail. Do not leave
+it running merely to resume routine operation.
 
 ## Start here
 
@@ -675,21 +681,28 @@ These constraints prevent expensive or unsafe regressions:
   signer nonce/balance, lease, and target deadline immediately before private
   submission. Price and account only the crank under the independent
   GroupPull standing-order bid, and never submit the creation alone.
-- MegaRip execution is limited to the pinned funded successor at
-  `0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25` while its runtime hash and
+- MegaRip execution is limited to the pinned paced successor at
+  `0x6769944589f5CC96d5F900F06539681Db84AC5c6` while its runtime hash and
   immutable FWA, FWA token, and FWA rewards relationships remain canonical.
-  `BountyPaid` from that exact contract is the only reward authority. At the
-  funding boundary, `lock()` has no reward and may be submitted only in the
-  mandatory private prefix `[optional executor deploy, lock(),
-  executor.pullExact(count, count * bounty)]` targeting the first eligible
-  child block. Derive `count` from the exact FWA quote and locked deposits,
-  cap rewarded pulls at 40 to remain inside the keeper's signed gas envelope,
-  require the pinned owner-bound executor runtime, and let
-  complete signed-bundle simulation prove the entire prefix; never expose a
-  deployment-only or lock-only alternative. In Pulling state, use the same
-  reward-gated executor to batch up to 40 new pulls. Its minimum-bounty check
-  must revert the whole call if fewer new rewarded acquisitions are created,
-  including when fulfilled requests are reconciled first. For every exact
+  `BountyPaid` from that exact contract is the only reward authority. Each
+  affordable acquisition reserves three independent bounties: request,
+  reveal/sync, and terminal settlement. At the funding boundary, `lock()` has
+  no reward and may be submitted only in the mandatory private prefix
+  `[optional executor deploy, lock(), executor.pullExact(1, bounty)]`
+  targeting the first eligible child block. Affordability must include the
+  exact FWA quote plus all three reserves. The immutable ten-second request
+  interval permits only one new request per target block; never price
+  `pull(maxPulls)` as creating `maxPulls` requests. In Pulling state, an exact
+  already-terminal prefix may be synchronized with `pullExact`, optionally
+  alongside the one target-child-eligible request, only when the executor's
+  aggregate ETH-delta floor covers every priced request and sync bounty. A
+  Ready FWA prefix may use `crankRevealExact` only when the executor binds both
+  exact `nextSequenceToProcess` pointers, caps the interval at 64, and proves
+  the aggregate MegaRip sync bounty. An absent executor may be deployed only
+  as an inseparable prefix with a reward-producing call. Complete signed-bundle
+  simulation remains authoritative for target-child timing, actual gas, and
+  retained profit; never expose a deployment-only or lock-only alternative.
+  For every exact
   reserved allocation whose auction is closed or deadline has passed, attempt
   `settle(listingId)` through the reward-gated executor regardless of whether
   it has a high bidder. An individual exact fixed-block estimate must first

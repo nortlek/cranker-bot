@@ -14,6 +14,7 @@ import {
   megaRipFloorSettlementIsRewarded,
   megaRipFundingCanLockInNextBlock,
   megaRipInitialPullCount,
+  megaRipNextBlockRequestCount,
   readMegaRipAcquisitions,
   readMegaRipState,
   megaRipTerminalSettlementIsEligible,
@@ -49,6 +50,7 @@ function acquisition(
     status: overrides.status ?? MEGA_RIP_ACQUISITION_STATE.ALLOCATED,
     auctionOpen: overrides.auctionOpen ?? true,
     reserved: overrides.reserved ?? true,
+    syncReserved: true,
   } as const;
 }
 
@@ -59,11 +61,11 @@ describe("MegaRip keeper adapter", () => {
 
   it("pins the funded canonical successor runtime", () => {
     expect(MEGA_RIP_ADDRESS).toBe(
-      "0x68f8E0Bd62eD310F692Ae0D01F7e568948818D25",
+      "0x6769944589f5CC96d5F900F06539681Db84AC5c6",
     );
-    expect(MEGA_RIP_DEPLOYMENT_BLOCK).toBe(25_721_560n);
+    expect(MEGA_RIP_DEPLOYMENT_BLOCK).toBe(25_771_992n);
     expect(MEGA_RIP_RUNTIME_CODE_HASH).toBe(
-      "0x7cd2bfa992850e1fb61393852e38f7c48b0e4fc01031ad820f3e3fd95d55ad8b",
+      "0x56b1436bab9f9a603fb91de8fea2d10abbb3adfb2d280e3ac71386b2d5e60661",
     );
     expect(
       megaRipAbi.some(
@@ -122,21 +124,55 @@ describe("MegaRip keeper adapter", () => {
     ).toBe(false);
   });
 
-  it("batches the maximum safe first-block pulls from exact pool economics", () => {
+  it("prices three bounty legs and requests one paced pull at the boundary", () => {
     expect(
       megaRipInitialPullCount({
         totalDeposited: 7_497_800_000_000_000_000n,
         acquisitionPrice: 81_800_000_000_000_000n,
         bounty: 300_000_000_000_000n,
       }),
-    ).toBe(40n);
+    ).toBe(1n);
     expect(
       megaRipInitialPullCount({
         totalDeposited: 824_000_000_000_000_000n,
         acquisitionPrice: 81_800_000_000_000_000n,
         bounty: 300_000_000_000_000n,
       }),
-    ).toBe(10n);
+    ).toBe(1n);
+    expect(
+      megaRipInitialPullCount({
+        totalDeposited: 82_699_999_999_999_999n,
+        acquisitionPrice: 81_800_000_000_000_000n,
+        bounty: 300_000_000_000_000n,
+      }),
+    ).toBe(0n);
+  });
+
+  it("arms one paced request only when the immediate child is eligible", () => {
+    expect(
+      megaRipNextBlockRequestCount({
+        estimatedPullsRemaining: 9n,
+        minRequestInterval: 10n,
+        lastRequestAt: 1_000n,
+        parentTimestamp: 998n,
+      }),
+    ).toBe(1n);
+    expect(
+      megaRipNextBlockRequestCount({
+        estimatedPullsRemaining: 9n,
+        minRequestInterval: 20n,
+        lastRequestAt: 1_000n,
+        parentTimestamp: 998n,
+      }),
+    ).toBe(0n);
+    expect(
+      megaRipNextBlockRequestCount({
+        estimatedPullsRemaining: 0n,
+        minRequestInterval: 10n,
+        lastRequestAt: 1_000n,
+        parentTimestamp: 1_000n,
+      }),
+    ).toBe(0n);
   });
 
   it("reads every acquisition through one exact-block multicall", async () => {
@@ -167,12 +203,37 @@ describe("MegaRip keeper adapter", () => {
     ]);
   });
 
+  it("skips the acquisition multicall before the first paced request", async () => {
+    const client = {
+      multicall: async () => {
+        throw new Error("unexpected multicall");
+      },
+    };
+    await expect(
+      readMegaRipAcquisitions({
+        client: client as never,
+        blockNumber: 123n,
+        count: 0n,
+      }),
+    ).resolves.toEqual([]);
+  });
+
   it("reads all hot MegaRip state through one exact-block multicall", async () => {
     const seen: unknown[] = [];
     const client = {
       multicall: async (parameters: unknown) => {
         seen.push(parameters);
-        return [2, 100n, 1_000n, 9n, 4n, 300n];
+        return [
+          2,
+          100n,
+          1_000n,
+          9n,
+          4n,
+          300n,
+          2n,
+          10,
+          90n,
+        ];
       },
     };
 
@@ -188,6 +249,9 @@ describe("MegaRip keeper adapter", () => {
       pullsDone: 9n,
       estimatedPullsRemaining: 4n,
       bounty: 300n,
+      pendingSyncCount: 2n,
+      minRequestInterval: 10n,
+      lastRequestAt: 90n,
     });
     expect(seen).toEqual([
       expect.objectContaining({
