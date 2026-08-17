@@ -666,18 +666,48 @@ realized profit. Keeper `latest == pending == 2245`, the executor remained
 undeployed with the expected CREATE2 identity/runtime, and all pinned runtime,
 FWA, token, and rewards relationships matched.
 
-The current hardened deployment is
+The first hardened deployment was
 `401ac669-ff46-42c1-8a5b-7236607fc8eb` from exact source revision
 `061399a4cc97bfb0de466ef0803502f8ffd38c78`. An earlier process accumulated 88
 fresh-state publication failures between 2026-08-17 04:47 and 09:39 UTC,
 primarily viem's typed `ResourceNotFoundRpcError[-32001]` plus a smaller set of
 classified fresh-state parameter errors and socket closures. Revision
-`061399a` added the bounded typed `-32001` publication-skew retry. Since the
-replacement started at 14:52 UTC it has held exactly one signer lease and
-completed every observed pass without a failure, fatal, opportunity,
-submission, or receipt; the empty opportunity count is expected while the
-contract remains in Funding. Continue watching through the lock boundary and
-do not count any bounty until successful receipts reconcile with the wallet.
+`061399a` added the bounded typed `-32001` publication-skew retry. Its later
+eight-hour history contained four isolated typed `InvalidInputRpcError[-32000]`
+passes and one typed `ResourceNotFoundRpcError[-32001]` pass where exact state
+remained unavailable through the one-second retry window. A stalled WebSocket
+head at 20:49 UTC correctly forced one supervised restart; initialization
+completed and the signer lease was reacquired in 3 ms. There was no repeating
+failure, opportunity, submission, or receipt while the contract remained in
+Funding.
+
+Dashboard incident follow-up, 2026-08-17 16:38 America/Denver: revision
+`061399a` bounded the ETH/USD refresh at two seconds, coalesced cold and
+background refreshes, served stale data while revalidating, bounded PostgreSQL
+work, counted only recently passing run IDs, and counted only the named signer
+advisory lease. The new database guard then exposed a pre-existing bad plan in
+the latest-receipts query: its global timestamp-index scan exceeded four
+seconds and returned HTTP 500. Splitting the two event names into bounded
+branches uses the existing `keeper_events_name_time_idx`; production
+`EXPLAIN ANALYZE` fell to 10.5 ms. Current Railway deployment
+`b04ed0fe-0aa8-4345-b888-7c30ac7c5052` runs exact revision
+`463a973d73c159de4ffc820568f4883bca142544`. Its replacement initialized,
+waited for the old signer, acquired the sole lease after the planned 60-second
+handoff, and began current WebSocket passes with no application error. The
+first cold dashboard response was HTTP 200 in 640 ms; after the overlap aged
+out, a refreshed response was HTTP 200 in 79 ms with `activeRuns=1`,
+`signerLeases=1`, and a fresh pass.
+
+The predeploy exact block `25777823` remained in Funding with `10.871 ETH`
+deposited, zero pulls, and zero pending syncs. At the live
+`0.079266283165415355 ETH` acquisition quote, the pool could afford 135
+three-bounty acquisitions and exposed `0.1215 ETH` of maximum gross bounty
+inventory. Keeper `latest == pending == 2245`; the fresh reconciled account
+snapshot after rollout was `0.701894109892021588 ETH` net equivalent, or
+`$1,336.75814993` at the fresh `$1,904.50116491` oracle. These bounty figures
+remain changing inventory, not realized profit. Continue watching through the
+lock boundary and do not count any bounty until successful receipts reconcile
+with the wallet.
 
 The public Season 02 thread now corroborates the verified implementation. In
 post `2089196795779772483`, @ripe0x described 30-minute auctions only for pulls

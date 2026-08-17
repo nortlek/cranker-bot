@@ -41,8 +41,8 @@ is the next validated exception to that shutdown. Its funding window ends at
 2026-08-17 21:18:11 America/Denver, and its exact paced implementation passed
 the runtime, fork, profitability, nonce, lifecycle, RPC, and dry-run gates
 recorded in [OPPORTUNITIES.md](./OPPORTUNITIES.md). Railway deployment
-`57382684-a143-457b-a594-67124f1a2ad3`, source revision
-`4e73454b173a375a0bc4ff9ec368955cc9c2bce8`, is the temporary live worker for
+`b04ed0fe-0aa8-4345-b888-7c30ac7c5052`, source revision
+`463a973d73c159de4ffc820568f4883bca142544`, is the temporary live worker for
 this lifecycle. It enables only MegaRip: the stale GachaTable flag and every
 other strategy are disabled, and both pending subscriptions remain off. Exact
 signed-bundle simulation must still prove positive post-gas,
