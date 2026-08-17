@@ -38,12 +38,14 @@ and wallet reconciliation on 2026-08-15. PostgreSQL remained online.
 
 MegaRip Season 02 at `0x6769944589f5CC96d5F900F06539681Db84AC5c6`
 is the next validated exception to that shutdown. Its funding window ends at
-2026-08-17 21:18:11 America/Denver, and its exact paced implementation has
-passed the runtime, fork, profitability, nonce, lifecycle, RPC, and dry-run
-gates recorded in [OPPORTUNITIES.md](./OPPORTUNITIES.md). A temporary worker
-restart for this lifecycle must enable only MegaRip: disable the stale
-GachaTable flag and every other strategy, and keep both pending subscriptions
-off. Exact signed-bundle simulation must still prove positive post-gas,
+2026-08-17 21:18:11 America/Denver, and its exact paced implementation passed
+the runtime, fork, profitability, nonce, lifecycle, RPC, and dry-run gates
+recorded in [OPPORTUNITIES.md](./OPPORTUNITIES.md). Railway deployment
+`57382684-a143-457b-a594-67124f1a2ad3`, source revision
+`4e73454b173a375a0bc4ff9ec368955cc9c2bce8`, is the temporary live worker for
+this lifecycle. It enables only MegaRip: the stale GachaTable flag and every
+other strategy are disabled, and both pending subscriptions remain off. Exact
+signed-bundle simulation must still prove positive post-gas,
 post-builder-payment economics for every submission. Shut the worker down
 again after the last actionable Season 02 settlement/recovery, or earlier if
 the pinned runtime/relationships, RPC health, or economics fail. Do not leave

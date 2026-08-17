@@ -638,9 +638,18 @@ MegaRip-only `DRY_RUN=true RUN_ONCE=true` pass completed from that head in
 about 0.46 seconds with no job before the boundary. At that snapshot Railway
 was still offline, PostgreSQL was online, keeper `latest == pending == 2245`,
 the legacy PullPool had no active lifecycle (`pendingLifecycleRound == 0`), and
-the account's reconciled net value was `$1,333.19990935`. Rollout must flip
-only `ENABLE_GACHA_TABLE=false` and `ENABLE_MEGA_RIP=true`, then repeat the
-nonce and exact lifecycle gates before submission.
+the account's reconciled net value was `$1,333.19990935`.
+
+Rollout completed at 2026-08-16 22:23 America/Denver as Railway deployment
+`57382684-a143-457b-a594-67124f1a2ad3` from source revision
+`4e73454b173a375a0bc4ff9ec368955cc9c2bce8`. The exact predeploy gate again
+showed keeper `latest == pending == 2245`, legacy pending lifecycle zero, and
+V2 pending-pull count zero. Production has only MegaRip enabled; stale Gacha,
+all other strategies, and both pending subscriptions are disabled. Migrations,
+signer initialization, and one signer lease completed in order. The first ten
+WebSocket-head passes completed with zero failures, fatals, or submissions and
+continued to read the exact Funding state. Keep this deployment temporary and
+remove it after the last actionable Season 02 settlement/recovery.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
