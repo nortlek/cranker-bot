@@ -126,12 +126,13 @@ function eventPriority(entry: LogEntry): number {
 function poolConfig(connectionString: string): PoolConfig {
   return {
     connectionString,
+    application_name: "pull-pool-keeper:telemetry",
     max: 2,
     allowExitOnIdle: true,
-    connectionTimeoutMillis: 1_000,
+    connectionTimeoutMillis: 3_000,
     idleTimeoutMillis: 10_000,
-    query_timeout: 3_000,
-    statement_timeout: 2_000,
+    query_timeout: 10_000,
+    statement_timeout: 5_000,
   };
 }
 
@@ -152,6 +153,7 @@ export class PostgresEventWriter implements EventBatchWriter {
   async write(events: readonly StoredLogEvent[]): Promise<void> {
     if (events.length === 0) return;
     const client = await this.#pool.connect();
+    let releaseError: Error | undefined;
     try {
       await client.query("BEGIN");
       await client.query(
@@ -221,9 +223,13 @@ export class PostgresEventWriter implements EventBatchWriter {
       } catch {
         // The original database error is more useful than rollback failure.
       }
+      releaseError =
+        error instanceof Error
+          ? error
+          : new Error("telemetry transaction failed");
       throw error;
     } finally {
-      client.release();
+      client.release(releaseError);
     }
   }
 
@@ -256,6 +262,7 @@ export class BatchedEventSink {
   #draining: Promise<boolean> | undefined;
   #inFlightCount = 0;
   #retryDelayMs: number;
+  #writeFailures = 0;
   #closed = false;
   #overflowReportedAt = 0;
   #closePromise: Promise<void> | undefined;
@@ -409,9 +416,21 @@ export class BatchedEventSink {
       try {
         await this.#writer.write(batch);
         this.#queue.splice(0, batch.length);
+        if (this.#writeFailures > 0) {
+          this.#report({
+            time: new Date().toISOString(),
+            level: "info",
+            event: "telemetry_write_recovered",
+            failedAttempts: this.#writeFailures,
+            persistedEvents: batch.length,
+            remainingQueuedEvents: this.#queue.length,
+          });
+          this.#writeFailures = 0;
+        }
         this.#retryDelayMs = this.#flushIntervalMs;
         return true;
       } catch (error) {
+        this.#writeFailures += 1;
         this.#retryDelayMs = Math.min(
           Math.max(
             this.#retryDelayMs * 2,
@@ -424,6 +443,7 @@ export class BatchedEventSink {
           level: "warn",
           event: "telemetry_write_failed",
           reason: errorMessage(error),
+          failedAttempts: this.#writeFailures,
           queuedEvents: this.#queue.length,
           retryDelayMs: this.#retryDelayMs,
         });

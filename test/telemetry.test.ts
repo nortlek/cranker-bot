@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import type { Pool } from "pg";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   BatchedEventSink,
+  PostgresEventWriter,
   type EventBatchWriter,
   type StoredLogEvent,
 } from "../src/telemetry.js";
@@ -121,7 +123,54 @@ describe("BatchedEventSink", () => {
     expect(writer.events.map((event) => event.entry.event)).toEqual([
       "keeper_started",
     ]);
+    expect(reports.at(-1)).toMatchObject({
+      event: "telemetry_write_recovered",
+      failedAttempts: 1,
+      persistedEvents: 1,
+      remainingQueuedEvents: 0,
+    });
     await sink.close();
+  });
+
+  it("discards a database connection after a failed transaction", async () => {
+    const release = vi.fn();
+    const query = vi.fn(async (statement: string) => {
+      if (statement.includes("INSERT INTO keeper_events")) {
+        throw new Error("Query read timeout");
+      }
+      return { rows: [] };
+    });
+    const pool = {
+      connect: vi.fn(async () => ({ query, release })),
+    } as unknown as Pool;
+    const runId = "8bd899e7-c5e4-47c8-84ff-5b761a0b04bd";
+    const writer = new PostgresEventWriter(
+      "postgresql://example.invalid/test",
+      {
+        runId,
+        startedAt: "2026-07-29T00:00:00.000Z",
+        service: "keeper",
+        gitSha: undefined,
+        instanceId: undefined,
+      },
+      pool,
+    );
+
+    await expect(
+      writer.write([
+        {
+          eventId: "5ec9a2f7-9cef-48e4-a6c9-89d0a5f9bcb2",
+          runId,
+          entry: entry("pass_complete"),
+          blockNumber: undefined,
+          targetBlock: undefined,
+          transactionHash: undefined,
+          jobKind: undefined,
+        },
+      ]),
+    ).rejects.toThrow("Query read timeout");
+    expect(query).toHaveBeenLastCalledWith("ROLLBACK");
+    expect(release).toHaveBeenCalledWith(expect.any(Error));
   });
 
   it("drops lower-priority telemetry before transaction outcomes", async () => {
