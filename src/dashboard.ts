@@ -589,8 +589,37 @@ export async function buildDashboardData(
           block_number::text,
           job_kind,
           payload
-        FROM keeper_events
-        WHERE event_name IN ('keeper_receipt', 'keeper_transaction_expired')
+        FROM (
+          (
+            SELECT
+              occurred_at,
+              event_name,
+              transaction_hash,
+              target_block,
+              block_number,
+              job_kind,
+              payload
+            FROM keeper_events
+            WHERE event_name = 'keeper_receipt'
+            ORDER BY occurred_at DESC
+            LIMIT 160
+          )
+          UNION ALL
+          (
+            SELECT
+              occurred_at,
+              event_name,
+              transaction_hash,
+              target_block,
+              block_number,
+              job_kind,
+              payload
+            FROM keeper_events
+            WHERE event_name = 'keeper_transaction_expired'
+            ORDER BY occurred_at DESC
+            LIMIT 160
+          )
+        ) AS recent
         ORDER BY occurred_at DESC
         LIMIT 160
       `,

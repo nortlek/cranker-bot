@@ -142,6 +142,10 @@ describe("dashboard telemetry", () => {
 
     expect(query).toHaveBeenCalledTimes(8);
     const queryCalls = query.mock.calls as unknown as Array<[string]>;
+    expect(queryCalls[0]?.[0]).toContain("UNION ALL");
+    expect(queryCalls[0]?.[0]).toContain(
+      "event_name = 'keeper_transaction_expired'",
+    );
     expect(queryCalls[7]?.[0]).toContain(
       "COUNT(DISTINCT run_id)",
     );
