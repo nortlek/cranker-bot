@@ -709,6 +709,30 @@ remain changing inventory, not realized profit. Continue watching through the
 lock boundary and do not count any bounty until successful receipts reconcile
 with the wallet.
 
+Telemetry incident follow-up, 2026-08-17 16:59 America/Denver: production
+recorded four isolated three-second `Query read timeout` failures between
+18:38 and 22:45 UTC. Each affected one retained seven-event batch, and durable
+events later proved that every queue drained without interrupting signing. One
+immediate retry at 19:27 UTC reused the failed transaction session and produced
+`current transaction is aborted`; this was a telemetry-pool recovery defect,
+not an Alchemy limit or a keeper execution failure. Revision
+`94038b7b6b4f88a1d6e150fc768ee9804a54c67b` gives PostgreSQL five seconds of
+server execution and ten seconds of bounded client read time, allows three
+seconds to connect, destroys any connection that experienced a failed
+transaction, and emits an explicit recovery event after a retained batch is
+persisted. TypeScript, all 420 Vitest tests, both builds, and the diff check
+passed, including focused rollback/disposal and retained-queue recovery tests.
+
+Railway deployment `c543b2eb-4f62-406c-a464-74857cc5f1b7` now runs that exact
+revision. Its replacement initialized read-only, waited 60.795 seconds for the
+old signer, acquired the sole lease, and started consecutive WebSocket passes.
+PostgreSQL then contained 78 events and nine passes from the new run through
+22:58:13 UTC with zero telemetry, pass, or fatal failures; the 22:59 dashboard
+reported `activeRuns=1`, `signerLeases=1`, and a fresh pass. The exact
+predeploy block `25777922` remained in Funding with `11.101 ETH` deposited,
+zero pulls, 138 affordable three-bounty acquisitions, `0.1242 ETH` changing
+maximum gross bounty inventory, and keeper `latest == pending == 2245`.
+
 The public Season 02 thread now corroborates the verified implementation. In
 post `2089196795779772483`, @ripe0x described 30-minute auctions only for pulls
 with more than 1 ETH of backing, immediate ETH settlement for non-auctioned
