@@ -5,11 +5,12 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-16 (America/Denver)
+Last updated: 2026-08-17 (America/Denver)
 
 ## Production shutdown and restart gate
 
-Status: worker intentionally offline as of 2026-08-14 America/Denver.
+Status: routine production remains intentionally shut down; the temporary
+MegaRip Season 02 worker is the only live exception.
 
 At the shutdown gate, the keeper had `latest == pending == 2243`, no active
 PullPool lifecycle (`pendingLifecycleRound == 0`), and no viable opportunity,
@@ -27,6 +28,10 @@ dormant lanes. A new deployment requires a newly validated profitable MegaRip
 season or another concrete bountied opportunity, a reviewed and tested
 implementation, fresh exact-state economics, and the ordinary nonce,
 lifecycle, signer-lease, and rollout gates.
+
+MegaRip Season 02 satisfied that exception gate on 2026-08-16. Keep its
+MegaRip-only worker temporary and remove it after the last actionable Season 02
+settlement or recovery; this does not authorize re-enabling routine lanes.
 
 ## Current objective and snapshot
 
@@ -650,6 +655,41 @@ signer initialization, and one signer lease completed in order. The first ten
 WebSocket-head passes completed with zero failures, fatals, or submissions and
 continued to read the exact Funding state. Keep this deployment temporary and
 remove it after the last actionable Season 02 settlement/recovery.
+
+Season 02 operational check, 2026-08-17 09:03 America/Denver: exact block
+`25775573` remained in Funding with `1.758 ETH` deposited, zero pulls, zero
+pending syncs, and 6,216 active FWA listings. The live acquisition quote was
+`0.079736768362443242 ETH`; after the three independent `0.0003 ETH` bounties,
+the pool could afford 21 acquisitions and therefore exposed `0.0189 ETH` of
+maximum gross bounty inventory. This is changing pre-lifecycle inventory, not
+realized profit. Keeper `latest == pending == 2245`, the executor remained
+undeployed with the expected CREATE2 identity/runtime, and all pinned runtime,
+FWA, token, and rewards relationships matched.
+
+The current hardened deployment is
+`401ac669-ff46-42c1-8a5b-7236607fc8eb` from exact source revision
+`061399a4cc97bfb0de466ef0803502f8ffd38c78`. An earlier process accumulated 88
+fresh-state publication failures between 2026-08-17 04:47 and 09:39 UTC,
+primarily viem's typed `ResourceNotFoundRpcError[-32001]` plus a smaller set of
+classified fresh-state parameter errors and socket closures. Revision
+`061399a` added the bounded typed `-32001` publication-skew retry. Since the
+replacement started at 14:52 UTC it has held exactly one signer lease and
+completed every observed pass without a failure, fatal, opportunity,
+submission, or receipt; the empty opportunity count is expected while the
+contract remains in Funding. Continue watching through the lock boundary and
+do not count any bounty until successful receipts reconcile with the wallet.
+
+The public Season 02 thread now corroborates the verified implementation. In
+post `2089196795779772483`, @ripe0x described 30-minute auctions only for pulls
+with more than 1 ETH of backing, immediate ETH settlement for non-auctioned
+pulls, wrapped-token NFT exclusions, minimum ten-second pull pacing, and
+claimable FWA epoch rewards. These are release leads only; the exact verified
+runtime remains authoritative and already implements the supported lifecycle.
+Canonical-deployer nonce 3471 was a successful deposit into this exact
+MegaRip, and nonce 3472 was an unrelated `collectPatronEdition` call to
+`0xaB48082d28049873ce54F672541D29779a3392Ef`. Neither created a successor or
+changed runtime/configuration. Continue release watching from canonical
+deployer transaction count 3473.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
