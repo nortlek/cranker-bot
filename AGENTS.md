@@ -37,19 +37,18 @@ GachaTable battle 24's exact four-leg default window, then Railway deployment
 and wallet reconciliation on 2026-08-15. PostgreSQL remained online.
 
 MegaRip Season 02 at `0x6769944589f5CC96d5F900F06539681Db84AC5c6`
-is the next validated exception to that shutdown. Its funding window ends at
-2026-08-17 21:18:11 America/Denver, and its exact paced implementation passed
-the runtime, fork, profitability, nonce, lifecycle, RPC, and dry-run gates
-recorded in [OPPORTUNITIES.md](./OPPORTUNITIES.md). Railway deployment
-`c543b2eb-4f62-406c-a464-74857cc5f1b7`, source revision
-`94038b7b6b4f88a1d6e150fc768ee9804a54c67b`, is the temporary live worker for
-this lifecycle. It enables only MegaRip: the stale GachaTable flag and every
-other strategy are disabled, and both pending subscriptions remain off. Exact
-signed-bundle simulation must still prove positive post-gas,
-post-builder-payment economics for every submission. Shut the worker down
-again after the last actionable Season 02 settlement/recovery, or earlier if
-the pinned runtime/relationships, RPC health, or economics fail. Do not leave
-it running merely to resume routine operation.
+was the next validated exception to that shutdown. Its exact paced
+implementation passed the runtime, fork, profitability, nonce, lifecycle,
+RPC, and dry-run gates recorded in [OPPORTUNITIES.md](./OPPORTUNITIES.md).
+The contract finalized with 209 acquisitions and no remaining pull or sync
+work. Railway deployment `c543b2eb-4f62-406c-a464-74857cc5f1b7`, source
+revision `94038b7b6b4f88a1d6e150fc768ee9804a54c67b`, was removed on 2026-08-18
+after successful receipt and wallet reconciliation. The lifecycle realized
+exactly `0.027473321020192284 ETH` net, with `latest == pending == 2252`;
+PostgreSQL remains online and the signer lease count is zero. Routine
+production remains intentionally shut down. A future MegaRip season requires
+a fresh runtime/relationship check, exact-state economics, validation, and an
+explicit temporary lifecycle deployment under the ordinary safety gates.
 
 ## Start here
 

@@ -5,12 +5,13 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-17 (America/Denver)
+Last updated: 2026-08-18 (America/Denver)
 
 ## Production shutdown and restart gate
 
-Status: routine production remains intentionally shut down; the temporary
-MegaRip Season 02 worker is the only live exception.
+Status: routine production remains intentionally shut down. MegaRip Season 02
+is finalized and its temporary worker has been removed; PostgreSQL remains
+online.
 
 At the shutdown gate, the keeper had `latest == pending == 2243`, no active
 PullPool lifecycle (`pendingLifecycleRound == 0`), and no viable opportunity,
@@ -29,9 +30,10 @@ season or another concrete bountied opportunity, a reviewed and tested
 implementation, fresh exact-state economics, and the ordinary nonce,
 lifecycle, signer-lease, and rollout gates.
 
-MegaRip Season 02 satisfied that exception gate on 2026-08-16. Keep its
-MegaRip-only worker temporary and remove it after the last actionable Season 02
-settlement or recovery; this does not authorize re-enabling routine lanes.
+MegaRip Season 02 satisfied that exception gate on 2026-08-16. Its temporary
+MegaRip-only worker was removed after the last actionable settlement and exact
+reconciliation on 2026-08-18; this does not authorize re-enabling routine
+lanes.
 
 ## Current objective and snapshot
 
@@ -723,7 +725,7 @@ transaction, and emits an explicit recovery event after a retained batch is
 persisted. TypeScript, all 420 Vitest tests, both builds, and the diff check
 passed, including focused rollback/disposal and retained-queue recovery tests.
 
-Railway deployment `c543b2eb-4f62-406c-a464-74857cc5f1b7` now runs that exact
+Railway deployment `c543b2eb-4f62-406c-a464-74857cc5f1b7` ran that exact
 revision. Its replacement initialized read-only, waited 60.795 seconds for the
 old signer, acquired the sole lease, and started consecutive WebSocket passes.
 PostgreSQL then contained 78 events and nine passes from the new run through
@@ -732,6 +734,43 @@ reported `activeRuns=1`, `signerLeases=1`, and a fresh pass. The exact
 predeploy block `25777922` remained in Funding with `11.101 ETH` deposited,
 zero pulls, 138 affordable three-bounty acquisitions, `0.1242 ETH` changing
 maximum gross bounty inventory, and keeper `latest == pending == 2245`.
+
+Season 02 final outcome, 2026-08-18: exact inspection at block `25782738`
+proved the pinned contract and all immutable relationships unchanged, state
+`FINALIZED`, `pullsDone == 209`, `estimatedPullsRemaining == 0`, and
+`pendingSyncCount == 0`. Successful receipts paid `0.0312 ETH` gross across
+104 bounty units and retained exactly `0.027473321020192284 ETH` after gas and
+builder payments. The wallet moved from the pre-lifecycle reconciled
+`0.701894109892021588 ETH` equivalent to `0.729367430912213872 ETH`
+equivalent, agreeing exactly with the receipt sum. Keeper nonces reconciled at
+`latest == pending == 2252`.
+
+The contract emitted 627 canonical `BountyPaid` units totaling `0.1881 ETH`:
+209 request, 209 reveal/sync, and 209 terminal rewards. We captured the opening
+request reward, no reveal/sync rewards, and 103 terminal rewards, leaving 523
+distinct units to competitors. The 240 transaction-member expirations are not
+240 separate economic losses. Relay delivery was healthy: all 1,715 attempts
+were accepted across the seven configured paths. Exact receipt and direct
+beneficiary-payment reconstruction instead identifies price competition as
+the primary cause. The first lost pull paid BuilderNet
+`0.000101394166973472 ETH` against its `0.0003 ETH` bounty while our 10% bid
+paid about `0.00003 ETH`; the approximately 33.8% payment required to beat it remained
+counterfactually profitable. A 12-transaction sample later ranged from about
+8% to 93% of bounty, with mature clearing commonly near 88-93%, generally at
+or beyond the gas-adjusted retained-profit boundary.
+
+For a future runtime-compatible MegaRip, implement independent adaptive
+request, reveal/sync, and terminal bid policies backed by exact competitor
+payment observation and counterfactual retained-profit evidence. Escalate only
+after proven losses and retain exact signed-bundle profitability as the final
+boundary; do not copy the late-season 90% clearing level into a static bid.
+Also test whether wrapper aggregation exposes profitable mandatory-prefix
+composition. This is research for a newly verified season, not justification
+to reactivate production now.
+
+After the terminal state and nonce gate were reconfirmed, Railway deployment
+`c543b2eb-4f62-406c-a464-74857cc5f1b7` was removed. The worker is offline,
+PostgreSQL remains online, and the named signer lease count is zero.
 
 The public Season 02 thread now corroborates the verified implementation. In
 post `2089196795779772483`, @ripe0x described 30-minute auctions only for pulls
@@ -743,7 +782,14 @@ Canonical-deployer nonce 3471 was a successful deposit into this exact
 MegaRip, and nonce 3472 was an unrelated `collectPatronEdition` call to
 `0xaB48082d28049873ce54F672541D29779a3392Ef`. Neither created a successor or
 changed runtime/configuration. Continue release watching from canonical
-deployer transaction count 3473.
+deployer transaction count 3473. The next bounded check advanced that boundary
+to 3476: nonce 3473 was another successful deposit into the same MegaRip,
+nonce 3474 successfully claimed from it, and nonce 3475 called the Uniswap
+Universal Router after the claim. No contract creation, successor, runtime,
+ownership, or configuration change was found. New public posts reported 209
+pulls, `16.91 ETH` in, `17.12 ETH` out, two auctions with more than 1 ETH of
+backing, and finalized results; these corroborate the exact on-chain terminal
+state but introduce no new keeper implementation.
 
 Auction bids are a different, capital-bearing strategy: they escrow ETH and
 can result in NFT custody, and winning resale value cannot be guaranteed from
