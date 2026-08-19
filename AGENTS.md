@@ -50,6 +50,17 @@ production remains intentionally shut down. A future MegaRip season requires
 a fresh runtime/relationship check, exact-state economics, validation, and an
 explicit temporary lifecycle deployment under the ordinary safety gates.
 
+Hypertoadz Core at `0x70AD2a6C7e4a54720a64f1fEC9F0ff6E64001aF4`
+is a validated capital-free settlement surface discovered on 2026-08-19. Its
+permissionless `finalize()` pays the caller the configured share of the
+winning bid, currently bounded by the pinned runtime to at most 1%. The
+fail-closed implementation and exact fork replay are recorded in
+[OPPORTUNITIES.md](./OPPORTUNITIES.md), but production remains offline because
+the first observed auction was not profitable at the replayed gas price. A
+temporary activation is permitted only when fresh exact state, signed-bundle
+simulation, nonce/balance, and signer-lease gates prove positive retained
+profit. Remove the worker again after the actionable settlement window.
+
 ## Start here
 
 Requirements:
@@ -1059,6 +1070,16 @@ When researching a new keeper:
 9. Enable live execution only after a reviewed, bounded implementation exists.
 
 Record the outcome and evidence in [OPPORTUNITIES.md](./OPPORTUNITIES.md).
+
+Hypertoadz execution is limited to pinned Core
+`0x70AD2a6C7e4a54720a64f1fEC9F0ff6E64001aF4` and runtime hash
+`0x6f651ee67b191e3606ccf321a81b706ed1d82bd6623fe78b88e4f51b153495b6`.
+The only supported call is permissionless `finalize()` for the exact current
+auction with a nonzero bid whose deadline is eligible in the immediate child
+block. Read the configured settler reward from exact state, count only the
+matching `AuctionFinalized.settlerReward`, and require complete signed-bundle
+simulation to prove actual gas and positive retained profit after the
+independent builder bid. Never bid in the auction or accept NFT custody.
 
 ## Security and change boundaries
 

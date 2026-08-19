@@ -42,6 +42,7 @@ export interface KeeperConfig {
   readonly megaRipBuilderBidBps: bigint;
   readonly gachaTableDefaultBuilderBidBps: bigint;
   readonly gachaTableLifecycleBuilderBidBps: bigint;
+  readonly hypertoadzBuilderBidBps: bigint;
   readonly liveBidSweepBuilderBidBps: bigint;
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
@@ -77,6 +78,7 @@ export interface KeeperConfig {
   readonly enableGroupPull: boolean;
   readonly enableMegaRip: boolean;
   readonly enableGachaTable: boolean;
+  readonly enableHypertoadz: boolean;
   readonly enableStandingOrders: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
@@ -450,6 +452,14 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const hypertoadzBuilderBidBps = integerEnv(
+    "HYPERTOADZ_BUILDER_BID_BPS",
+    5_001,
+    {
+      min: 0,
+      max: 10_000,
+    },
+  );
   const liveBidSweepBuilderBidBps = integerEnv(
     "LIVE_BID_SWEEP_BUILDER_BID_BPS",
     100,
@@ -565,6 +575,7 @@ export function loadConfig(): KeeperConfig {
     gachaTableLifecycleBuilderBidBps: BigInt(
       gachaTableLifecycleBuilderBidBps,
     ),
+    hypertoadzBuilderBidBps: BigInt(hypertoadzBuilderBidBps),
     liveBidSweepBuilderBidBps:
       BigInt(liveBidSweepBuilderBidBps),
     liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
@@ -649,6 +660,7 @@ export function loadConfig(): KeeperConfig {
     enableGroupPull: booleanEnv("ENABLE_GROUP_PULL", true),
     enableMegaRip: booleanEnv("ENABLE_MEGA_RIP", true),
     enableGachaTable,
+    enableHypertoadz: booleanEnv("ENABLE_HYPERTOADZ", false),
     enableStandingOrders: booleanEnv(
       "ENABLE_STANDING_ORDERS",
       true,

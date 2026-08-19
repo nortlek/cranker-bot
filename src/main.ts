@@ -1436,6 +1436,13 @@ async function main(): Promise<void> {
                 : "gacha_table_lifecycle";
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
+          } else if (request.kind === "hypertoadz_finalize") {
+            requestBidBps =
+              request.configuredBuilderBidBps ??
+              config.hypertoadzBuilderBidBps;
+            requestBidPolicy = "hypertoadz_finalize";
+            requestMinimumPriorityFeePerGas =
+              config.poolMinPriorityFeePerGas;
           } else if (request.kind === "liquity_liquidation") {
             requestBidBps = config.liquityBuilderBidBps;
             requestBidPolicy = "liquity";
@@ -1742,6 +1749,8 @@ async function main(): Promise<void> {
             config.gachaTableDefaultBuilderBidBps.toString(),
           configuredGachaTableLifecycleBuilderBidBps:
             config.gachaTableLifecycleBuilderBidBps.toString(),
+          configuredHypertoadzBuilderBidBps:
+            config.hypertoadzBuilderBidBps.toString(),
           configuredLiveBidSweepBuilderBidBps:
             config.liveBidSweepBuilderBidBps.toString(),
           configuredLiquityBuilderBidBps:
@@ -4106,6 +4115,8 @@ async function main(): Promise<void> {
       config.gachaTableDefaultBuilderBidBps.toString(),
     configuredGachaTableLifecycleBuilderBidBps:
       config.gachaTableLifecycleBuilderBidBps.toString(),
+    configuredHypertoadzBuilderBidBps:
+      config.hypertoadzBuilderBidBps.toString(),
     activeV2PoolFulfilledBuilderBidBps:
       v2Config === undefined
         ? ""
@@ -4142,6 +4153,7 @@ async function main(): Promise<void> {
     poolLifecycle: config.enablePoolLifecycle,
     groupPull: config.enableGroupPull,
     megaRip: config.enableMegaRip,
+    hypertoadz: config.enableHypertoadz,
     vaults: config.enableVaults,
     buyback: config.enableBuyback,
     liveBidSweep: config.enableLiveBidSweep,

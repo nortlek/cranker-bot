@@ -102,6 +102,10 @@ import {
 } from "./group-pull.js";
 import { planGachaTableJobs } from "./gacha-table.js";
 import { gachaTableKeeperExecutorAbi } from "./gacha-table-keeper-executor.js";
+import {
+  hypertoadzAbi,
+  planHypertoadzFinalize,
+} from "./hypertoadz.js";
 import { megaRipAbi, planMegaRipJobs } from "./mega-rip.js";
 import { megaRipKeeperExecutorAbi } from "./mega-rip-keeper-executor.js";
 import { retryTransientRead } from "./heads.js";
@@ -167,6 +171,7 @@ export type KeeperJobKind =
   | "gacha_fire"
   | "gacha_settle"
   | "gacha_default"
+  | "hypertoadz_finalize"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -4876,6 +4881,20 @@ async function planJobs(parameters: {
           parameters.config.gachaTableLifecycleBuilderBidBps,
       })
     : Promise.resolve(undefined);
+  const hypertoadzPromise = parameters.config.enableHypertoadz
+    ? planHypertoadzFinalize({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        blockTimestamp: parameters.headTimestamp,
+        maxFeePerGas: parameters.maxFeePerGas,
+        gasLimitMultiplierBps:
+          parameters.config.gasLimitMultiplierBps,
+        minProfitWei: parameters.config.minProfitWei,
+        builderBidBps:
+          parameters.config.hypertoadzBuilderBidBps,
+      })
+    : Promise.resolve(undefined);
   const {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
@@ -5021,12 +5040,26 @@ async function planJobs(parameters: {
                   ? 1
                   : selectedWithMegaRip.minimumViablePrefix,
             };
+  const hypertoadzPlan = await hypertoadzPromise;
+  const hypertoadzJob = hypertoadzPlan?.job;
+  const selectedWithHypertoadz: PlannedJobs =
+    hypertoadzJob === undefined ||
+    selectedWithGachaTable.jobs.length >= maxJobs(parameters.config)
+      ? selectedWithGachaTable
+      : {
+          ...selectedWithGachaTable,
+          jobs: [...selectedWithGachaTable.jobs, hypertoadzJob],
+          minimumViablePrefix:
+            selectedWithGachaTable.minimumViablePrefix === 0
+              ? 1
+              : selectedWithGachaTable.minimumViablePrefix,
+        };
   const groupPullStandingOrderJobs =
     await groupPullStandingOrderPromise;
   const availableGroupPullStandingOrderSlots = Math.max(
     0,
     maxJobs(parameters.config) -
-      selectedWithGachaTable.jobs.length,
+      selectedWithHypertoadz.jobs.length,
   );
   const appendedGroupPullStandingOrderJobs =
     groupPullStandingOrderJobs.slice(
@@ -5035,19 +5068,19 @@ async function planJobs(parameters: {
     );
   const selected: PlannedJobs =
     appendedGroupPullStandingOrderJobs.length === 0
-      ? selectedWithGachaTable
+      ? selectedWithHypertoadz
       : {
-          ...selectedWithGachaTable,
+          ...selectedWithHypertoadz,
           jobs: [
-            ...selectedWithGachaTable.jobs,
+            ...selectedWithHypertoadz.jobs,
             ...appendedGroupPullStandingOrderJobs,
           ],
           minimumViablePrefix:
-            selectedWithGachaTable.minimumViablePrefix === 0
+            selectedWithHypertoadz.minimumViablePrefix === 0
               ? 1
-              : selectedWithGachaTable.minimumViablePrefix,
+              : selectedWithHypertoadz.minimumViablePrefix,
           orders:
-            selectedWithGachaTable.orders +
+            selectedWithHypertoadz.orders +
             appendedGroupPullStandingOrderJobs.length,
         };
   log("info", "pull_pool_adapter_plans_merged", {
@@ -5124,6 +5157,18 @@ async function planJobs(parameters: {
     gachaTablePlannedJobs: gachaTablePlan?.jobs.length ?? 0,
     gachaTableSelected: selected.jobs.some((job) =>
       job.kind.startsWith("gacha_"),
+    ),
+    hypertoadzEnabled: parameters.config.enableHypertoadz,
+    hypertoadzTokenId:
+      hypertoadzPlan?.auction.tokenId.toString() ?? "",
+    hypertoadzBid:
+      hypertoadzPlan?.auction.bid.toString() ?? "",
+    hypertoadzAuctionEnd:
+      hypertoadzPlan?.auction.end.toString() ?? "",
+    hypertoadzSettlerReward:
+      hypertoadzPlan?.reward.toString() ?? "",
+    hypertoadzSelected: selected.jobs.some(
+      (job) => job.kind === "hypertoadz_finalize",
     ),
   });
   return selected;
@@ -5403,6 +5448,27 @@ function actualJobReward(
   }
   if (request.kind === "gacha_executor_deploy") {
     return 0n;
+  }
+  if (request.kind === "hypertoadz_finalize") {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
+        continue;
+      }
+      try {
+        const decoded = decodeEventLog({
+          abi: hypertoadzAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (decoded.eventName === "AuctionFinalized") {
+          total += decoded.args.settlerReward;
+        }
+      } catch {
+        // Ignore unrelated core events.
+      }
+    }
+    return total;
   }
   if (
     request.kind === "gacha_fire" ||

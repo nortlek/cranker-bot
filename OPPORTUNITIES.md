@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-18 (America/Denver)
+Last updated: 2026-08-19 (America/Denver)
 
 ## Production shutdown and restart gate
 
@@ -797,6 +797,47 @@ the protocol settlement alone. They remain intentionally excluded under the
 binding no-deposit/no-bid/no-approval/no-custody invariant. The bot does pursue
 the permissionless terminal bounty for each exact auction outcome that proves
 rewarded, whether another bidder wins or the reserve/no-bid path resolves.
+
+### P0 — Hypertoadz permissionless auction settlement
+
+Status: validated and implemented fail-closed; production remains offline
+until fresh economics justify the temporary lifecycle deployment.
+
+Canonical-deployer nonce 3476 was successful transaction
+`0x97c3dd48ea32bb8471da6bfc3fac98494d2440ea25c0c1e4e1390f80d043abb0`,
+a `0.1 ETH` bid into verified `HypertoadzCore` at
+`0x70AD2a6C7e4a54720a64f1fEC9F0ff6E64001aF4`. This was a product lead rather
+than deployment provenance: no new contract creation, successor, or
+configuration transaction came from the canonical FWA deployer. Exact runtime
+hash `0x6f651ee67b191e3606ccf321a81b706ed1d82bd6623fe78b88e4f51b153495b6`
+matches the verified Solidity 0.8.24 source. The pinned runtime exposes
+permissionless `finalize()`, an immutable 24-hour auction duration, a
+five-minute extension window, and a settler reward bounded at 1% of the
+winning bid. The reward authority is the exact Core's
+`AuctionFinalized.settlerReward`; bidding is unnecessary and remains excluded.
+Continue bounded deployer release watching from transaction count 3477.
+
+At block `25789943`, token 1's winning bid had risen to `0.2541 ETH`, its
+settler reward was exactly `0.002541 ETH`, and the deadline was
+2026-08-19 17:04:11 America/Denver. A fork replay at the first eligible
+timestamp successfully finalized, advanced to token 2, emitted the exact
+`0.002541 ETH` reward to the keeper, and consumed 1,233,719 gas. At the
+replayed `3.329577542 gwei` effective gas price, gas cost
+`0.004107763075538698 ETH`, so the transaction lost
+`0.001566763075538698 ETH` before any builder payment. Production therefore
+stayed offline. A later bid increase or lower base fee can cross the boundary;
+the final exact signed-bundle simulation remains authoritative.
+
+The disabled-by-default implementation pins address, runtime, duration,
+extension, and maximum reward configuration; reads the current auction and
+reward at the subscribed exact block; targets the first eligible child; uses
+only private delivery; bids an independent 50.01% of the reward; derives
+actual reward only from the canonical event; and rejects any bundle without
+positive retained profit. TypeScript, all 423 tests, both builds, an exact
+read-only dry run, the fork replay, and `git diff --check` passed. Recheck the
+winning bid, runtime/configuration, exact gas economics, keeper nonce/balance,
+and zero-to-one signer lease immediately before any temporary activation, then
+remove the worker after settlement.
 
 ### P0 — GroupPull subscription standing orders
 
