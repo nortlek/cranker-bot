@@ -454,7 +454,7 @@ export function loadConfig(): KeeperConfig {
   );
   const hypertoadzBuilderBidBps = integerEnv(
     "HYPERTOADZ_BUILDER_BID_BPS",
-    5_001,
+    10_000,
     {
       min: 0,
       max: 10_000,

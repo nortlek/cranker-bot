@@ -27,6 +27,8 @@ const originalGachaTableDefaultBuilderBidBps =
   process.env.GACHA_TABLE_DEFAULT_BUILDER_BID_BPS;
 const originalGachaTableLifecycleBuilderBidBps =
   process.env.GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS;
+const originalHypertoadzBuilderBidBps =
+  process.env.HYPERTOADZ_BUILDER_BID_BPS;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
 const originalBuybackBuilderBidBps =
@@ -109,6 +111,12 @@ afterEach(() => {
   } else {
     process.env.GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS =
       originalGachaTableLifecycleBuilderBidBps;
+  }
+  if (originalHypertoadzBuilderBidBps === undefined) {
+    delete process.env.HYPERTOADZ_BUILDER_BID_BPS;
+  } else {
+    process.env.HYPERTOADZ_BUILDER_BID_BPS =
+      originalHypertoadzBuilderBidBps;
   }
   if (originalPendingFundingBuilderBidBps === undefined) {
     delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
@@ -238,6 +246,14 @@ describe("GachaTable keeper lane", () => {
     expect(() => loadConfig()).toThrow(
       "ENABLE_GACHA_TABLE requires SUBMISSION_MODE=flashbots",
     );
+  });
+});
+
+describe("Hypertoadz keeper lane", () => {
+  it("requests the maximum safe bid after the first exact clearing", () => {
+    delete process.env.HYPERTOADZ_BUILDER_BID_BPS;
+
+    expect(loadConfig().hypertoadzBuilderBidBps).toBe(10_000n);
   });
 });
 

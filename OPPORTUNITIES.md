@@ -828,16 +828,53 @@ replayed `3.329577542 gwei` effective gas price, gas cost
 stayed offline. A later bid increase or lower base fee can cross the boundary;
 the final exact signed-bundle simulation remains authoritative.
 
+Post-settlement incident review, 2026-08-20: token 1 did not remain at the
+`0.2541 ETH` snapshot. Late bids extended it to `1.77 ETH`, creating an exact
+`0.0177 ETH` bounty that competitor transaction
+`0x778855fef458caed4cc1a737ff6407f0078abb7d7a0b4e60480cd8a08cf87d8f`
+captured in block `25792459`. Its receipt used 1,243,686 gas at
+`0.100725918 gwei` and its trace paid the block beneficiary
+`0.017572464110770467 ETH`, leaving only `0.000002264475175785 ETH` after gas.
+This proves settlement is searched at effectively the full post-gas reward;
+the independent requested bid is now 10,000 bps, which the exact quote caps at
+the configured minimum retained profit. Replaying the clearing with our quote
+would have offered `0.000001264475471457 ETH` more than the observed payment
+while retaining `0.000001000000948014 ETH`, the minimum plus unavoidable
+per-gas rounding.
+
+Token 2 currently ends at 2026-08-20 17:33:11 America/Denver. At block
+`25797407` its bid was `0.105 ETH` and reward was `0.00105 ETH`. Exact fork
+finalization succeeded and consumed 1,292,020 gas, but the observed parent
+base fee was `1.965730150 gwei`; even the 10,000-bps quote can retain the
+minimum profit only below about `0.405485209 gwei`. Production therefore
+remains offline at this boundary. One-shot automation
+`hypertoadz-token-2-settlement-watch` will recheck the late bid, extensions,
+base fee, signed-bundle economics, nonce, balance, and signer lease at 16:55
+America/Denver and may perform only the normal temporary safe deployment.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
-only private delivery; bids an independent 50.01% of the reward; derives
+only private delivery; requests the independent maximum-safe bid; derives
 actual reward only from the canonical event; and rejects any bundle without
-positive retained profit. TypeScript, all 423 tests, both builds, an exact
+positive retained profit. TypeScript, all 425 tests, both builds, an exact
 read-only dry run, the fork replay, and `git diff --check` passed. Recheck the
 winning bid, runtime/configuration, exact gas economics, keeper nonce/balance,
 and zero-to-one signer lease immediately before any temporary activation, then
 remove the worker after settlement.
+
+Release watch, 2026-08-20: canonical-deployer nonces 3477-3481 contained no
+creation, upgrade, factory, ownership, or configuration change. Nonce 3477 was
+a failed self-call, 3478 used verified `MainnetSettler` for a token swap, 3479
+approved the existing verified `FWAPHouseNft`, 3480 minted an unrelated
+Almanac NFT, and 3481 migrated an existing position into verified
+`FWAPHouseBuyout` at `0x00000000000fd7A237f1cd9AB060FcB9fC65Fe5B`.
+Exact source review found its operational unwind and harvest methods are
+`onlyOwner`; claims and migrations serve Merkle-authorized asset owners and
+pay no external keeper bounty. It is therefore not a capital-free keeper
+surface. Continue bounded deployer watching from transaction count 3482. No
+new readable @ripe0x post was found through the available public index; social
+absence is not treated as on-chain evidence.
 
 ### P0 — GroupPull subscription standing orders
 

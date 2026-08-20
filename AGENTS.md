@@ -60,6 +60,10 @@ the first observed auction was not profitable at the replayed gas price. A
 temporary activation is permitted only when fresh exact state, signed-bundle
 simulation, nonce/balance, and signer-lease gates prove positive retained
 profit. Remove the worker again after the actionable settlement window.
+The first settlement cleared with a direct builder payment consuming nearly
+all of the post-gas reward, so Hypertoadz must request the maximum safe bid and
+let exact gas plus the configured minimum retained profit cap the payment. Do
+not reuse a lower standing-order or pool bid for this independent lane.
 
 ## Start here
 
