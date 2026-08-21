@@ -894,6 +894,18 @@ offline; token 3 or any later auction needs the same fresh runtime, auction,
 economics, nonce, balance, lease, signed-simulation, and bounded-deployment
 gates rather than inheriting token 2's activation.
 
+Token 3 watch boundary, 2026-08-21: exact current state at block `25804293`
+had a `0.0269 ETH` winning bid, `0.000269 ETH` settler reward, unchanged
+100-bps reward configuration and pinned runtime, and a deadline of
+2026-08-21 17:36:11 America/Denver. The observed base fee was
+`0.550551399 gwei`; using token 2's canonical 1,293,471-gas receipt as the
+closest realized bound, even a zero-builder-payment finalization preserves the
+`0.000001 ETH` floor only below about `0.20719444 gwei`. Production therefore
+remains offline. One-shot automation `hypertoadz-token-3-settlement-watch`
+will recheck the exact late bid, extensions, gas, signed-bundle economics,
+nonce, balance, and lease at 16:55 America/Denver and may perform only the
+ordinary temporary safe deployment. The completed token-2 watch was deleted.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
@@ -917,6 +929,16 @@ pay no external keeper bounty. It is therefore not a capital-free keeper
 surface. Continue bounded deployer watching from transaction count 3482. No
 new readable @ripe0x post was found through the available public index; social
 absence is not treated as on-chain evidence.
+
+Release watch, 2026-08-21: canonical-deployer nonce 3482 was successful
+transaction `0xc0dd73be60e678a5511d1c15056e31d600a30d467a6e6893174f0fa2c7b06ce6`,
+an ordinary zero-value `like()` call to independently deployed, verified
+contract `Like` at `0xE8A21c062352Bf135971410054Ef6c4D85Fa7bEc`.
+Exact source exposes only social like/unlike bookkeeping and owner-only page
+metadata; it creates no contract, changes no FWA configuration or ownership,
+and pays no permissionless bounty. Continue bounded deployer watching from
+transaction count 3483. No new readable @ripe0x post was found through the
+available public index; social absence remains non-evidence.
 
 ### P0 — GroupPull subscription standing orders
 
