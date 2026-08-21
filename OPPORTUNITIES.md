@@ -800,7 +800,7 @@ rewarded, whether another bidder wins or the reserve/no-bid path resolves.
 
 ### P0 — Hypertoadz permissionless auction settlement
 
-Status: validated and implemented fail-closed; token 2 settlement captured and
+Status: validated and implemented fail-closed; token 3 settlement captured and
 production returned offline. Every later auction requires fresh exact-state
 economics and another bounded temporary lifecycle deployment.
 
@@ -894,17 +894,49 @@ offline; token 3 or any later auction needs the same fresh runtime, auction,
 economics, nonce, balance, lease, signed-simulation, and bounded-deployment
 gates rather than inheriting token 2's activation.
 
-Token 3 watch boundary, 2026-08-21: exact current state at block `25804293`
-had a `0.0269 ETH` winning bid, `0.000269 ETH` settler reward, unchanged
-100-bps reward configuration and pinned runtime, and a deadline of
-2026-08-21 17:36:11 America/Denver. The observed base fee was
-`0.550551399 gwei`; using token 2's canonical 1,293,471-gas receipt as the
-closest realized bound, even a zero-builder-payment finalization preserves the
-`0.000001 ETH` floor only below about `0.20719444 gwei`. Production therefore
-remains offline. One-shot automation `hypertoadz-token-3-settlement-watch`
-will recheck the exact late bid, extensions, gas, signed-bundle economics,
-nonce, balance, and lease at 16:55 America/Denver and may perform only the
-ordinary temporary safe deployment. The completed token-2 watch was deleted.
+Token 3 terminal operation, 2026-08-21: the morning boundary did not persist.
+The bid rose from `0.0269 ETH` to `0.04069 ETH`, making the exact settler
+reward `0.0004069 ETH`; the complete token-3 event history contained no
+`AuctionExtended`, so the original 2026-08-21 17:36:11 America/Denver deadline
+remained final. Before activation at block `25806692`, the pinned runtime and
+100-bps reward configuration still matched, the immediate child base fee
+derived to `0.211430249 gwei`, the keeper had `latest == pending == 2253` and
+`0.736541827027853683 ETH`, and PostgreSQL signer lease count was zero.
+TypeScript, all 425 tests, both builds, `git diff --check`, clean-worktree, and
+exact `HEAD == origin/main == a414e0ce9d7e81db4f8f014394fcf7309576a4b9`
+gates passed. Railway temporarily deployed that revision as
+`5b550b82-0322-4753-9ef3-db56f147027c` with only Hypertoadz enabled, the
+independent 10,000-bps bid, and the `0.000001 ETH` profit floor; startup proved
+the expected source, healthy WebSocket-headed passes, and exactly one signer
+lease.
+
+The exact parent was block `25806838`, timestamp `1787355359`, base fee
+`0.148271255 gwei`, and gas usage `34,245,608 / 60,000,000`; its immediate
+child base fee derived exactly to `0.150894178 gwei`. Preliminary signed-bundle
+simulation consumed 1,259,355 gas. The maximum-safe quote capped the requested
+10,000-bps bid at `0.17141367 gwei` priority,
+`0.00021587066238285 ETH` builder payment, and
+`0.00000100000008196 ETH` expected retained profit. Competitive simulation
+succeeded, the final nonce/balance/lease/target gate passed, and all seven
+relay paths accepted the one-transaction bundle.
+
+Titan included keeper transaction
+`0x99a79674a27fc1237a084d3116a2044f2b284f72eebb91fb912639dfb9b678ec`
+in target block `25806839`. Its successful canonical receipt used 1,259,355
+gas at `0.322307848 gwei`, paid the exact `0.0004069 ETH` reward, cost
+`0.00040589999991804 ETH`, and realized
+`0.00000100000008196 ETH` net. PostgreSQL stored the matching sent and receipt
+rows, and the keeper wallet increased by exactly `1,000,000,081,960 wei`, from
+`0.736541827027853683 ETH` to `0.736542827027935643 ETH`. The Core advanced to
+fresh zero-bid token 4 and the account reconciled at
+`latest == pending == 2254`. Railway deployment
+`5b550b82-0322-4753-9ef3-db56f147027c` was then removed, Hypertoadz was
+disabled again, the worker had zero active deployments, PostgreSQL remained
+healthy, and signer lease count returned to zero. Routine production is
+offline; token 4 or any later auction needs the same fresh runtime, auction,
+economics, nonce, balance, lease, signed-simulation, and bounded-deployment
+gates rather than inheriting token 3's activation. The completed token-3
+one-shot watch was deleted after this terminal handoff.
 
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
