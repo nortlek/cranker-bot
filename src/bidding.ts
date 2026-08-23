@@ -21,6 +21,8 @@ export interface CompetitiveFeeQuote {
 export interface CompetitivePrefixComponent {
   readonly rewardWei: bigint;
   readonly gasUsed: bigint;
+  /** Conservative gas used only for the retained-profit calculation. */
+  readonly profitGasUsed?: bigint;
   readonly builderBidBps: bigint;
   readonly minimumPriorityFeePerGas: bigint;
   /**
@@ -308,6 +310,7 @@ export function aggregateBuilderBidBps(
 function quotePriorityFees(parameters: {
   readonly crankFee: bigint;
   readonly simulatedGasUsed: bigint;
+  readonly profitGasUsed?: bigint;
   readonly baseFeeAllowancePerGas: bigint;
   readonly minimumPriorityFeePerGas: bigint;
   readonly builderBidBps: bigint;
@@ -322,10 +325,17 @@ function quotePriorityFees(parameters: {
   if (parameters.simulatedGasUsed <= 0n) {
     throw new Error("simulatedGasUsed must be positive");
   }
+  const profitGasUsed =
+    parameters.profitGasUsed ?? parameters.simulatedGasUsed;
+  if (profitGasUsed < parameters.simulatedGasUsed) {
+    throw new Error(
+      "profitGasUsed cannot be lower than simulatedGasUsed",
+    );
+  }
 
   const profitFloor = requiredProfit(parameters.minProfitWei);
   const baseGasCost =
-    parameters.baseFeeAllowancePerGas * parameters.simulatedGasUsed;
+    parameters.baseFeeAllowancePerGas * profitGasUsed;
   const desiredBuilderPayment =
     (parameters.crankFee * parameters.builderBidBps) / 10_000n;
   const bidPriorityFee = ceilDivide(
@@ -342,7 +352,7 @@ function quotePriorityFees(parameters: {
   const profitCappedPriorityFeePerGas =
     profitBudget < 0n
       ? -1n
-      : profitBudget / parameters.simulatedGasUsed;
+      : profitBudget / profitGasUsed;
   const feeCappedPriorityFeePerGas =
     parameters.maxFeePerGasCap === undefined
       ? undefined
@@ -368,7 +378,7 @@ function quotePriorityFees(parameters: {
     const builderPayment =
       maxPriorityFeePerGas * parameters.simulatedGasUsed;
     const expectedGasCost =
-      maxFeePerGas * parameters.simulatedGasUsed;
+      maxFeePerGas * profitGasUsed;
     return {
       maxFeePerGas,
       maxPriorityFeePerGas,
@@ -406,7 +416,7 @@ function quotePriorityFees(parameters: {
   const builderPayment =
     maxPriorityFeePerGas * parameters.simulatedGasUsed;
   const expectedGasCost =
-    maxFeePerGas * parameters.simulatedGasUsed;
+    maxFeePerGas * profitGasUsed;
   const expectedProfit = parameters.crankFee - expectedGasCost;
   if (expectedProfit < profitFloor) {
     return {
@@ -453,6 +463,7 @@ function quotePriorityFees(parameters: {
 export function quoteCompetitiveFees(parameters: {
   readonly crankFee: bigint;
   readonly simulatedGasUsed: bigint;
+  readonly profitGasUsed?: bigint;
   readonly baseFeeAllowancePerGas: bigint;
   readonly minimumPriorityFeePerGas: bigint;
   readonly builderBidBps: bigint;
@@ -483,6 +494,8 @@ export function quoteCompetitiveFees(parameters: {
   }
 
   const profitFloor = priorityQuote.requiredProfit;
+  const profitGasUsed =
+    parameters.profitGasUsed ?? parameters.simulatedGasUsed;
   // Once the exact direct-payment helper is required, leave only the
   // configured minimum in the priority fee and express the rest through the
   // helper value. Some relay simulators price the immediate child against the
@@ -493,11 +506,17 @@ export function quoteCompetitiveFees(parameters: {
   const priorityBuilderPayment =
     parameters.simulatedGasUsed *
     parameters.minimumPriorityFeePerGas;
+  const priorityGasReserve =
+    (profitGasUsed - parameters.simulatedGasUsed) *
+    parameters.minimumPriorityFeePerGas;
   const totalBaseGasCost =
     parameters.baseFeeAllowancePerGas *
-    (parameters.simulatedGasUsed + directPaymentGasUsed);
+    (profitGasUsed + directPaymentGasUsed);
   const maximumBuilderPayment =
-    parameters.crankFee - totalBaseGasCost - profitFloor;
+    parameters.crankFee -
+    totalBaseGasCost -
+    priorityGasReserve -
+    profitFloor;
   if (maximumBuilderPayment <= priorityBuilderPayment) {
     return withoutDirectPayment;
   }
@@ -515,7 +534,7 @@ export function quoteCompetitiveFees(parameters: {
     return withoutDirectPayment;
   }
   const expectedGasCost =
-    totalBaseGasCost + builderPayment;
+    totalBaseGasCost + priorityGasReserve + builderPayment;
   const expectedProfit =
     parameters.crankFee - expectedGasCost;
   const {
@@ -647,6 +666,7 @@ export function selectMostProfitablePrefix(parameters: {
 
   let grossReward = 0n;
   let totalGasUsed = 0n;
+  let totalProfitGasUsed = 0n;
   let minimumPriorityFeePerGas = 0n;
   let profitabilityOnly = false;
   const bidComponents: Array<{
@@ -665,6 +685,13 @@ export function selectMostProfitablePrefix(parameters: {
     if (component.gasUsed <= 0n) {
       throw new Error("component gasUsed must be positive");
     }
+    const componentProfitGasUsed =
+      component.profitGasUsed ?? component.gasUsed;
+    if (componentProfitGasUsed < component.gasUsed) {
+      throw new Error(
+        "component profitGasUsed cannot be lower than gasUsed",
+      );
+    }
     if (component.minimumPriorityFeePerGas < 0n) {
       throw new Error(
         "component minimumPriorityFeePerGas cannot be negative",
@@ -672,6 +699,7 @@ export function selectMostProfitablePrefix(parameters: {
     }
     grossReward += component.rewardWei;
     totalGasUsed += component.gasUsed;
+    totalProfitGasUsed += componentProfitGasUsed;
     bidComponents.push({
       rewardWei: component.rewardWei,
       builderBidBps: component.builderBidBps,
@@ -697,6 +725,7 @@ export function selectMostProfitablePrefix(parameters: {
     const quote = quoteCompetitiveFees({
       crankFee: grossReward,
       simulatedGasUsed: totalGasUsed,
+      profitGasUsed: totalProfitGasUsed,
       baseFeeAllowancePerGas:
         parameters.baseFeeAllowancePerGas,
       minimumPriorityFeePerGas,

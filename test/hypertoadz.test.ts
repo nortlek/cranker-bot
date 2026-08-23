@@ -1,9 +1,11 @@
+import { parseEther, parseGwei } from "viem";
 import { describe, expect, it } from "vitest";
 
 import { quoteCompetitiveFees } from "../src/bidding.js";
 import {
   hypertoadzAbi,
   hypertoadzCanFinalizeInNextBlock,
+  HYPERTOADZ_RECEIPT_GAS_BUFFER,
 } from "../src/hypertoadz.js";
 
 describe("Hypertoadz settlement", () => {
@@ -81,6 +83,33 @@ describe("Hypertoadz settlement", () => {
     );
     expect(quote.builderPayment).toBeGreaterThan(
       observedDirectBuilderPayment,
+    );
+  });
+
+  it("preserves the profit floor across the observed token 4 receipt gas drift", () => {
+    const reward = parseEther("0.00111");
+    const simulatedGasUsed = 1_374_654n;
+    const receiptGasUsed = 1_374_941n;
+    const baseFeeAllowancePerGas = 65_960_548n;
+    const minimumProfit = parseEther("0.000001");
+    const quote = quoteCompetitiveFees({
+      crankFee: reward,
+      simulatedGasUsed,
+      profitGasUsed:
+        simulatedGasUsed + HYPERTOADZ_RECEIPT_GAS_BUFFER,
+      baseFeeAllowancePerGas,
+      minimumPriorityFeePerGas: 0n,
+      builderBidBps: 10_000n,
+      minProfitWei: minimumProfit,
+    });
+
+    expect(quote.profitable).toBe(true);
+    expect(quote.cappedByProfit).toBe(true);
+    expect(
+      reward - receiptGasUsed * quote.maxFeePerGas,
+    ).toBeGreaterThanOrEqual(minimumProfit);
+    expect(quote.maxPriorityFeePerGas).toBeLessThan(
+      parseGwei("0.740787913"),
     );
   });
 });

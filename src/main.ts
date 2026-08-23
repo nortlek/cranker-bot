@@ -104,6 +104,7 @@ import {
   minimumLifecycleSubmissionPrefix,
   ROUND_STATE,
 } from "./lifecycle.js";
+import { HYPERTOADZ_RECEIPT_GAS_BUFFER } from "./hypertoadz.js";
 import {
   executePendingFwaBackrun,
   executePendingFwaBackrunWithRetargets,
@@ -1291,6 +1292,7 @@ async function main(): Promise<void> {
         const pricingComponents: Array<{
           rewardWei: bigint;
           gasUsed: bigint;
+          profitGasUsed?: bigint;
           builderBidBps: bigint;
           minimumPriorityFeePerGas: bigint;
           bidPolicy: string;
@@ -1471,6 +1473,13 @@ async function main(): Promise<void> {
           pricingComponents.push({
             rewardWei,
             gasUsed: transactionGas,
+            ...(request.kind === "hypertoadz_finalize"
+              ? {
+                  profitGasUsed:
+                    transactionGas +
+                    HYPERTOADZ_RECEIPT_GAS_BUFFER,
+                }
+              : {}),
             builderBidBps: requestBidBps,
             minimumPriorityFeePerGas:
               requestMinimumPriorityFeePerGas,
@@ -1560,6 +1569,13 @@ async function main(): Promise<void> {
           (total, component) => total + component.gasUsed,
           0n,
         );
+        const fullProfitGasUsed =
+          eligiblePricingComponents.reduce(
+            (total, component) =>
+              total +
+              (component.profitGasUsed ?? component.gasUsed),
+            0n,
+          );
         const fullMinimumPriorityFeePerGas =
           eligiblePricingComponents.reduce(
             (highest, component) =>
@@ -1580,6 +1596,7 @@ async function main(): Promise<void> {
         const fullQuote = quoteCompetitiveFees({
           crankFee: fullGrossReward,
           simulatedGasUsed: fullGasUsed,
+          profitGasUsed: fullProfitGasUsed,
           baseFeeAllowancePerGas,
           minimumPriorityFeePerGas:
             fullMinimumPriorityFeePerGas,

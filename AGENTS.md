@@ -1083,7 +1083,11 @@ auction with a nonzero bid whose deadline is eligible in the immediate child
 block. Read the configured settler reward from exact state, count only the
 matching `AuctionFinalized.settlerReward`, and require complete signed-bundle
 simulation to prove actual gas and positive retained profit after the
-independent builder bid. Never bid in the auction or accept NFT custody.
+independent builder bid. Retained-profit pricing must include the pinned
+2,048-gas Hypertoadz receipt reserve while builder-payment normalization stays
+on exact simulated gas; this protects the configured floor against the
+observed simulation-to-receipt drift without inflating the competitive bid.
+Never bid in the auction or accept NFT custody.
 
 ## Security and change boundaries
 

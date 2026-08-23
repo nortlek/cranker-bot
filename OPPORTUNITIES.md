@@ -800,7 +800,7 @@ rewarded, whether another bidder wins or the reserve/no-bid path resolves.
 
 ### P0 — Hypertoadz permissionless auction settlement
 
-Status: validated and implemented fail-closed; token 3 settlement captured and
+Status: validated and implemented fail-closed; token 4 settlement captured and
 production returned offline. Every later auction requires fresh exact-state
 economics and another bounded temporary lifecycle deployment.
 
@@ -938,6 +938,54 @@ economics, nonce, balance, lease, signed-simulation, and bounded-deployment
 gates rather than inheriting token 3's activation. The completed token-3
 one-shot watch was deleted after this terminal handoff.
 
+Token 4 terminal operation and retained-profit incident, 2026-08-22: late
+bidding moved the auction through `0.04777`, `0.055`, `0.066`, `0.06942`, and
+finally `0.111 ETH`, with repeated five-minute extensions ending at
+2026-08-22 18:09:23 America/Denver. Before activation, the pinned runtime and
+100-bps reward configuration still matched, the keeper had
+`latest == pending == 2254`, balance `0.736542827027935643 ETH`, and the
+PostgreSQL signer lease count was zero. TypeScript, all 425 tests, both builds,
+`git diff --check`, clean-worktree, and exact
+`HEAD == origin/main == 94f236b3f0dfdb3f3367eb1598b98469b2fc6fb1`
+gates passed. Railway temporarily deployed that revision as
+`ae5e7a72-e392-48a1-8196-cec2b3b96280` with only Hypertoadz enabled; startup
+proved the exact source, seven private relay paths, healthy WebSocket-headed
+passes, and exactly one signer lease.
+
+At exact parent block `25814172`, preliminary signed-bundle simulation used
+1,374,654 gas. The `0.00111 ETH` reward and exact child base-fee allowance of
+`0.065960548 gwei` capped the maximum-safe quote at `0.740787913 gwei`
+priority and `0.000001000001092506 ETH` expected retained profit. All seven
+relay paths accepted the bundle. BuilderNet included keeper transaction
+`0x335c2b9c070f3a8e1d86c778158324947f5aab47e51dc3e62ae76aea51a0fcf1`
+in target block `25814173`, but its successful canonical receipt used
+1,374,941 gas, 287 more than the signed simulation. The exact reward was
+`0.00111 ETH`, gas cost was `0.001109231535715801 ETH`, and verified realized
+profit was only `0.000000768464284199 ETH`. The wallet increased by that exact
+amount to `0.736543595492219842 ETH`; PostgreSQL sent/receipt rows agreed,
+`latest == pending == 2255`, the worker was removed, Hypertoadz was disabled,
+and the signer lease count returned to zero.
+
+Although positive, this result violated the configured `0.000001 ETH`
+retained-profit floor. The cause was execution-gas drift between the builder's
+successful simulation and the canonical receipt, not a reward, base-fee,
+nonce, relay, or lifecycle mismatch. The repair reserves an evidence-backed
+2,048 gas only in Hypertoadz retained-profit pricing while preserving the
+actual simulated gas for builder-payment normalization. Replaying token 4 now
+quotes `0.739587784 gwei` priority, conservatively expects at least
+`0.000001000000238936 ETH`, and would have retained
+`0.000002418570851588 ETH` at the observed receipt gas. The exact regression,
+all 426 tests, TypeScript, both builds, and `git diff --check` pass. Production
+remains offline; the reserve must be committed before any later activation.
+
+Token 5 opened with a `0.01 ETH` bid, a current `0.0001 ETH` maximum settler
+reward, and an initial deadline of 2026-08-23 18:15:23 America/Denver. That
+boundary is not currently profitable at historical finalization gas. A
+one-shot terminal-window watch is scheduled for 17:35 America/Denver to
+recheck late bids, extensions, exact gas economics, and the full deployment
+gates; it must leave production offline unless the conservative quote is
+profitable and must remove the worker again after a terminal result.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
@@ -971,6 +1019,16 @@ metadata; it creates no contract, changes no FWA configuration or ownership,
 and pays no permissionless bounty. Continue bounded deployer watching from
 transaction count 3483. No new readable @ripe0x post was found through the
 available public index; social absence remains non-evidence.
+
+Release watch, 2026-08-22: canonical-deployer nonce 3483 was successful
+transaction `0x700ff3b44a5dba6fdf244ab337d88e7c419ec21b1e22223cfbe4eb968f7fc5a2`,
+another ordinary `migrateNfts` call into the already reviewed verified
+`FWAPHouseBuyout` at `0x00000000000fd7A237f1cd9AB060FcB9fC65Fe5B` for
+the deployer's own Merkle-authorized NFTs. It created no contract, changed no
+runtime, ownership, factory, or keeper configuration, and exposed no external
+permissionless reward. Continue bounded deployer watching from transaction
+count 3484. No new readable @ripe0x post was found through the available
+public index; social absence remains non-evidence.
 
 ### P0 — GroupPull subscription standing orders
 
