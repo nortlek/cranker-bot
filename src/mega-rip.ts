@@ -197,8 +197,8 @@ export const megaRipAbi = [
           { name: "discountBps", type: "uint16" },
           { name: "status", type: "uint8" },
           { name: "auctionOpen", type: "bool" },
-          { name: "reserved", type: "bool" },
-          { name: "syncReserved", type: "bool" },
+          { name: "settleBountyReserved", type: "uint128" },
+          { name: "syncBountyReserved", type: "uint128" },
         ],
       },
     ],
@@ -268,7 +268,7 @@ export function megaRipFloorSettlementIsRewarded(parameters: {
   const acquisition = parameters.acquisition;
   return (
     Number(acquisition.status) === MEGA_RIP_ACQUISITION_STATE.ALLOCATED &&
-    acquisition.reserved &&
+    acquisition.settleBountyReserved > 0n &&
     acquisition.listingId !== 0n &&
     isAddressEqual(acquisition.highBidder, zeroAddress) &&
     (!acquisition.auctionOpen ||
@@ -283,7 +283,7 @@ export function megaRipTerminalSettlementIsEligible(parameters: {
   const acquisition = parameters.acquisition;
   return (
     Number(acquisition.status) === MEGA_RIP_ACQUISITION_STATE.ALLOCATED &&
-    acquisition.reserved &&
+    acquisition.settleBountyReserved > 0n &&
     acquisition.listingId !== 0n &&
     (!acquisition.auctionOpen ||
       parameters.blockTimestamp >= acquisition.deadline)
@@ -665,7 +665,7 @@ async function planMegaRipRevealJob(parameters: {
         (acquisition) =>
           Number(acquisition.status) ===
             MEGA_RIP_ACQUISITION_STATE.PENDING &&
-          acquisition.syncReserved,
+          acquisition.syncBountyReserved > 0n,
       )
       .map((acquisition) => acquisition.requestId.toString()),
   );

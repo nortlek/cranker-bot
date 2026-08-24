@@ -29,7 +29,8 @@ function acquisition(
     deadline: bigint;
     status: number;
     auctionOpen: boolean;
-    reserved: boolean;
+    settleBountyReserved: bigint;
+    syncBountyReserved: bigint;
   }> = {},
 ) {
   return {
@@ -49,8 +50,10 @@ function acquisition(
     discountBps: 8_500,
     status: overrides.status ?? MEGA_RIP_ACQUISITION_STATE.ALLOCATED,
     auctionOpen: overrides.auctionOpen ?? true,
-    reserved: overrides.reserved ?? true,
-    syncReserved: true,
+    settleBountyReserved:
+      overrides.settleBountyReserved ?? 1_000_000_000_000_000n,
+    syncBountyReserved:
+      overrides.syncBountyReserved ?? 20_000_000_000_000_000n,
   } as const;
 }
 
@@ -118,7 +121,7 @@ describe("MegaRip keeper adapter", () => {
     ).toBe(false);
     expect(
       megaRipFloorSettlementIsRewarded({
-        acquisition: acquisition({ reserved: false }),
+        acquisition: acquisition({ settleBountyReserved: 0n }),
         blockTimestamp: 100n,
       }),
     ).toBe(false);
