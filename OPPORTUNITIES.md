@@ -800,7 +800,7 @@ rewarded, whether another bidder wins or the reserve/no-bid path resolves.
 
 ### P0 — Hypertoadz permissionless auction settlement
 
-Status: validated and implemented fail-closed; token 4 settlement captured and
+Status: validated and implemented fail-closed; token 5 settlement captured and
 production returned offline. Every later auction requires fresh exact-state
 economics and another bounded temporary lifecycle deployment.
 
@@ -1032,6 +1032,20 @@ offline; token 6 or any later auction needs the same fresh runtime, auction,
 economics, nonce, balance, lease, signed-simulation, and bounded-deployment
 gates rather than inheriting token 5's activation.
 
+Token 6 boundary, 2026-08-24 09:00 America/Denver: the pinned Core runtime
+and 100-bps reward configuration still matched. Its bid was `0.0169 ETH`,
+making the current reward `0.000169 ETH`, with the original deadline at
+2026-08-24 18:19:23 America/Denver. At the observed head, the exact child base
+fee derived to `0.615436181 gwei`; using the latest token-5 signed-simulation
+gas plus the 2,048-gas receipt reserve, base gas alone would cost about
+`0.000851305789985336 ETH`. The reward is therefore unprofitable before any
+builder payment and would require a child base fee at or below approximately
+`0.121452572 gwei` even to retain the configured minimum. Production remains
+offline. A fresh one-shot terminal watch is scheduled for 17:40
+America/Denver because prior auctions changed materially late; it must recheck
+all extensions and exact signed economics and remove any temporary worker
+after a conclusive result.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
@@ -1075,6 +1089,21 @@ runtime, ownership, factory, or keeper configuration, and exposed no external
 permissionless reward. Continue bounded deployer watching from transaction
 count 3484. No new readable @ripe0x post was found through the available
 public index; social absence remains non-evidence.
+
+Release watch, 2026-08-24: canonical-deployer nonces 3484 and 3485 created and
+funded Chainlink mainnet `VRFCoordinatorV2_5` subscription
+`44016386285726682916154449817943348164193184689791610076852682619801614355917`
+at verified coordinator `0xD7f86b4b8Cae7D942340FF628F82735b7a20893a`.
+The coordinator runtime hash is
+`0xbe4ae0321fb1c74c80eea0c14c9c7b28c69ce17df15222e27b1e934cc98f5f61`;
+the subscription owner is the canonical deployer, native balance is
+`0.01 ETH`, request count is zero, and its consumer list is empty. These
+transactions are corroborated release infrastructure, but they do not yet
+identify a protocol consumer, contract runtime, permissionless action, or
+caller reward. No production integration is justified. Monitor from deployer
+nonce 3486 for `addConsumer`, contract creation, ownership/configuration, and
+verified downstream source. No new readable @ripe0x post was found through
+the available public index; social absence remains non-evidence.
 
 ### P0 — GroupPull subscription standing orders
 
