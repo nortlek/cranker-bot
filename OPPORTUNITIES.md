@@ -1128,6 +1128,44 @@ creation provenance, verified source/runtime and immutable relationships,
 derive the exact gas-scaled reward function and complete lifecycle economics,
 then validate any successor adapter before a temporary MegaRip-only activation.
 
+Short-window MegaRip launch, 2026-08-24: follow-up post
+`2091981141645349093` fixed funding from 16:20 to 17:00 America/New_York and
+linked the official `megarip.fun` application. The application pins nonproxy
+MegaRip V3 `0x58A1D8daf6d68EEC8b350684e8feCC4379D13D7D`, deployment block
+`25827317`, and the V3 ABI. Known MegaRip fee recipient
+`0xea194A186EBe76A84E2B2027f5f23F81939c05AD` created it at nonce 80 in
+transaction `0x96a394caef0ede448da9f2f5e0a4f0012740374fd4d90ac3753fc2df78cc8663`.
+Its 22,542-byte runtime hash is
+`0xca1db5711ba143cedd26c4e785e6f5f5c5698503105b373c7b060377d7077541`;
+exact immutable reads bind the same canonical FWA, FWA token, and FWA rewards
+as Season 02. Explorer source verification was not yet published, so identity
+is corroborated by the official application, release post, creation receipt,
+exact runtime, and immutable relationships; production remains fail-closed to
+those exact values.
+
+V3 changes the reward schedule without changing the supported acquisition
+tuple or permissionless lifecycle methods: each acquisition reserves
+`0.004 ETH` for its paced request, `0.020 ETH` for reveal/sync, and `0.001 ETH`
+for terminal settlement. At block `25827442`, funding held `1.725 ETH`, the
+live acquisition quote was `0.074287268941239496 ETH`, and the pool could
+afford 17 acquisitions, exposing `0.425 ETH` changing gross bounty inventory.
+This is opportunity inventory, not realized profit. The adapter now reads and
+prices all three rewards independently, and the new owner-bound CREATE2
+executor at `0x4B812E4225b65fa6DAC62555bb84CE7b112F6b89` uses a fresh salt and
+exact V3 runtime binding. A current mainnet fork warped through the funding
+boundary and proved atomic `lock -> deploy executor -> pullExact(1)` with the
+exact `0.004 ETH` reward; all 25 Solidity tests and all 426 Vitest tests pass.
+
+Season 02's first exact request loss required about 33.8% of bounty to beat,
+while mature clearing later commonly reached 88-93%. Start this short round at
+50% for request/reveal work: it clears the first observed boundary without
+copying the late-season near-zero-margin level, and exact signed-bundle
+simulation plus the minimum retained-profit floor remain authoritative. Keep
+terminal settlement on its independent 10% policy, which captured 103 of 209
+Season 02 terminal rewards, and adjust only from exact V3 competitor evidence.
+Run a temporary MegaRip-only Railway worker through the terminal lifecycle,
+then reconcile successful receipts and wallet balance and remove it again.
+
 ### P0 — GroupPull subscription standing orders
 
 Status: canonical release and first live order validated. Confirmed-head

@@ -120,7 +120,21 @@ export const megaRipAbi = [
   },
   {
     type: "function",
-    name: "crankBounty",
+    name: "requestBounty",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint128" }],
+  },
+  {
+    type: "function",
+    name: "syncBounty",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint128" }],
+  },
+  {
+    type: "function",
+    name: "settleBounty",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint128" }],
@@ -279,9 +293,15 @@ export function megaRipTerminalSettlementIsEligible(parameters: {
 export function megaRipInitialPullCount(parameters: {
   readonly totalDeposited: bigint;
   readonly acquisitionPrice: bigint;
-  readonly bounty: bigint;
+  readonly requestBounty: bigint;
+  readonly syncBounty: bigint;
+  readonly settleBounty: bigint;
 }): bigint {
-  const unitCost = parameters.acquisitionPrice + parameters.bounty * 3n;
+  const unitCost =
+    parameters.acquisitionPrice +
+    parameters.requestBounty +
+    parameters.syncBounty +
+    parameters.settleBounty;
   if (unitCost === 0n || parameters.totalDeposited < unitCost) return 0n;
   // The pinned successor spaces requests by ten seconds. One block can create
   // at most one request even when `pull(maxPulls)` receives a larger bound.
@@ -331,6 +351,9 @@ export interface MegaRipPlan {
   readonly pullsDone: bigint;
   readonly estimatedPullsRemaining: bigint;
   readonly pendingSyncCount: bigint;
+  readonly requestBounty: bigint;
+  readonly syncBounty: bigint;
+  readonly settleBounty: bigint;
   readonly minRequestInterval: bigint;
   readonly lastRequestAt: bigint;
 }
@@ -426,7 +449,9 @@ export async function readMegaRipState(parameters: {
   readonly totalDeposited: bigint;
   readonly pullsDone: bigint;
   readonly estimatedPullsRemaining: bigint;
-  readonly bounty: bigint;
+  readonly requestBounty: bigint;
+  readonly syncBounty: bigint;
+  readonly settleBounty: bigint;
   readonly pendingSyncCount: bigint;
   readonly minRequestInterval: bigint;
   readonly lastRequestAt: bigint;
@@ -437,7 +462,9 @@ export async function readMegaRipState(parameters: {
     totalDeposited,
     pullsDone,
     remaining,
-    bounty,
+    requestBounty,
+    syncBounty,
+    settleBounty,
     pendingSyncCount,
     minRequestInterval,
     lastRequestAt,
@@ -473,7 +500,17 @@ export async function readMegaRipState(parameters: {
         {
           address: MEGA_RIP_ADDRESS,
           abi: megaRipAbi,
-          functionName: "crankBounty" as const,
+          functionName: "requestBounty" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "syncBounty" as const,
+        },
+        {
+          address: MEGA_RIP_ADDRESS,
+          abi: megaRipAbi,
+          functionName: "settleBounty" as const,
         },
         {
           address: MEGA_RIP_ADDRESS,
@@ -498,7 +535,9 @@ export async function readMegaRipState(parameters: {
     totalDeposited,
     pullsDone,
     estimatedPullsRemaining: remaining,
-    bounty,
+    requestBounty,
+    syncBounty,
+    settleBounty,
     pendingSyncCount,
     minRequestInterval: BigInt(minRequestInterval),
     lastRequestAt,
@@ -614,7 +653,7 @@ async function planMegaRipRevealJob(parameters: {
   readonly blockNumber: bigint;
   readonly acquisitions: readonly MegaRipAcquisition[];
   readonly executor: Address;
-  readonly bounty: bigint;
+  readonly syncBounty: bigint;
   readonly maxFeePerGas: bigint;
   readonly gasLimitMultiplierBps: bigint;
   readonly minProfitWei: bigint;
@@ -690,7 +729,7 @@ async function planMegaRipRevealJob(parameters: {
     const data = encodeMegaRipExactReveal(
       nextSequence,
       processCount,
-      rewardCount * parameters.bounty,
+      rewardCount * parameters.syncBounty,
     );
     try {
       const gas = await estimateRewardGatedJob({
@@ -716,7 +755,7 @@ async function planMegaRipRevealJob(parameters: {
   }
   if (best === undefined) return undefined;
 
-  const reward = best.rewardCount * parameters.bounty;
+  const reward = best.rewardCount * parameters.syncBounty;
   return profitableJob({
     kind: "mega_rip_reveal",
     label: `mega_rip_reveal:${nextSequence}:${best.processCount}:${best.rewardCount}`,
@@ -747,7 +786,9 @@ export async function planMegaRipJobs(parameters: {
     totalDeposited,
     pullsDone,
     estimatedPullsRemaining: remaining,
-    bounty,
+    requestBounty,
+    syncBounty,
+    settleBounty,
     pendingSyncCount,
     minRequestInterval,
     lastRequestAt,
@@ -759,6 +800,9 @@ export async function planMegaRipJobs(parameters: {
     pullsDone,
     estimatedPullsRemaining: remaining,
     pendingSyncCount,
+    requestBounty,
+    syncBounty,
+    settleBounty,
     minRequestInterval,
     lastRequestAt,
   };
@@ -785,7 +829,9 @@ export async function planMegaRipJobs(parameters: {
     const pullCount = megaRipInitialPullCount({
       totalDeposited,
       acquisitionPrice: quote[2],
-      bounty,
+      requestBounty,
+      syncBounty,
+      settleBounty,
     });
     if (pullCount === 0n) {
       return { ...base, jobs: [], minimumViablePrefix: 0 };
@@ -828,12 +874,12 @@ export async function planMegaRipJobs(parameters: {
           target: executor.address,
           data: encodeMegaRipExactPull(
             pullCount,
-            pullCount * bounty,
+            pullCount * requestBounty,
           ),
           gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
           reward: {
             kind: "fixed",
-            amountWei: pullCount * bounty,
+            amountWei: pullCount * requestBounty,
           },
           configuredBuilderBidBps: parameters.builderBidBps,
           requiresBundleSimulation: true,
@@ -870,7 +916,7 @@ export async function planMegaRipJobs(parameters: {
       blockNumber: parameters.blockNumber,
       acquisitions,
       executor: executor.address,
-      bounty,
+      syncBounty,
       maxFeePerGas: parameters.maxFeePerGas,
       gasLimitMultiplierBps: parameters.gasLimitMultiplierBps,
       minProfitWei: parameters.minProfitWei,
@@ -898,7 +944,9 @@ export async function planMegaRipJobs(parameters: {
   const rewardCount =
     boundedPendingSyncCount + nextBlockRequestCount;
   if (pullCount > 0n && rewardCount > 0n) {
-    const reward = rewardCount * bounty;
+    const reward =
+      boundedPendingSyncCount * syncBounty +
+      nextBlockRequestCount * requestBounty;
     const data = encodeMegaRipExactPull(pullCount, reward);
     const requestCountAtParent = megaRipRequestCountAtTimestamp({
       estimatedPullsRemaining: remaining,
@@ -984,7 +1032,7 @@ export async function planMegaRipJobs(parameters: {
       settlementIds.map(async (listingId) => {
         const data = encodeMegaRipExactSettlements(
           [listingId],
-          bounty,
+          settleBounty,
         );
         try {
           await estimateRewardGatedJob({
@@ -1018,7 +1066,7 @@ export async function planMegaRipJobs(parameters: {
   let settlementGas = BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT);
   if (executor.deployed) {
     while (settlementIds.length > 0) {
-      const reward = bounty * BigInt(settlementIds.length);
+      const reward = settleBounty * BigInt(settlementIds.length);
       try {
         settlementGas = await estimateRewardGatedJob({
           client: parameters.client,
@@ -1048,7 +1096,8 @@ export async function planMegaRipJobs(parameters: {
   if (settlementIds.length === 0) {
     return { ...base, jobs: [], minimumViablePrefix: 0 };
   }
-  const settlementReward = bounty * BigInt(settlementIds.length);
+  const settlementReward =
+    settleBounty * BigInt(settlementIds.length);
   const settlementJob = profitableJob({
     kind: "mega_rip_settle",
     label: `mega_rip_settle:${settlementIds.length}`,

@@ -61,11 +61,11 @@ describe("MegaRip keeper adapter", () => {
 
   it("pins the funded canonical successor runtime", () => {
     expect(MEGA_RIP_ADDRESS).toBe(
-      "0x6769944589f5CC96d5F900F06539681Db84AC5c6",
+      "0x58A1D8daf6d68EEC8b350684e8feCC4379D13D7D",
     );
-    expect(MEGA_RIP_DEPLOYMENT_BLOCK).toBe(25_771_992n);
+    expect(MEGA_RIP_DEPLOYMENT_BLOCK).toBe(25_827_317n);
     expect(MEGA_RIP_RUNTIME_CODE_HASH).toBe(
-      "0x56b1436bab9f9a603fb91de8fea2d10abbb3adfb2d280e3ac71386b2d5e60661",
+      "0xca1db5711ba143cedd26c4e785e6f5f5c5698503105b373c7b060377d7077541",
     );
     expect(
       megaRipAbi.some(
@@ -129,21 +129,27 @@ describe("MegaRip keeper adapter", () => {
       megaRipInitialPullCount({
         totalDeposited: 7_497_800_000_000_000_000n,
         acquisitionPrice: 81_800_000_000_000_000n,
-        bounty: 300_000_000_000_000n,
+        requestBounty: 4_000_000_000_000_000n,
+        syncBounty: 20_000_000_000_000_000n,
+        settleBounty: 1_000_000_000_000_000n,
       }),
     ).toBe(1n);
     expect(
       megaRipInitialPullCount({
         totalDeposited: 824_000_000_000_000_000n,
         acquisitionPrice: 81_800_000_000_000_000n,
-        bounty: 300_000_000_000_000n,
+        requestBounty: 4_000_000_000_000_000n,
+        syncBounty: 20_000_000_000_000_000n,
+        settleBounty: 1_000_000_000_000_000n,
       }),
     ).toBe(1n);
     expect(
       megaRipInitialPullCount({
-        totalDeposited: 82_699_999_999_999_999n,
+        totalDeposited: 106_799_999_999_999_999n,
         acquisitionPrice: 81_800_000_000_000_000n,
-        bounty: 300_000_000_000_000n,
+        requestBounty: 4_000_000_000_000_000n,
+        syncBounty: 20_000_000_000_000_000n,
+        settleBounty: 1_000_000_000_000_000n,
       }),
     ).toBe(0n);
   });
@@ -229,7 +235,9 @@ describe("MegaRip keeper adapter", () => {
           1_000n,
           9n,
           4n,
-          300n,
+          40n,
+          200n,
+          10n,
           2n,
           10,
           90n,
@@ -248,7 +256,9 @@ describe("MegaRip keeper adapter", () => {
       totalDeposited: 1_000n,
       pullsDone: 9n,
       estimatedPullsRemaining: 4n,
-      bounty: 300n,
+      requestBounty: 40n,
+      syncBounty: 200n,
+      settleBounty: 10n,
       pendingSyncCount: 2n,
       minRequestInterval: 10n,
       lastRequestAt: 90n,
@@ -259,7 +269,9 @@ describe("MegaRip keeper adapter", () => {
         blockNumber: 456n,
         contracts: expect.arrayContaining([
           expect.objectContaining({ functionName: "state" }),
-          expect.objectContaining({ functionName: "crankBounty" }),
+          expect.objectContaining({ functionName: "requestBounty" }),
+          expect.objectContaining({ functionName: "syncBounty" }),
+          expect.objectContaining({ functionName: "settleBounty" }),
         ]),
       }),
     ]);

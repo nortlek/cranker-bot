@@ -35,9 +35,12 @@ import { SINGLETON_FACTORY_ADDRESS } from "../src/standing-order-batch-executor.
 const CANONICAL_DEPLOYER = getAddress(
   "0xCB43078C32423F5348Cab5885911C3B5faE217F9",
 );
+const RELEASE_DEPLOYER = getAddress(
+  "0xea194A186EBe76A84E2B2027f5f23F81939c05AD",
+);
 const DEPLOYMENT_TRANSACTION =
-  "0x42b70312ce38793a8888b79150255f0b1356ea6d5248ef31ed04e6c195fb1667";
-const DEPLOYER_NONCE = 3470;
+  "0x96a394caef0ede448da9f2f5e0a4f0012740374fd4d90ac3753fc2df78cc8663";
+const DEPLOYER_NONCE = 80;
 
 const fwaInspectionAbi = parseAbi([
   "function quoteAcquisitionPrice() view returns (uint256 fee,uint256 vrf,uint256 total)",
@@ -152,7 +155,7 @@ async function main(): Promise<void> {
     deployment.blockNumber !== MEGA_RIP_DEPLOYMENT_BLOCK ||
     deployment.nonce !== DEPLOYER_NONCE ||
     deployment.to !== null ||
-    !isAddressEqual(deployment.from, CANONICAL_DEPLOYER) ||
+    !isAddressEqual(deployment.from, RELEASE_DEPLOYER) ||
     deploymentReceipt.contractAddress === null ||
     !isAddressEqual(
       deploymentReceipt.contractAddress,
@@ -190,7 +193,11 @@ async function main(): Promise<void> {
     throw new Error("MegaRip immutable relationship mismatch");
   }
 
-  const unitCost = quote[2] + state.bounty * 3n;
+  const unitCost =
+    quote[2] +
+    state.requestBounty +
+    state.syncBounty +
+    state.settleBounty;
   const fundingAffordablePulls =
     unitCost === 0n ? 0n : state.totalDeposited / unitCost;
   const executor = megaRipKeeperExecutorDeployment(account);
@@ -230,7 +237,7 @@ async function main(): Promise<void> {
           address: MEGA_RIP_ADDRESS,
           transaction: DEPLOYMENT_TRANSACTION,
           block: MEGA_RIP_DEPLOYMENT_BLOCK.toString(),
-          deployer: CANONICAL_DEPLOYER,
+          deployer: RELEASE_DEPLOYER,
           nonce: DEPLOYER_NONCE,
           runtimeBytes: (code.length - 2) / 2,
           runtimeHash: keccak256(code),
@@ -248,7 +255,9 @@ async function main(): Promise<void> {
           pendingSyncCount: state.pendingSyncCount.toString(),
           minRequestInterval: state.minRequestInterval.toString(),
           lastRequestAt: state.lastRequestAt.toString(),
-          crankBountyEth: formatEther(state.bounty),
+          requestBountyEth: formatEther(state.requestBounty),
+          syncBountyEth: formatEther(state.syncBounty),
+          settleBountyEth: formatEther(state.settleBounty),
         },
         economics: {
           acquisitionFeeEth: formatEther(quote[0]),
@@ -258,7 +267,10 @@ async function main(): Promise<void> {
           fundingAffordablePulls:
             fundingAffordablePulls.toString(),
           fundingGrossBountyInventoryEth: formatEther(
-            fundingAffordablePulls * state.bounty * 3n,
+            fundingAffordablePulls *
+              (state.requestBounty +
+                state.syncBounty +
+                state.settleBounty),
           ),
           activeFwaListings: activeListings.toString(),
         },

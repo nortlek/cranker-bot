@@ -87,7 +87,7 @@ contract MockFwa {
 
 contract MegaRipKeeperExecutorTest {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-    address private constant MEGA_RIP = 0x6769944589f5CC96d5F900F06539681Db84AC5c6;
+    address private constant MEGA_RIP = 0x58A1D8daf6d68EEC8b350684e8feCC4379D13D7D;
     address private constant FWA = 0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c;
 
     receive() external payable {}

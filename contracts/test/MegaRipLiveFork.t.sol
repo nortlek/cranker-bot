@@ -21,10 +21,10 @@ interface ISingletonFactory {
 
 contract MegaRipLiveForkTest {
     VmFork internal constant vm = VmFork(address(uint160(uint256(keccak256("hevm cheat code")))));
-    IMegaRipForkTarget internal constant MEGA_RIP = IMegaRipForkTarget(0x6769944589f5CC96d5F900F06539681Db84AC5c6);
+    IMegaRipForkTarget internal constant MEGA_RIP = IMegaRipForkTarget(0x58A1D8daf6d68EEC8b350684e8feCC4379D13D7D);
     ISingletonFactory internal constant SINGLETON_FACTORY =
         ISingletonFactory(0xce0042B868300000d44A59004Da54A005ffdcf9f);
-    bytes32 internal constant EXECUTOR_SALT = keccak256("pull-pool-keeper/MegaRipKeeperExecutor/v2");
+    bytes32 internal constant EXECUTOR_SALT = keccak256("pull-pool-keeper/MegaRipKeeperExecutor/v3");
 
     receive() external payable {}
 
@@ -32,17 +32,17 @@ contract MegaRipLiveForkTest {
         string memory rpcUrl = vm.envOr("RPC_URL", string(""));
         if (bytes(rpcUrl).length == 0) return;
 
-        vm.createSelectFork(rpcUrl, 25_772_203);
+        vm.createSelectFork(rpcUrl, 25_827_422);
         vm.warp(MEGA_RIP.fundingEndsAt());
         bytes memory initCode = abi.encodePacked(type(MegaRipKeeperExecutor).creationCode, abi.encode(address(this)));
         MegaRipKeeperExecutor executor = MegaRipKeeperExecutor(SINGLETON_FACTORY.deploy(initCode, EXECUTOR_SALT));
         uint256 balanceBefore = address(this).balance;
 
         MEGA_RIP.lock();
-        uint256 bounty = executor.pullExact(1, 0.0003 ether);
+        uint256 bounty = executor.pullExact(1, 0.004 ether);
 
         require(MEGA_RIP.pullsDone() == 1, "unexpected pull count");
-        require(bounty == 0.0003 ether, "unexpected bounty");
-        require(address(this).balance - balanceBefore == 0.0003 ether, "bounty was not forwarded");
+        require(bounty == 0.004 ether, "unexpected bounty");
+        require(address(this).balance - balanceBefore == 0.004 ether, "bounty was not forwarded");
     }
 }

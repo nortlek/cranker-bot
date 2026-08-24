@@ -19,10 +19,10 @@ describe("MegaRip reward-gated executor", () => {
   it("derives deterministic owner-bound deployment code", () => {
     const deployment = megaRipKeeperExecutorDeployment(OWNER);
     expect(deployment.address).toBe(
-      "0xd9FB9e5C7936BB878432E5D22aBe89b295252cC5",
+      "0x4B812E4225b65fa6DAC62555bb84CE7b112F6b89",
     );
     expect(deployment.expectedRuntimeCodeHash).toBe(
-      "0x5ddc5cf8f9ff15407d8d1384d90eed4ea5820cde44f58c5223988417207a9d44",
+      "0xfcdeeca35532d52099957ae9623f4555d12842d490773ecb06d52d339303876b",
     );
     expect(
       decodeFunctionData({

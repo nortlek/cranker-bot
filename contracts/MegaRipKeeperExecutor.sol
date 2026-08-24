@@ -31,7 +31,7 @@ contract MegaRipKeeperExecutor {
     event RewardedExecution(bytes4 indexed selector, uint256 calls, uint256 bounty);
 
     uint256 public constant MAX_CALLS = 64;
-    IMegaRipKeeperTarget public constant MEGA_RIP = IMegaRipKeeperTarget(0x6769944589f5CC96d5F900F06539681Db84AC5c6);
+    IMegaRipKeeperTarget public constant MEGA_RIP = IMegaRipKeeperTarget(0x58A1D8daf6d68EEC8b350684e8feCC4379D13D7D);
     IFwaSequenceTarget public constant FWA = IFwaSequenceTarget(0xB276F62DB0ce8CA2Ca5bc522695bE604521eAc1c);
     address public immutable owner;
 
