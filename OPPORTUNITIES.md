@@ -5,7 +5,7 @@ instructions belong in [AGENTS.md](./AGENTS.md). Every entry should contain
 enough evidence for another agent to reproduce the conclusion without trusting
 an old narrative.
 
-Last updated: 2026-08-19 (America/Denver)
+Last updated: 2026-08-24 (America/Denver)
 
 ## Production shutdown and restart gate
 
@@ -1104,6 +1104,29 @@ caller reward. No production integration is justified. Monitor from deployer
 nonce 3486 for `addConsumer`, contract creation, ownership/configuration, and
 verified downstream source. No new readable @ripe0x post was found through
 the available public index; social absence remains non-evidence.
+
+Short-window MegaRip lead, 2026-08-24: @ripe0x post
+`2091968862333874557` announces another standard, non-targeted MegaRip round
+"shortly," with a 30-minute funding window and keeper fees intended to scale
+with network activity. Its linked post explicitly distinguishes that future
+round from the already active FWAIR PFP-targeted round. Exact mainnet state at
+block `25827178` has canonical deployer `latest == pending == 3493`, so the
+announced standard round has not been deployed yet. Nonces 3486-3492 instead
+created two verified `FwairDropRoundExecutionModule` instances and two verified
+FWAIR-targeted `FwairDropRound` instances, then deposited into and synced the
+newer target round at `0x1168046D3a66Fdcff42b292186Cc2818eE290452`.
+That round's runtime hash is
+`0xf229919ac143ed1f673cbfee3fffb8eec038da53ca601b1d474e190f3f585110`;
+at the same block it was already Hunting with `7.309 ETH` contributed, five
+pulls, a fixed `0.0003 ETH` crank bounty, target collection
+`0x29f1cBC8eccD64B0cE777f5Da45c72C47383a620`, and no ready sync or settle
+work. It is a different protocol surface and is not compatible with the pinned
+Season 02 MegaRip executor. Do not repoint production to it or infer the new
+standard round's dynamic-bounty formula from its fixed bounty. Monitor from
+deployer nonce 3493; once a new standard round appears, require canonical
+creation provenance, verified source/runtime and immutable relationships,
+derive the exact gas-scaled reward function and complete lifecycle economics,
+then validate any successor adapter before a temporary MegaRip-only activation.
 
 ### P0 — GroupPull subscription standing orders
 
