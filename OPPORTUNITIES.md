@@ -978,13 +978,59 @@ quotes `0.739587784 gwei` priority, conservatively expects at least
 all 426 tests, TypeScript, both builds, and `git diff --check` pass. Production
 remains offline; the reserve must be committed before any later activation.
 
-Token 5 opened with a `0.01 ETH` bid, a current `0.0001 ETH` maximum settler
-reward, and an initial deadline of 2026-08-23 18:15:23 America/Denver. That
-boundary is not currently profitable at historical finalization gas. A
-one-shot terminal-window watch is scheduled for 17:35 America/Denver to
-recheck late bids, extensions, exact gas economics, and the full deployment
-gates; it must leave production offline unless the conservative quote is
-profitable and must remove the worker again after a terminal result.
+Token 5 terminal operation, 2026-08-23: the bid progressed through `0.01`,
+`0.037`, `0.03885`, and `0.0407925 ETH`, making the exact settler reward
+`0.000407925 ETH`. The complete token-5 event history contained no
+`AuctionExtended`, so the original 2026-08-23 18:15:23 America/Denver deadline
+remained final. A fresh exact-state fork at block `25821222`, warped to that
+deadline, successfully finalized token 5, advanced to token 6, emitted the
+exact reward to the keeper, and consumed 1,381,153 gas. With the lane-specific
+2,048-gas receipt reserve and the fork child's `0.044552936 gwei` base fee, the
+independent 10,000-bps maximum-safe quote capped priority at
+`0.249637857 gwei`, builder payment at `0.000344788075109121 ETH`, and
+conservatively retained `0.000001000000931607 ETH`.
+
+Before activation, the pinned runtime and 100-bps reward configuration still
+matched, the keeper had `latest == pending == 2255`, balance
+`0.736543595492219842 ETH`, and PostgreSQL signer lease count zero. TypeScript,
+all 426 tests, both builds, `git diff --check`, clean-worktree, and exact
+`HEAD == origin/main == 95402402f899a359dad9de34e95b0b88dcb96339`
+gates passed. Railway temporarily deployed that revision as
+`3a33ec79-ec1d-435f-af6e-0cc841212fe9` with only Hypertoadz enabled, the
+independent 10,000-bps bid, and the `0.000001 ETH` profit floor. Startup proved
+the exact source, seven private relay paths, healthy WebSocket-headed passes,
+and exactly one signer lease.
+
+At exact parent block `25821380`, hash
+`0xf7922052d990454db2e0ad061822d6c7e1d9cbdec765001499ba950c694094a1`,
+timestamp `1787530511`, parent base fee `0.073816912 gwei`, and gas usage
+`26,449,589 / 60,000,000`, the immediate child base fee derived exactly to
+`0.072724911 gwei`. The first eligible pass received the classified
+`InvalidInputRpcError[-32000]` fresh-state response and failed closed; a fresh
+pass on the same authoritative head succeeded about two seconds later.
+Preliminary signed-bundle simulation consumed 1,381,208 gas. The maximum-safe
+quote capped priority at `0.221454185 gwei`, builder payment at
+`0.00030587429195548 ETH`, and expected retained profit at
+`0.000001000000383424 ETH`. Competitive simulation succeeded, the final
+nonce/balance/lease/target gate passed, and all seven relay paths accepted the
+one-transaction bundle.
+
+Titan included keeper transaction
+`0xa0c020403e4b86e42ba354de51c52b29c7d60a9169f7210e9988e278ddfe7e3b`
+in target block `25821381`. Its successful canonical receipt used 1,380,930
+gas at `0.294179096 gwei`, paid the exact `0.000407925 ETH` reward, cost
+`0.00040624073903928 ETH`, and realized `0.00000168426096072 ETH` net.
+PostgreSQL stored matching sent and receipt rows, and the keeper wallet
+increased by exactly `1,684,260,960,720 wei`, from
+`0.736543595492219842 ETH` to `0.736545279753180562 ETH`. The Core advanced to
+fresh zero-bid token 6 and the account reconciled at
+`latest == pending == 2256`. Railway deployment
+`3a33ec79-ec1d-435f-af6e-0cc841212fe9` was then removed, Hypertoadz was
+disabled again, the worker had zero active deployments, PostgreSQL remained
+healthy, and signer lease count returned to zero. Routine production is
+offline; token 6 or any later auction needs the same fresh runtime, auction,
+economics, nonce, balance, lease, signed-simulation, and bounded-deployment
+gates rather than inheriting token 5's activation.
 
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
