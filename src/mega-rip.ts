@@ -741,6 +741,17 @@ async function planMegaRipRevealJob(parameters: {
         gasLimitMultiplierBps:
           parameters.gasLimitMultiplierBps,
       });
+      if (gas > BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT)) {
+        log("debug", "mega_rip_reveal_prefix_too_large", {
+          nextSequence: nextSequence.toString(),
+          processCount: processCount.toString(),
+          rewardCount: rewardCount.toString(),
+          gas: gas.toString(),
+          maximumGas: ETHEREUM_TRANSACTION_GAS_LIMIT,
+        });
+        high = candidateIndex - 1;
+        continue;
+      }
       best = { processCount, rewardCount, data, gas };
       low = candidateIndex + 1;
     } catch (error) {
