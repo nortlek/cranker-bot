@@ -4881,8 +4881,12 @@ async function planJobs(parameters: {
           parameters.config.gachaTableLifecycleBuilderBidBps,
       })
     : Promise.resolve(undefined);
-  const hypertoadzPromise = parameters.config.enableHypertoadz
-    ? planHypertoadzFinalize({
+  // Hypertoadz is enabled only for a bounded settlement window. Await its
+  // exact-state read before starting the rest of this planner so a transient
+  // fixed-block rejection remains inside the pass retry boundary instead of
+  // becoming an unhandled deferred-promise rejection on Node 24.
+  const hypertoadzPlan = parameters.config.enableHypertoadz
+    ? await planHypertoadzFinalize({
         client: parameters.client,
         account: parameters.account,
         blockNumber: parameters.headBlockNumber,
@@ -4894,7 +4898,7 @@ async function planJobs(parameters: {
         builderBidBps:
           parameters.config.hypertoadzBuilderBidBps,
       })
-    : Promise.resolve(undefined);
+    : undefined;
   const {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
@@ -5040,7 +5044,6 @@ async function planJobs(parameters: {
                   ? 1
                   : selectedWithMegaRip.minimumViablePrefix,
             };
-  const hypertoadzPlan = await hypertoadzPromise;
   const hypertoadzJob = hypertoadzPlan?.job;
   const selectedWithHypertoadz: PlannedJobs =
     hypertoadzJob === undefined ||
