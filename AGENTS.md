@@ -50,6 +50,17 @@ production remains intentionally shut down. A future MegaRip season requires
 a fresh runtime/relationship check, exact-state economics, validation, and an
 explicit temporary lifecycle deployment under the ordinary safety gates.
 
+MegaRip V3 at `0x58A1D8daf6d68EEC8b350684e8feCC4379D13D7D`
+was another validated temporary exception on 2026-08-24. It finalized after
+126 acquisitions with no remaining lifecycle work. Thirteen successful keeper
+receipts earned `0.240 ETH`, spent `0.117012771056525873 ETH` including gas
+and builder payments, and retained exactly `0.122987228943474127 ETH`; the
+wallet delta agreed and `latest == pending == 2269`. The temporary worker is
+offline, its MegaRip flag is disabled, the signer lease count is zero, and
+PostgreSQL remains online. A future MegaRip season requires a fresh canonical
+identity/runtime/relationship check, exact-state economics, validation, and a
+new bounded lifecycle deployment; do not inherit V3's activation.
+
 Hypertoadz Core at `0x70AD2a6C7e4a54720a64f1fEC9F0ff6E64001aF4`
 is a validated capital-free settlement surface discovered on 2026-08-19. Its
 permissionless `finalize()` pays the caller the configured share of the

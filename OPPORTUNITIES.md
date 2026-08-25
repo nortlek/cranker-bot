@@ -9,9 +9,9 @@ Last updated: 2026-08-24 (America/Denver)
 
 ## Production shutdown and restart gate
 
-Status: routine production remains intentionally shut down. MegaRip Season 02
-is finalized and its temporary worker has been removed; PostgreSQL remains
-online.
+Status: routine production remains intentionally shut down. MegaRip Seasons 02
+and V3 are finalized and their temporary workers have been removed; PostgreSQL
+remains online.
 
 At the shutdown gate, the keeper had `latest == pending == 2243`, no active
 PullPool lifecycle (`pendingLifecycleRound == 0`), and no viable opportunity,
@@ -1226,6 +1226,29 @@ terminal settlement on its independent 10% policy, which captured 103 of 209
 Season 02 terminal rewards, and adjust only from exact V3 competitor evidence.
 Run a temporary MegaRip-only Railway worker through the terminal lifecycle,
 then reconcile successful receipts and wallet balance and remove it again.
+
+MegaRip V3 terminal result, 2026-08-24/25: the pool finalized after exactly
+126 acquisitions with no remaining pull, sync, reveal, or settlement work.
+Thirteen successful keeper receipts earned `0.240 ETH`, spent
+`0.117012771056525873 ETH` fully inclusive of gas and builder payments, and
+retained exactly `0.122987228943474127 ETH`. The wallet delta agreed exactly,
+and the account finished at `latest == pending == 2269`. The lifecycle also
+validated the V3 split-bounty adapter and capped reveal batching; the live
+`20 gwei` fee ceiling allowed the configured 50% request/reveal bid to reach
+builders without weakening exact retained-profit checks. Several later misses
+were true price competition, including transactions that forwarded nearly the
+entire bounty, rather than relay rejection or construction failure.
+
+The only newer @ripe0x post, status `2092004611389276417`, reported the same
+126-NFT final result and claims availability. It is retrospective evidence,
+not a successor or new keeper surface. Canonical deployer nonce remained 3497,
+with no newer transaction or creation. MegaRip V3 remained `FINALIZED`, FWA's
+processing queue was empty, both PullPools had no pending lifecycle/pull, and
+GroupPull had no live or buying round. The terminal Railway deployment was
+already stopped with zero signer leases; `ENABLE_MEGA_RIP` was reset to false
+without deploying, and PostgreSQL remains online. Any future MegaRip requires
+a fresh canonical identity/runtime/relationship check, exact economics,
+validation, and a new bounded temporary deployment.
 
 ### P0 — GroupPull subscription standing orders
 
