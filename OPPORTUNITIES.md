@@ -1046,6 +1046,67 @@ America/Denver because prior auctions changed materially late; it must recheck
 all extensions and exact signed economics and remove any temporary worker
 after a conclusive result.
 
+Token 6 terminal operation, 2026-08-24: the bid rose to `0.021 ETH`, making
+the exact settler reward `0.00021 ETH`. The auction remained on its original
+2026-08-24 18:19:23 America/Denver deadline through the complete five-minute
+terminal window; there were no extensions. At exact pre-activation block
+`25828405`, the pinned runtime, 86,400-second duration, 300-second extension,
+and 100-bps maximum/current reward configuration matched. The immediate child
+base fee derived to `0.069442668 gwei`, and the keeper had
+`latest == pending == 2269`, balance `0.859532508696654689 ETH`, and exactly
+one existing Railway signer lease for the separately active MegaRip V3
+lifecycle. A signed mainnet-fork replay warped to the deadline, finalized
+token 6, emitted the exact reward, measured 690,792 gas, priced 692,840 gas
+with the Hypertoadz receipt reserve, and conservatively retained
+`0.000001000000147680 ETH` at the independent maximum-safe 10,000-bps quote.
+
+TypeScript, all 426 tests, both builds, `git diff --check`, clean-worktree, and
+exact pushed-main gates passed. Railway first deployed revision
+`ab4e3d5f1c9d6bee9b7c9c108017da31d8e55218` as
+`692a3a32-4bc7-4e5e-b283-6b247b24082d`, preserving MegaRip and enabling only
+the additional Hypertoadz lane. The overlap handoff proved read-only
+initialization, one waiting replacement, and exactly one lease holder. A
+transient exact-block `header not found` response then exposed an unhandled
+deferred-planner rejection on Node 24. The first bounded repair moved
+Hypertoadz inside the pass retry boundary and deployed pushed revision
+`f9cd050e5ffd3da7a2a768774c58e562bc59db18` as
+`81b02d6e-47af-4d6f-8edd-d69b81303ff0`; startup again proved the exact source,
+seven private paths, healthy WebSocket-headed passes, and one signer lease.
+The terminal instance later showed the same deferred-rejection class in the
+concurrent MegaRip planner. The general repair now immediately observes every
+concurrent auxiliary planner through a non-rejecting settled wrapper, then
+rethrows inside the pass retry boundary. All 426 tests, TypeScript, both
+builds, and `git diff --check` pass; production was not restarted after the
+terminal result.
+
+At exact parent block `25828577`, the target block base fee derived to
+`0.121600273 gwei`. Complete preliminary and competitive simulations consumed
+690,791 gas. With the 2,048-gas retained-profit reserve, the 10,000-bps request
+was capped at `0.180057110 gwei` priority,
+`0.000124381831074010 ETH` builder payment, and
+`0.000001000000419663 ETH` expected retained profit. The final
+nonce/balance/lease/target gate passed and all seven relay paths accepted the
+one-transaction private bundle.
+
+BobTheBuilder target block `25828578` instead included successful wrapper
+transaction
+`0x932fc07e1f048df662da6e433358c7f303285fcb021f3b31ae20cfc18841f05f`,
+which finalized token 6 and advanced the Core to fresh zero-bid token 7. Its
+receipt used 720,238 gas at the exact `0.121600273 gwei` base fee, paid zero
+priority fee, cost `0.000087581137424974 ETH`, and named wrapper
+`0x00000F91109c4d0007e90000D9facAD5298A0CAc` as the exact
+`0.00021 ETH` settler. Neither available provider supported the required trace,
+so direct beneficiary payment remains unknown and must not be treated as zero;
+the miss is conclusive but cannot safely update bidding from payment evidence.
+Our private transaction
+`0x5be741217b823f1eced69775663c111e56540497638dd0b31a4a6cb72ec8fca3`
+expired without inclusion. PostgreSQL contains no Hypertoadz receipt, the
+wallet remained exactly `0.859532508696654689 ETH`, and the account reconciled
+at `latest == pending == 2269`. Hypertoadz was disabled, the worker stopped,
+active runs and signer leases returned to zero, and PostgreSQL remained
+online. Routine production is offline; token 7 or any later auction needs the
+same fresh gates rather than inheriting token 6's activation.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses

@@ -4881,12 +4881,8 @@ async function planJobs(parameters: {
           parameters.config.gachaTableLifecycleBuilderBidBps,
       })
     : Promise.resolve(undefined);
-  // Hypertoadz is enabled only for a bounded settlement window. Await its
-  // exact-state read before starting the rest of this planner so a transient
-  // fixed-block rejection remains inside the pass retry boundary instead of
-  // becoming an unhandled deferred-promise rejection on Node 24.
-  const hypertoadzPlan = parameters.config.enableHypertoadz
-    ? await planHypertoadzFinalize({
+  const hypertoadzPromise = parameters.config.enableHypertoadz
+    ? planHypertoadzFinalize({
         client: parameters.client,
         account: parameters.account,
         blockNumber: parameters.headBlockNumber,
@@ -4898,7 +4894,22 @@ async function planJobs(parameters: {
         builderBidBps:
           parameters.config.hypertoadzBuilderBidBps,
       })
-    : undefined;
+    : Promise.resolve(undefined);
+  // Observe every concurrently started auxiliary planner immediately. The
+  // settled wrapper itself never rejects, so Node 24 cannot terminate the
+  // process before the later merge reaches these results. Re-throwing below
+  // keeps classified fixed-block publication failures inside the pass retry
+  // boundary.
+  const auxiliaryPlansPromise = Promise.all([
+    groupPullPromise,
+    groupPullStandingOrderPromise,
+    megaRipPromise,
+    gachaTablePromise,
+    hypertoadzPromise,
+  ]).then(
+    (plans) => ({ plans } as const),
+    (error: unknown) => ({ error } as const),
+  );
   const {
     additionalPoolConfigs: additionalPoolConfigsInput,
     ...singlePoolParameters
@@ -4950,7 +4961,17 @@ async function planJobs(parameters: {
     plans,
     maxJobs: maxJobs(parameters.config),
   });
-  const groupPullPlan = await groupPullPromise;
+  const auxiliaryPlans = await auxiliaryPlansPromise;
+  if ("error" in auxiliaryPlans) {
+    throw auxiliaryPlans.error;
+  }
+  const [
+    groupPullPlan,
+    groupPullStandingOrderJobs,
+    megaRipPlan,
+    gachaTablePlan,
+    hypertoadzPlan,
+  ] = auxiliaryPlans.plans;
   const mergedWithGroupPullCollect =
     groupPullPlan === undefined
       ? merged
@@ -4996,7 +5017,6 @@ async function planJobs(parameters: {
           skipped: merged.skipped,
         }
       : mergedWithGroupPullCollect;
-  const megaRipPlan = await megaRipPromise;
   const selectedWithMegaRip: PlannedJobs =
     megaRipPlan === undefined || megaRipPlan.jobs.length === 0
       ? selectedBase
@@ -5017,7 +5037,6 @@ async function planJobs(parameters: {
                   ? 1
                   : selectedBase.minimumViablePrefix,
             };
-  const gachaTablePlan = await gachaTablePromise;
   const selectedWithGachaTable: PlannedJobs =
     gachaTablePlan === undefined ||
     gachaTablePlan.jobs.length === 0
@@ -5057,8 +5076,6 @@ async function planJobs(parameters: {
               ? 1
               : selectedWithGachaTable.minimumViablePrefix,
         };
-  const groupPullStandingOrderJobs =
-    await groupPullStandingOrderPromise;
   const availableGroupPullStandingOrderSlots = Math.max(
     0,
     maxJobs(parameters.config) -
