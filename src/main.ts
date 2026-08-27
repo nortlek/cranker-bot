@@ -1413,7 +1413,9 @@ async function main(): Promise<void> {
             request.kind === "mega_rip_pull" ||
             request.kind === "mega_rip_reveal" ||
             request.kind === "mega_rip_settle" ||
-            request.kind === "mega_rip_recover"
+            request.kind === "mega_rip_recover" ||
+            request.kind === "fwair_drop_executor_deploy" ||
+            request.kind === "fwair_drop_crank"
           ) {
             requestBidBps =
               request.configuredBuilderBidBps ??

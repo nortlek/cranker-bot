@@ -77,6 +77,7 @@ export interface KeeperConfig {
   readonly enablePoolLifecycle: boolean;
   readonly enableGroupPull: boolean;
   readonly enableMegaRip: boolean;
+  readonly enableFwairDrop: boolean;
   readonly enableGachaTable: boolean;
   readonly enableHypertoadz: boolean;
   readonly enableStandingOrders: boolean;
@@ -659,6 +660,7 @@ export function loadConfig(): KeeperConfig {
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
     enableGroupPull: booleanEnv("ENABLE_GROUP_PULL", true),
     enableMegaRip: booleanEnv("ENABLE_MEGA_RIP", true),
+    enableFwairDrop: booleanEnv("ENABLE_FWAIR_DROP", false),
     enableGachaTable,
     enableHypertoadz: booleanEnv("ENABLE_HYPERTOADZ", false),
     enableStandingOrders: booleanEnv(

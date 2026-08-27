@@ -1250,6 +1250,39 @@ without deploying, and PostgreSQL remains online. Any future MegaRip requires
 a fresh canonical identity/runtime/relationship check, exact economics,
 validation, and a new bounded temporary deployment.
 
+FWAIR Drop / SAVE ETH round, 2026-08-27: @ripe0x's launch post is
+corroborated by canonical deployer nonce 3502 creating verified
+`FwairDropRound` `0xdbDA2aFB2f824657dc70ED5465d44f0D91EdcdEE` and nonce
+3501 creating verified execution module
+`0xAFbb93f18419d227aDaDea122bddCE09F06b82d9`. The round runtime hash is
+`0x8e5374f9f549d0e932297b1d6d0d9ce29055d50c8eae6ddf4f3b2d7de40d0870`;
+constructor provenance and terms hash
+`0xd608f6e2ebba90e9ed4aa7321e2b0d7af92b6f57e50ce85597a8e077bfe91935`
+bind canonical FWA, target collection
+`0x355919971B379cA9741fF29939C4ba716f873560`, and launch
+`0x2AB8D29384CB5Ec51e929c3027F8600a6E7453c0`. This is not compatible with
+the retired MegaRip V3 adapter.
+
+The new reward is measured gas at `min(basefee + 2 gwei, 5 gwei)` plus
+`0.0001 ETH` per successful keeper call, subject to per-pull and aggregate
+pool caps. Because `requestPull` catches some acquisition failures, a raw
+successful transaction can receive no reward. The new owner-bound CREATE2
+executor therefore allowlists only lifecycle selectors, measures its actual
+ETH delta, and rolls the entire batch back unless the expected flat reward is
+present. Planner economics conservatively subtract 60,000 executor gas from
+exact signed-bundle gas before valuing reimbursement; exact retained-profit
+simulation remains final. `lock -> requestPull` is one reward-gated atomic
+execution so the first exposed pull cannot be separated from activation.
+
+At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
+the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
+is inventory, not an actionable or realized reward. The new lane is disabled
+by default. Activate a temporary FWAIR-drop-only worker only after all 1,000
+tokens are backed and submitted, exact current-state/fork simulation proves
+the atomic first action, production RPC/WS endpoints are healthy, the wallet
+has `latest == pending`, and exactly zero prior signer leases exist. Remove
+the worker again after final economics and reconcile receipts to wallet delta.
+
 ### P0 — GroupPull subscription standing orders
 
 Status: canonical release and first live order validated. Confirmed-head

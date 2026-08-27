@@ -543,6 +543,32 @@ describe("pool pull exact-simulation economics", () => {
     ).toBe(900n);
   });
 
+  it("prices FWAIR reimbursement conservatively from exact simulated gas", () => {
+    expect(
+      estimatedJobReward({
+        job: {
+          kind: "fwair_drop_crank",
+          label: "fwair_drop_crank",
+          target: POOL,
+          data: "0x",
+          gas: 200_000n,
+          reward: {
+            kind: "gas_reimbursement",
+            flatProfitWei: 100_000_000_000_000n,
+            callCount: 1n,
+            gasPriceCeiling: 5_000_000_000n,
+            priorityFeeCap: 2_000_000_000n,
+            executorGasDiscount: 60_000n,
+          },
+        },
+        gasUsed: 200_000n,
+        baseFeePerGas: 2_000_000_000n,
+        poolBountyEstimateBps: 9_000n,
+        poolPullBountyEstimateBps: 10_000n,
+      }),
+    ).toBe(660_000_000_000_000n);
+  });
+
   it("caps an unknown-state envelope only by protocol request and funds", () => {
     expect(
       maximumFundableGasEnvelope({

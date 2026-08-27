@@ -406,6 +406,16 @@ function laneForKind(kind: string): {
                 : "recover",
         accent: "#ff8ac8",
       };
+    case "fwair_drop_executor_deploy":
+    case "fwair_drop_crank":
+      return {
+        laneKey: "other",
+        lane: "FWAIR Drop",
+        contract: "FwairDropRound",
+        strategy:
+          kind === "fwair_drop_executor_deploy" ? "deploy executor" : "crank",
+        accent: "#70e1c1",
+      };
     case "gacha_executor_deploy":
     case "gacha_fire":
     case "gacha_settle":

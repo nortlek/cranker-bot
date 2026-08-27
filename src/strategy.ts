@@ -102,6 +102,8 @@ import {
 } from "./group-pull.js";
 import { planGachaTableJobs } from "./gacha-table.js";
 import { gachaTableKeeperExecutorAbi } from "./gacha-table-keeper-executor.js";
+import { planFwairDropJobs } from "./fwair-drop.js";
+import { fwairDropKeeperExecutorAbi } from "./fwair-drop-keeper-executor.js";
 import {
   hypertoadzAbi,
   planHypertoadzFinalize,
@@ -167,6 +169,8 @@ export type KeeperJobKind =
   | "mega_rip_reveal"
   | "mega_rip_settle"
   | "mega_rip_recover"
+  | "fwair_drop_executor_deploy"
+  | "fwair_drop_crank"
   | "gacha_executor_deploy"
   | "gacha_fire"
   | "gacha_settle"
@@ -194,6 +198,14 @@ export type JobReward =
   | {
       readonly kind: "pool_bounty";
       readonly terms: PoolBountyTerms;
+    }
+  | {
+      readonly kind: "gas_reimbursement";
+      readonly flatProfitWei: bigint;
+      readonly callCount: bigint;
+      readonly gasPriceCeiling: bigint;
+      readonly priorityFeeCap: bigint;
+      readonly executorGasDiscount: bigint;
     };
 
 export interface KeeperJob {
@@ -4865,6 +4877,15 @@ async function planJobs(parameters: {
           parameters.config.megaRipBuilderBidBps,
       })
     : Promise.resolve(undefined);
+  const fwairDropPromise = parameters.config.enableFwairDrop
+    ? planFwairDropJobs({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        gasLimitMultiplierBps: parameters.config.gasLimitMultiplierBps,
+        builderBidBps: parameters.config.megaRipBuilderBidBps,
+      })
+    : Promise.resolve(undefined);
   const gachaTablePromise = parameters.config.enableGachaTable
     ? planGachaTableJobs({
         client: parameters.client,
@@ -4904,6 +4925,7 @@ async function planJobs(parameters: {
     groupPullPromise,
     groupPullStandingOrderPromise,
     megaRipPromise,
+    fwairDropPromise,
     gachaTablePromise,
     hypertoadzPromise,
   ]).then(
@@ -4969,6 +4991,7 @@ async function planJobs(parameters: {
     groupPullPlan,
     groupPullStandingOrderJobs,
     megaRipPlan,
+    fwairDropPlan,
     gachaTablePlan,
     hypertoadzPlan,
   ] = auxiliaryPlans.plans;
@@ -5037,31 +5060,51 @@ async function planJobs(parameters: {
                   ? 1
                   : selectedBase.minimumViablePrefix,
             };
+  const selectedWithFwairDrop: PlannedJobs =
+    fwairDropPlan === undefined || fwairDropPlan.jobs.length === 0
+      ? selectedWithMegaRip
+      : fwairDropPlan.minimumViablePrefix > 1
+        ? {
+            jobs: fwairDropPlan.jobs,
+            minimumViablePrefix: fwairDropPlan.minimumViablePrefix,
+            orders: selectedWithMegaRip.orders,
+            skipped: selectedWithMegaRip.skipped,
+          }
+        : selectedWithMegaRip.jobs.length >= maxJobs(parameters.config)
+          ? selectedWithMegaRip
+          : {
+              ...selectedWithMegaRip,
+              jobs: [...selectedWithMegaRip.jobs, ...fwairDropPlan.jobs],
+              minimumViablePrefix:
+                selectedWithMegaRip.minimumViablePrefix === 0
+                  ? 1
+                  : selectedWithMegaRip.minimumViablePrefix,
+            };
   const selectedWithGachaTable: PlannedJobs =
     gachaTablePlan === undefined ||
     gachaTablePlan.jobs.length === 0
-      ? selectedWithMegaRip
+      ? selectedWithFwairDrop
       : gachaTablePlan.minimumViablePrefix > 1
         ? {
             jobs: gachaTablePlan.jobs,
             minimumViablePrefix:
               gachaTablePlan.minimumViablePrefix,
-            orders: selectedWithMegaRip.orders,
-            skipped: selectedWithMegaRip.skipped,
+            orders: selectedWithFwairDrop.orders,
+            skipped: selectedWithFwairDrop.skipped,
           }
-        : selectedWithMegaRip.jobs.length >=
+        : selectedWithFwairDrop.jobs.length >=
             maxJobs(parameters.config)
-          ? selectedWithMegaRip
+          ? selectedWithFwairDrop
           : {
-              ...selectedWithMegaRip,
+              ...selectedWithFwairDrop,
               jobs: [
-                ...selectedWithMegaRip.jobs,
+                ...selectedWithFwairDrop.jobs,
                 ...gachaTablePlan.jobs,
               ],
               minimumViablePrefix:
-                selectedWithMegaRip.minimumViablePrefix === 0
+                selectedWithFwairDrop.minimumViablePrefix === 0
                   ? 1
-                  : selectedWithMegaRip.minimumViablePrefix,
+                  : selectedWithFwairDrop.minimumViablePrefix,
             };
   const hypertoadzJob = hypertoadzPlan?.job;
   const selectedWithHypertoadz: PlannedJobs =
@@ -5203,6 +5246,21 @@ export function estimatedJobReward(parameters: {
 }): bigint {
   if (parameters.job.reward.kind === "fixed") {
     return parameters.job.reward.amountWei;
+  }
+  if (parameters.job.reward.kind === "gas_reimbursement") {
+    const terms = parameters.job.reward;
+    const reimbursementPrice =
+      parameters.baseFeePerGas + terms.priorityFeeCap < terms.gasPriceCeiling
+        ? parameters.baseFeePerGas + terms.priorityFeeCap
+        : terms.gasPriceCeiling;
+    const reimbursedGas =
+      parameters.gasUsed > terms.executorGasDiscount
+        ? parameters.gasUsed - terms.executorGasDiscount
+        : 0n;
+    return (
+      reimbursedGas * reimbursementPrice +
+      terms.callCount * terms.flatProfitWei
+    );
   }
   return estimatePoolBounty({
     gasUsed: parameters.gasUsed,
@@ -5460,6 +5518,24 @@ function actualJobReward(
         if (decoded.eventName === "RewardedExecution") {
           total += decoded.args.bounty;
         }
+      } catch {
+        // Ignore unrelated executor logs.
+      }
+    }
+    return total;
+  }
+  if (request.kind === "fwair_drop_executor_deploy") return 0n;
+  if (request.kind === "fwair_drop_crank") {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) continue;
+      try {
+        const decoded = decodeEventLog({
+          abi: fwairDropKeeperExecutorAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (decoded.eventName === "RewardedExecution") total += decoded.args.bounty;
       } catch {
         // Ignore unrelated executor logs.
       }
