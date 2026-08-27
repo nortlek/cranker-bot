@@ -1362,6 +1362,21 @@ reconciled exactly at `0.860115019945207431 ETH`,
 `latest == pending == 2282`; the temporary lifecycle has now recovered the
 initial loss and is `+0.000582511248552742 ETH` net. Pull 5 is outstanding.
 
+The same mandatory composition captured four more lifecycle transitions at
+blocks `25848073`, `25848081`, `25848089`, and `25848098`, retaining exactly
+`0.000411782265495390 ETH`, `0.000412345510374035 ETH`,
+`0.000381280510769875 ETH`, and `0.000433776501534175 ETH`. The first attempts
+for pulls 6 and 7 expired as complete two-member economic units at blocks
+`25848080` and `25848088`; both were retried and won in the immediately
+following block, so they are delivery misses but not lost settlements or
+duplicate economic losses. All eight eventual receipts succeeded, the wallet
+delta from the prior boundary reconciled exactly to
+`+0.001639184788173475 ETH`, and the new boundary is
+`0.861754204733380906 ETH` with `latest == pending == 2290`. The complete SAVE
+ETH lifecycle is now `+0.002221696036726217 ETH` net. At block `25848098`,
+`pullCount == 10`, pull 9 is outstanding, and both ready-to-sync and settlement
+queues are empty.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
