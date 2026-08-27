@@ -600,6 +600,39 @@ describe("pool pull exact-simulation economics", () => {
     ).toBeLessThan(0n);
   });
 
+  it("caps FWAIR request reimbursement at the protocol action gas cap", () => {
+    const reward = estimatedJobReward({
+      job: {
+        kind: "fwair_drop_crank",
+        label: "fwair_drop_request_after_sync_settle:28:182966",
+        target: POOL,
+        data: "0x",
+        gas: 2_497_281n,
+        reward: {
+          kind: "gas_reimbursement",
+          flatProfitWei: 100_000_000_000_000n,
+          callCount: 1n,
+          gasPriceCeiling: 5_000_000_000n,
+          priorityFeeCap: 2_000_000_000n,
+          executorGasDiscount: 60_000n,
+          reimbursedGasCap: 1_500_000n,
+        },
+      },
+      gasUsed: 2_497_281n,
+      baseFeePerGas: 345_109_907n,
+      transactionGasPricePerGas: 530_768_838n,
+      poolBountyEstimateBps: 9_000n,
+      poolPullBountyEstimateBps: 10_000n,
+    });
+
+    expect(reward).toBe(896_153_257_000_000n);
+    const historicalSyncReward = 416_230_447_681_658n;
+    const historicalGasCost = 1_521_730_712_379_978n;
+    expect(historicalSyncReward + reward - historicalGasCost).toBe(
+      -209_347_007_698_320n,
+    );
+  });
+
   it("caps an unknown-state envelope only by protocol request and funds", () => {
     expect(
       maximumFundableGasEnvelope({

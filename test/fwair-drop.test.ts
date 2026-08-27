@@ -2,6 +2,7 @@ import { decodeFunctionData } from "viem";
 import { describe, expect, it } from "vitest";
 
 import {
+  fwairDropReimbursedGasCap,
   fwairDropRequestCalls,
   fwairDropSyncSettleCalls,
 } from "../src/fwair-drop.js";
@@ -19,6 +20,7 @@ describe("FWAIR drop same-block follow-on composition", () => {
         (data) => decodeFunctionData({ abi: fwairDropRoundAbi, data }).functionName,
       ),
     ).toEqual(["syncReveals", "settleBackstop"]);
+    expect(fwairDropReimbursedGasCap(calls)).toBe(2_200_000n);
   });
 
   it("encodes the newly unlocked request as a separate transaction", () => {
@@ -31,5 +33,6 @@ describe("FWAIR drop same-block follow-on composition", () => {
         (data) => decodeFunctionData({ abi: fwairDropRoundAbi, data }).functionName,
       ),
     ).toEqual(["requestPull"]);
+    expect(fwairDropReimbursedGasCap(calls)).toBe(1_500_000n);
   });
 });

@@ -206,6 +206,7 @@ export type JobReward =
       readonly gasPriceCeiling: bigint;
       readonly priorityFeeCap: bigint;
       readonly executorGasDiscount: bigint;
+      readonly reimbursedGasCap?: bigint;
     };
 
 export interface KeeperJob {
@@ -5260,10 +5261,16 @@ export function estimatedJobReward(parameters: {
     ) {
       reimbursementPrice = parameters.transactionGasPricePerGas;
     }
-    const reimbursedGas =
+    let reimbursedGas =
       parameters.gasUsed > terms.executorGasDiscount
         ? parameters.gasUsed - terms.executorGasDiscount
         : 0n;
+    if (
+      terms.reimbursedGasCap !== undefined &&
+      reimbursedGas > terms.reimbursedGasCap
+    ) {
+      reimbursedGas = terms.reimbursedGasCap;
+    }
     return (
       reimbursedGas * reimbursementPrice +
       terms.callCount * terms.flatProfitWei

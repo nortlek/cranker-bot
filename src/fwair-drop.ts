@@ -1,4 +1,5 @@
 import {
+  decodeFunctionData,
   encodeFunctionData,
   isAddressEqual,
   keccak256,
@@ -55,6 +56,11 @@ export const FWAIR_DROP_PULL_STATUS = {
 } as const;
 
 const MAX_PULLS_TO_SCAN = 1_024n;
+const FWAIR_DROP_REQUEST_REIMBURSED_GAS_CAP = 1_500_000n;
+const FWAIR_DROP_SYNC_REIMBURSED_GAS_CAP = 1_200_000n;
+const FWAIR_DROP_SETTLE_REIMBURSED_GAS_CAP = 1_000_000n;
+const FWAIR_DROP_ADVANCE_REIMBURSED_GAS_CAP = 4_000_000n;
+const FWAIR_DROP_FLAT_REIMBURSED_GAS_CAP = 300_000n;
 const verifiedRuntimeClients = new WeakSet<object>();
 
 export interface FwairDropPlan {
@@ -119,7 +125,7 @@ function deferredJob(parameters: {
       BigInt(parameters.calls.length) * FWAIR_DROP_KEEPER_PROFIT,
     ),
     gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
-    reward: reward(parameters.calls.length),
+    reward: reward(parameters.calls),
     configuredBuilderBidBps: parameters.builderBidBps,
     requiresBundleSimulation: true,
   };
@@ -240,14 +246,39 @@ async function activeWitness(parameters: {
   return undefined;
 }
 
-function reward(callCount: number): KeeperJob["reward"] {
+export function fwairDropReimbursedGasCap(
+  calls: readonly Hex[],
+): bigint {
+  return calls.reduce((total, call) => {
+    const functionName = decodeFunctionData({
+      abi: fwairDropRoundAbi,
+      data: call,
+    }).functionName;
+    if (functionName === "requestPull") {
+      return total + FWAIR_DROP_REQUEST_REIMBURSED_GAS_CAP;
+    }
+    if (functionName === "syncReveals") {
+      return total + FWAIR_DROP_SYNC_REIMBURSED_GAS_CAP;
+    }
+    if (functionName === "settleBackstop") {
+      return total + FWAIR_DROP_SETTLE_REIMBURSED_GAS_CAP;
+    }
+    if (functionName === "advanceBlockedPull") {
+      return total + FWAIR_DROP_ADVANCE_REIMBURSED_GAS_CAP;
+    }
+    return total + FWAIR_DROP_FLAT_REIMBURSED_GAS_CAP;
+  }, 0n);
+}
+
+function reward(calls: readonly Hex[]): KeeperJob["reward"] {
   return {
     kind: "gas_reimbursement",
     flatProfitWei: FWAIR_DROP_KEEPER_PROFIT,
-    callCount: BigInt(callCount),
+    callCount: BigInt(calls.length),
     gasPriceCeiling: FWAIR_DROP_GAS_PRICE_CEILING,
     priorityFeeCap: FWAIR_DROP_PRIORITY_FEE_CAP,
     executorGasDiscount: FWAIR_DROP_EXECUTOR_GAS_DISCOUNT,
+    reimbursedGasCap: fwairDropReimbursedGasCap(calls),
   };
 }
 
@@ -292,7 +323,7 @@ async function buildJob(parameters: {
     target: parameters.executor,
     data,
     gas,
-    reward: reward(parameters.calls.length),
+    reward: reward(parameters.calls),
     configuredBuilderBidBps: parameters.builderBidBps,
     requiresBundleSimulation: true,
   };

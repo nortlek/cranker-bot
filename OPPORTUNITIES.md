@@ -1420,6 +1420,36 @@ ETH lifecycle profit is `+0.007213735308696184 ETH` net. At block `25848205`,
 `pullCount == 25`, pull 24 is outstanding, and both ready-to-sync and
 settlement queues are empty.
 
+Action-cap incident and containment, 2026-08-27 12:03 MT: the complete
+sync/settle/request prefix at block `25848233` succeeded, but the request used
+`2,497,281` gas and exposed a missing protocol cap in our reward model. The
+sync/settle member retained `+0.000219978669831158 ETH`; the request member
+lost `-0.000429325677529478 ETH`, making the one economic batch
+`-0.000209347007698320 ETH` net. Exact simulation had predicted the actual
+`2,867,031` total gas, all seven private paths accepted, and Titan included the
+full prefix, so gas estimation, delivery, and prefix construction were not
+causal. Canonical verified source instead caps `requestPull` reimbursement at
+`REQUEST_GAS_CAP == 1,500,000` gas units. At the signed
+`530,768,838 wei/gas`, that yields the exact observed request reward
+`0.000896153257 ETH`; the prior model incorrectly reimbursed all transaction
+gas after only the executor discount. Production was failed closed with the
+FWAIR lane disabled at deployment `97f3323d-4513-459a-8a42-a476359bc9c0`.
+Revision under validation now carries the canonical per-action caps
+(`request=1.5m`, `sync=1.2m`, `settle=1.0m`, `advance=4.0m`, flat `0.3m`) into
+exact signed-bundle economics. Its block-`25848233` regression reproduces the
+exact realized `-0.000209347007698320 ETH` and therefore rejects that bundle.
+
+Before containment completed, all subsequent work was profitable: standalone
+sync/request pairs at blocks `25848239/40` and `25848256/57`, plus composed
+batches at `25848249`, `25848264`, `25848270`, and `25848275`. Together with
+the earlier `25848208`, `25848215`, `25848222`, and `25848223` captures and the
+single diagnosed loss, the exact delta from the prior boundary is
+`+0.002428598677462323 ETH`. The reconciled boundary is wallet
+`0.869174842682813196 ETH`, `latest == pending == 2340`, and cumulative SAVE
+ETH lifecycle `+0.009642333986158507 ETH` net. At block `25848284`, the lane
+is disabled with `pullCount == 35`, one outstanding pull, one ready-to-sync
+item, and no pending settlement.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
