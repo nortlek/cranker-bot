@@ -1341,6 +1341,16 @@ this watchdog: HTTP is not an exact-state fallback. Continue watching for a
 third recurrence before attributing the transient provider disconnect to a
 persistent application defect.
 
+Post-rollout production confirmation: request pull 3 became exactly profitable
+at target block `25848051` and revision `06e92f24` landed transaction
+`0x1062c324115c4d1b248179721d487f6a80f5b16256c740785fb24fc6d6eb8163`.
+The receipt earned `0.001372599055261216 ETH`, spent
+`0.001231998449136192 ETH`, and retained exactly
+`0.000140600606125024 ETH`. Wallet balance reconciled at
+`0.859266091860146171 ETH`, `latest == pending == 2278`. Total successful
+post-incident receipts are now `0.000679365995144338 ETH`, leaving the entire
+temporary lifecycle at `-0.000266416836508518 ETH` net after the initial loss.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
