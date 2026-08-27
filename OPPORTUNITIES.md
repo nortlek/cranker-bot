@@ -1507,6 +1507,19 @@ one settlement remained pending, and the exhausted aggregate keeper budget
 made every further permissionless payout zero; the temporary FWAIR lane
 therefore remains disabled.
 
+Final closeout, 2026-08-27: the round reached Settled at block `25849323`
+with `pullCount == 77`, `outstanding == 0`, `pendingReadyToSync == 0`, and
+`pendingSettles == 0`. Final wallet and receipt reconciliation remained
+`0.872394370189281977 ETH`, `latest == pending == 2364`, and exactly
+`+0.012861861492627288 ETH` net for the SAVE ETH lifecycle. Railway deployment
+`6a565a83-b66d-4ce3-9af5-98c8b434f9cc` (revision `27a8d1d`) was removed after
+settlement. PostgreSQL then reported zero `pull-pool-keeper:signer-lease`
+sessions, and an exact post-removal chain check at block `25849338` confirmed
+the settled queues, unchanged wallet, and no pending nonce. Routine production
+is offline; any future FWAIR round requires fresh canonical identity, runtime,
+relationship, aggregate-budget, action-cap, fork, profitability, and lifecycle
+validation before a new bounded deployment.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
