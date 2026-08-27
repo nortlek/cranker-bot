@@ -1450,6 +1450,16 @@ ETH lifecycle `+0.009642333986158507 ETH` net. At block `25848284`, the lane
 is disabled with `pullCount == 35`, one outstanding pull, one ready-to-sync
 item, and no pending settlement.
 
+The first live passes on the capped revision at blocks `25848337-25848338`
+correctly dropped an unprofitable follow-on request before submission, but
+also exposed that the planner still made that optional request part of the
+minimum prefix. That withheld an independently callable rescue finalization.
+The follow-up changes composed settlement/request plans to a one-transaction
+minimum prefix: exact economics may retain the profitable settlement alone or
+the full two-transaction composition, while executor deployment (if ever
+needed) remains mandatory. No transaction was sent during the detection
+window and nonce remained `2340/2340`.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled

@@ -2,6 +2,7 @@ import { decodeFunctionData } from "viem";
 import { describe, expect, it } from "vitest";
 
 import {
+  fwairDropMinimumViablePrefix,
   fwairDropReimbursedGasCap,
   fwairDropRequestCalls,
   fwairDropSyncSettleCalls,
@@ -9,6 +10,17 @@ import {
 import { fwairDropRoundAbi } from "../src/fwair-drop-keeper-executor.js";
 
 describe("FWAIR drop same-block follow-on composition", () => {
+  it("keeps a profitable first action when the follow-on is optional", () => {
+    expect(fwairDropMinimumViablePrefix({
+      executorDeploymentRequired: false,
+      minimumPlannedJobs: 1,
+    })).toBe(1);
+    expect(fwairDropMinimumViablePrefix({
+      executorDeploymentRequired: true,
+      minimumPlannedJobs: 1,
+    })).toBe(2);
+  });
+
   it("keeps sync and settlement in the first exactly metered transaction", () => {
     const calls = fwairDropSyncSettleCalls({
       count: 1n,

@@ -74,6 +74,16 @@ export interface FwairDropPlan {
   readonly minimumViablePrefix: number;
 }
 
+export function fwairDropMinimumViablePrefix(parameters: {
+  readonly executorDeploymentRequired: boolean;
+  readonly minimumPlannedJobs: number;
+}): number {
+  return (
+    (parameters.executorDeploymentRequired ? 1 : 0) +
+    parameters.minimumPlannedJobs
+  );
+}
+
 type TerminalPullFunction =
   | "settleBackstop"
   | "rescueFinalize"
@@ -355,10 +365,21 @@ export async function planFwairDropJobs(parameters: {
   const executor = await executorState(parameters);
   const wrap = (job: KeeperJob | undefined): FwairDropPlan =>
     wrapJobs(job === undefined ? [] : [job]);
-  const wrapJobs = (plannedJobs: readonly KeeperJob[]): FwairDropPlan => {
+  const wrapJobs = (
+    plannedJobs: readonly KeeperJob[],
+    minimumPlannedJobs = plannedJobs.length,
+  ): FwairDropPlan => {
     if (plannedJobs.length === 0) return { ...base, jobs: [], minimumViablePrefix: 0 };
-    const jobs = [...(executor.deployJob === undefined ? [] : [executor.deployJob]), ...plannedJobs];
-    return { ...base, jobs, minimumViablePrefix: jobs.length };
+    const deployJobs = executor.deployJob === undefined ? [] : [executor.deployJob];
+    const jobs = [...deployJobs, ...plannedJobs];
+    return {
+      ...base,
+      jobs,
+      minimumViablePrefix: fwairDropMinimumViablePrefix({
+        executorDeploymentRequired: deployJobs.length === 1,
+        minimumPlannedJobs,
+      }),
+    };
   };
 
   if (state === FWAIR_DROP_STATE.FUNDING) {
@@ -435,7 +456,7 @@ export async function planFwairDropJobs(parameters: {
                 label: `fwair_drop_request_after_sync_settle:${pullCount}:${witness}`,
                 builderBidBps: parameters.builderBidBps,
               }),
-            ]);
+            ], 1);
           }
         }
       }
@@ -482,7 +503,7 @@ export async function planFwairDropJobs(parameters: {
                 label: `fwair_drop_request_after_${functionName}:${pullCount}:${witness}`,
                 builderBidBps: parameters.builderBidBps,
               }),
-            ]);
+            ], 1);
           }
         }
       }
