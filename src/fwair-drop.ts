@@ -68,6 +68,63 @@ export interface FwairDropPlan {
   readonly minimumViablePrefix: number;
 }
 
+type TerminalPullFunction =
+  | "settleBackstop"
+  | "rescueFinalize"
+  | "recoverVoided"
+  | "abandonForced";
+
+export function fwairDropSyncSettleCalls(parameters: {
+  readonly count: bigint;
+  readonly index: bigint;
+}): readonly Hex[] {
+  return [
+    encodeFunctionData({
+      abi: fwairDropRoundAbi,
+      functionName: "syncReveals",
+      args: [parameters.count],
+    }),
+    encodeFunctionData({
+      abi: fwairDropRoundAbi,
+      functionName: "settleBackstop",
+      args: [parameters.index],
+    }),
+  ];
+}
+
+export function fwairDropRequestCalls(parameters: {
+  readonly witness: bigint;
+}): readonly Hex[] {
+  return [
+    encodeFunctionData({
+      abi: fwairDropRoundAbi,
+      functionName: "requestPull",
+      args: [parameters.witness],
+    }),
+  ];
+}
+
+function deferredJob(parameters: {
+  readonly executor: Address;
+  readonly calls: readonly Hex[];
+  readonly label: string;
+  readonly builderBidBps: bigint;
+}): KeeperJob {
+  return {
+    kind: "fwair_drop_crank",
+    label: parameters.label,
+    target: parameters.executor,
+    data: encodeFwairDropExecution(
+      parameters.calls,
+      BigInt(parameters.calls.length) * FWAIR_DROP_KEEPER_PROFIT,
+    ),
+    gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
+    reward: reward(parameters.calls.length),
+    configuredBuilderBidBps: parameters.builderBidBps,
+    requiresBundleSimulation: true,
+  };
+}
+
 export async function verifyFwairDropRuntime(parameters: {
   readonly client: PublicClient<Transport, Chain>;
   readonly blockNumber: bigint;
@@ -265,9 +322,11 @@ export async function planFwairDropJobs(parameters: {
   const state = Number(stateRaw);
   const base = { state, totalContributed, pullCount, outstanding, pendingReadyToSync, pendingSettles };
   const executor = await executorState(parameters);
-  const wrap = (job: KeeperJob | undefined): FwairDropPlan => {
-    if (job === undefined) return { ...base, jobs: [], minimumViablePrefix: 0 };
-    const jobs = [...(executor.deployJob === undefined ? [] : [executor.deployJob]), job];
+  const wrap = (job: KeeperJob | undefined): FwairDropPlan =>
+    wrapJobs(job === undefined ? [] : [job]);
+  const wrapJobs = (plannedJobs: readonly KeeperJob[]): FwairDropPlan => {
+    if (plannedJobs.length === 0) return { ...base, jobs: [], minimumViablePrefix: 0 };
+    const jobs = [...(executor.deployJob === undefined ? [] : [executor.deployJob]), ...plannedJobs];
     return { ...base, jobs, minimumViablePrefix: jobs.length };
   };
 
@@ -301,8 +360,55 @@ export async function planFwairDropJobs(parameters: {
   if (state !== FWAIR_DROP_STATE.HUNTING && state !== FWAIR_DROP_STATE.ENDING) {
     return wrap(undefined);
   }
+
+  if (pullCount > MAX_PULLS_TO_SCAN) {
+    throw new Error("FWAIR drop pull count exceeds bounded lifecycle scan");
+  }
+  let pulls: readonly { readonly status: number }[] = [];
+  if (pullCount > 0n) {
+    pulls = (await parameters.client.multicall({
+      allowFailure: false,
+      blockNumber: parameters.blockNumber,
+      contracts: Array.from({ length: Number(pullCount) }, (_, index) => ({
+        address: FWAIR_DROP_ROUND_ADDRESS,
+        abi: fwairDropRoundAbi,
+        functionName: "pullAt" as const,
+        args: [BigInt(index)] as const,
+      })),
+    })) as readonly { readonly status: number }[];
+  }
+
   if (pendingReadyToSync > 0n) {
     const count = pendingReadyToSync > 32n ? 32n : pendingReadyToSync;
+    if (state === FWAIR_DROP_STATE.HUNTING) {
+      const witness = await activeWitness(parameters);
+      if (witness !== undefined) {
+        for (let index = 0; index < pulls.length; index += 1) {
+          if (Number(pulls[index]!.status) !== FWAIR_DROP_PULL_STATUS.REQUESTED) continue;
+          const settleJob = await buildJob({
+            ...parameters,
+            executor: executor.address,
+            executorDeployed: executor.deployed,
+            calls: fwairDropSyncSettleCalls({
+              count,
+              index: BigInt(index),
+            }),
+            label: `fwair_drop_sync_settle:${count}:${index}`,
+          });
+          if (settleJob !== undefined) {
+            return wrapJobs([
+              settleJob,
+              deferredJob({
+                executor: executor.address,
+                calls: fwairDropRequestCalls({ witness }),
+                label: `fwair_drop_request_after_sync_settle:${pullCount}:${witness}`,
+                builderBidBps: parameters.builderBidBps,
+              }),
+            ]);
+          }
+        }
+      }
+    }
     const job = await buildJob({
       ...parameters,
       executor: executor.address,
@@ -313,28 +419,42 @@ export async function planFwairDropJobs(parameters: {
     if (job !== undefined) return wrap(job);
   }
 
-  if (pullCount > MAX_PULLS_TO_SCAN) {
-    throw new Error("FWAIR drop pull count exceeds bounded lifecycle scan");
-  }
   if (pullCount > 0n) {
-    const pulls = await parameters.client.multicall({
-      allowFailure: false,
-      blockNumber: parameters.blockNumber,
-      contracts: Array.from({ length: Number(pullCount) }, (_, index) => ({
-        address: FWAIR_DROP_ROUND_ADDRESS,
-        abi: fwairDropRoundAbi,
-        functionName: "pullAt" as const,
-        args: [BigInt(index)] as const,
-      })),
-    });
     for (let index = 0; index < pulls.length; index += 1) {
       const status = Number(pulls[index]!.status);
-      const functionName =
+      const functionName: TerminalPullFunction | undefined =
         status === FWAIR_DROP_PULL_STATUS.REVEALED ? "settleBackstop" :
         status === FWAIR_DROP_PULL_STATUS.RESCUE_PENDING ? "rescueFinalize" :
         status === FWAIR_DROP_PULL_STATUS.VOIDED ? "recoverVoided" :
         status === FWAIR_DROP_PULL_STATUS.FORCED_SALE ? "abandonForced" : undefined;
       if (functionName === undefined) continue;
+      if (state === FWAIR_DROP_STATE.HUNTING) {
+        const witness = await activeWitness(parameters);
+        if (witness !== undefined) {
+          const settleJob = await buildJob({
+            ...parameters,
+            executor: executor.address,
+            executorDeployed: executor.deployed,
+            calls: [encodeFunctionData({
+              abi: fwairDropRoundAbi,
+              functionName,
+              args: [BigInt(index)],
+            })],
+            label: `fwair_drop_${functionName}:${index}`,
+          });
+          if (settleJob !== undefined) {
+            return wrapJobs([
+              settleJob,
+              deferredJob({
+                executor: executor.address,
+                calls: fwairDropRequestCalls({ witness }),
+                label: `fwair_drop_request_after_${functionName}:${pullCount}:${witness}`,
+                builderBidBps: parameters.builderBidBps,
+              }),
+            ]);
+          }
+        }
+      }
       const job = await buildJob({
         ...parameters,
         executor: executor.address,

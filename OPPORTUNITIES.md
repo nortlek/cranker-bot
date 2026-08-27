@@ -1291,6 +1291,56 @@ The executor is now deployed, so later lifecycle actions do not repeat the
 one-time deployment cost, but every action remains subject to the corrected
 exact retained-profit gate.
 
+Live lifecycle follow-up, 2026-08-27: production won `syncReveals(1)` in
+block `25847887` and `settleBackstop(0)` in block `25847889`. The successful
+receipts retained exactly `0.000084308764537688 ETH` and
+`0.000103554066039625 ETH`; the intervening settlement attempt expired without
+a competing settlement and was retried successfully. Wallet balance advanced
+by the exact receipt sum, `0.000187862830577313 ETH`, with
+`latest == pending == 2273`. Including the already diagnosed first-bundle
+loss, the temporary lifecycle remained at exactly
+`-0.000757920001075543 ETH` net at this boundary.
+
+The settlement exposed a distinct same-block composition miss. Immediately
+after our settlement in block `25847889`, competitor transaction
+`0x96902a827d51678199d7f7a0a2922b199755127c264fd5cc30320ed5e3536a9b`
+requested pull 1 and received `0.000548523990586356 ETH`; its `697438` gas at
+`0.669540722 gwei` cost `0.000466963142070236 ETH`, leaving approximately
+`0.000081560848516120 ETH` before any hidden payment. The request was not
+callable at the parent and became callable only after our settlement, so this
+was an atomic sequencing gap rather than a confirmed-head price loss.
+
+Historical replay rejected the superficially simpler single-executor
+`syncReveals -> settleBackstop -> requestPull` batch: at parent block
+`25847886` it consumed `2,567,574` gas and lost
+`0.001152538589524068 ETH`. The bounded repair instead keeps sync plus
+settlement in one exactly estimated transaction and appends requestPull as a
+separate, exact-simulation-only transaction in the mandatory private prefix.
+On a block-`25847887` mainnet fork, both transactions succeeded in the same
+mined block, advanced `pullCount` from 1 to 2, left one pull outstanding, and
+retained `0.000205656026385322 ETH` before builder payment at the historical
+gas price. Exact signed-bundle simulation and the corrected transaction-gas-
+price reimbursement cap remain the final profitability boundary.
+
+Subsequent production receipts at blocks `25847927`, `25847930`, `25847960`,
+and `25847961` retained another `0.000350902558442001 ETH` across sync, request,
+sync, and settlement. Durable receipt arithmetic and the wallet instead give
+the authoritative six-receipt post-incident total of
+`0.000538765389019314 ETH`; balance reconciled exactly at
+`0.859125491254021147 ETH`, `latest == pending == 2277`, leaving the temporary
+lifecycle at `-0.000407017442633542 ETH` net including the first loss. Replace
+the provisional four-receipt subtotal above with this reconciled total for all
+subsequent lifecycle reporting.
+
+Production connectivity incident, 2026-08-27 11:11-11:12 MT: the head socket
+closed and twice stopped delivering while HTTP advanced two blocks. The
+fail-closed watchdog raised `HeadSubscriptionStaleError`; Railway supervised
+both restarts, each replacement acquired the sole signer lease in 3-4 ms, and
+WebSocket passes resumed without a pending nonce or duplicate signer. Preserve
+this watchdog: HTTP is not an exact-state fallback. Continue watching for a
+third recurrence before attributing the transient provider disconnect to a
+persistent application defect.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
