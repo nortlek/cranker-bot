@@ -1486,6 +1486,27 @@ retained `+0.000129959438351862 ETH`. The latest reconciled boundary at block
 `+0.011909256540635280 ETH` net, `pullCount == 42`, pull 41 outstanding, and
 empty ready-to-sync and settlement queues.
 
+Aggregate-budget exhaustion incident, 2026-08-27 12:40 MT: request 45 landed
+successfully in block `25848415` but retained exactly
+`-0.000121141323570721 ETH`. The receipt used `809,531` gas and cost
+`0.000366539955374999 ETH`; the round paid only
+`0.000245398631804278 ETH`. Canonical source and exact state prove the causal
+clamp: `_reimburse` limits every action by the remaining whole-round budget,
+and immediately afterward `crankSpent == crankBudgetWei == 0.1156 ETH`.
+The prior model covered transaction-gas-price, action-gas, and per-pull caps
+but omitted this aggregate cap. Production was failed closed with
+`ENABLE_FWAIR_DROP=false` before another action. The regression now carries
+the current round-wide maximum payout into exact reimbursement economics,
+reproduces the exact realized loss, and emits no FWAIR work once the budget is
+empty. Future rounds must preserve this remaining-budget read and must not
+reactivate after aggregate exhaustion.
+The containment boundary is wallet `0.872394370189281977 ETH`,
+`latest == pending == 2364`, and cumulative SAVE ETH lifecycle
+`+0.012861861492627288 ETH` net. At block `25848456`, pull 45 was revealed,
+one settlement remained pending, and the exhausted aggregate keeper budget
+made every further permissionless payout zero; the temporary FWAIR lane
+therefore remains disabled.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled

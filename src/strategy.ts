@@ -207,6 +207,7 @@ export type JobReward =
       readonly priorityFeeCap: bigint;
       readonly executorGasDiscount: bigint;
       readonly reimbursedGasCap?: bigint;
+      readonly maximumPayoutWei?: bigint;
     };
 
 export interface KeeperJob {
@@ -5271,10 +5272,12 @@ export function estimatedJobReward(parameters: {
     ) {
       reimbursedGas = terms.reimbursedGasCap;
     }
-    return (
+    const estimated =
       reimbursedGas * reimbursementPrice +
-      terms.callCount * terms.flatProfitWei
-    );
+      terms.callCount * terms.flatProfitWei;
+    return terms.maximumPayoutWei !== undefined && estimated > terms.maximumPayoutWei
+      ? terms.maximumPayoutWei
+      : estimated;
   }
   return estimatePoolBounty({
     gasUsed: parameters.gasUsed,

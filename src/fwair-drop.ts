@@ -70,6 +70,7 @@ export interface FwairDropPlan {
   readonly outstanding: bigint;
   readonly pendingReadyToSync: bigint;
   readonly pendingSettles: bigint;
+  readonly crankBudgetRemaining: bigint;
   readonly jobs: readonly KeeperJob[];
   readonly minimumViablePrefix: number;
 }
@@ -125,6 +126,7 @@ function deferredJob(parameters: {
   readonly calls: readonly Hex[];
   readonly label: string;
   readonly builderBidBps: bigint;
+  readonly maximumPayoutWei: bigint;
 }): KeeperJob {
   return {
     kind: "fwair_drop_crank",
@@ -135,7 +137,7 @@ function deferredJob(parameters: {
       BigInt(parameters.calls.length) * FWAIR_DROP_KEEPER_PROFIT,
     ),
     gas: BigInt(ETHEREUM_TRANSACTION_GAS_LIMIT),
-    reward: reward(parameters.calls),
+    reward: reward(parameters.calls, parameters.maximumPayoutWei),
     configuredBuilderBidBps: parameters.builderBidBps,
     requiresBundleSimulation: true,
   };
@@ -280,7 +282,10 @@ export function fwairDropReimbursedGasCap(
   }, 0n);
 }
 
-function reward(calls: readonly Hex[]): KeeperJob["reward"] {
+function reward(
+  calls: readonly Hex[],
+  maximumPayoutWei: bigint,
+): KeeperJob["reward"] {
   return {
     kind: "gas_reimbursement",
     flatProfitWei: FWAIR_DROP_KEEPER_PROFIT,
@@ -289,6 +294,7 @@ function reward(calls: readonly Hex[]): KeeperJob["reward"] {
     priorityFeeCap: FWAIR_DROP_PRIORITY_FEE_CAP,
     executorGasDiscount: FWAIR_DROP_EXECUTOR_GAS_DISCOUNT,
     reimbursedGasCap: fwairDropReimbursedGasCap(calls),
+    maximumPayoutWei,
   };
 }
 
@@ -302,6 +308,7 @@ async function buildJob(parameters: {
   readonly label: string;
   readonly gasLimitMultiplierBps: bigint;
   readonly builderBidBps: bigint;
+  readonly maximumPayoutWei: bigint;
 }): Promise<KeeperJob | undefined> {
   const data = encodeFwairDropExecution(
     parameters.calls,
@@ -333,7 +340,7 @@ async function buildJob(parameters: {
     target: parameters.executor,
     data,
     gas,
-    reward: reward(parameters.calls),
+    reward: reward(parameters.calls, parameters.maximumPayoutWei),
     configuredBuilderBidBps: parameters.builderBidBps,
     requiresBundleSimulation: true,
   };
@@ -347,7 +354,16 @@ export async function planFwairDropJobs(parameters: {
   readonly builderBidBps: bigint;
 }): Promise<FwairDropPlan> {
   await verifyFwairDropRuntime(parameters);
-  const [stateRaw, totalContributed, pullCount, outstanding, pendingReadyToSync, pendingSettles] =
+  const [
+    stateRaw,
+    totalContributed,
+    pullCount,
+    outstanding,
+    pendingReadyToSync,
+    pendingSettles,
+    crankBudgetWei,
+    crankSpent,
+  ] =
     await parameters.client.multicall({
       allowFailure: false,
       blockNumber: parameters.blockNumber,
@@ -358,10 +374,22 @@ export async function planFwairDropJobs(parameters: {
         { address: FWAIR_DROP_ROUND_ADDRESS, abi: fwairDropRoundAbi, functionName: "outstanding" },
         { address: FWAIR_DROP_ROUND_ADDRESS, abi: fwairDropRoundAbi, functionName: "pendingReadyToSync" },
         { address: FWAIR_DROP_ROUND_ADDRESS, abi: fwairDropRoundAbi, functionName: "pendingSettles" },
+        { address: FWAIR_DROP_ROUND_ADDRESS, abi: fwairDropRoundAbi, functionName: "crankBudgetWei" },
+        { address: FWAIR_DROP_ROUND_ADDRESS, abi: fwairDropRoundAbi, functionName: "crankSpent" },
       ],
     });
   const state = Number(stateRaw);
-  const base = { state, totalContributed, pullCount, outstanding, pendingReadyToSync, pendingSettles };
+  const crankBudgetRemaining =
+    crankBudgetWei > crankSpent ? crankBudgetWei - crankSpent : 0n;
+  const base = {
+    state,
+    totalContributed,
+    pullCount,
+    outstanding,
+    pendingReadyToSync,
+    pendingSettles,
+    crankBudgetRemaining,
+  };
   const executor = await executorState(parameters);
   const wrap = (job: KeeperJob | undefined): FwairDropPlan =>
     wrapJobs(job === undefined ? [] : [job]);
@@ -382,6 +410,20 @@ export async function planFwairDropJobs(parameters: {
     };
   };
 
+  // Every permissionless lifecycle payout is clamped by the round-wide
+  // remaining crank budget. Once it is empty, otherwise valid calls are
+  // guaranteed losses and must never be signed.
+  if (state !== FWAIR_DROP_STATE.FUNDING && crankBudgetRemaining === 0n) {
+    return wrap(undefined);
+  }
+  const jobParameters = {
+    ...parameters,
+    maximumPayoutWei:
+      state === FWAIR_DROP_STATE.FUNDING
+        ? (1n << 256n) - 1n
+        : crankBudgetRemaining,
+  };
+
   if (state === FWAIR_DROP_STATE.FUNDING) {
     const [fullyFundedAt, launchedCount, tokenCount] = await parameters.client.multicall({
       allowFailure: false,
@@ -398,7 +440,7 @@ export async function planFwairDropJobs(parameters: {
     const witness = await activeWitness(parameters);
     if (witness === undefined) return wrap(undefined);
     return wrap(await buildJob({
-      ...parameters,
+      ...jobParameters,
       executor: executor.address,
       executorDeployed: executor.deployed,
       calls: [
@@ -438,7 +480,7 @@ export async function planFwairDropJobs(parameters: {
         for (let index = 0; index < pulls.length; index += 1) {
           if (Number(pulls[index]!.status) !== FWAIR_DROP_PULL_STATUS.REQUESTED) continue;
           const settleJob = await buildJob({
-            ...parameters,
+            ...jobParameters,
             executor: executor.address,
             executorDeployed: executor.deployed,
             calls: fwairDropSyncSettleCalls({
@@ -455,6 +497,7 @@ export async function planFwairDropJobs(parameters: {
                 calls: fwairDropRequestCalls({ witness }),
                 label: `fwair_drop_request_after_sync_settle:${pullCount}:${witness}`,
                 builderBidBps: parameters.builderBidBps,
+                maximumPayoutWei: crankBudgetRemaining,
               }),
             ], 1);
           }
@@ -462,7 +505,7 @@ export async function planFwairDropJobs(parameters: {
       }
     }
     const job = await buildJob({
-      ...parameters,
+      ...jobParameters,
       executor: executor.address,
       executorDeployed: executor.deployed,
       calls: [encodeFunctionData({ abi: fwairDropRoundAbi, functionName: "syncReveals", args: [count] })],
@@ -484,7 +527,7 @@ export async function planFwairDropJobs(parameters: {
         const witness = await activeWitness(parameters);
         if (witness !== undefined) {
           const settleJob = await buildJob({
-            ...parameters,
+            ...jobParameters,
             executor: executor.address,
             executorDeployed: executor.deployed,
             calls: [encodeFunctionData({
@@ -502,13 +545,14 @@ export async function planFwairDropJobs(parameters: {
                 calls: fwairDropRequestCalls({ witness }),
                 label: `fwair_drop_request_after_${functionName}:${pullCount}:${witness}`,
                 builderBidBps: parameters.builderBidBps,
+                maximumPayoutWei: crankBudgetRemaining,
               }),
             ], 1);
           }
         }
       }
       const job = await buildJob({
-        ...parameters,
+        ...jobParameters,
         executor: executor.address,
         executorDeployed: executor.deployed,
         calls: [encodeFunctionData({ abi: fwairDropRoundAbi, functionName, args: [BigInt(index)] })],
@@ -529,7 +573,7 @@ export async function planFwairDropJobs(parameters: {
       const witness = await activeWitness(parameters);
       if (witness !== undefined) {
         const job = await buildJob({
-          ...parameters,
+          ...jobParameters,
           executor: executor.address,
           executorDeployed: executor.deployed,
           calls: [encodeFunctionData({ abi: fwairDropRoundAbi, functionName: "requestPull", args: [witness] })],
@@ -540,7 +584,7 @@ export async function planFwairDropJobs(parameters: {
     }
     if (outstanding > 0n) {
       const job = await buildJob({
-        ...parameters,
+        ...jobParameters,
         executor: executor.address,
         executorDeployed: executor.deployed,
         calls: [encodeFunctionData({ abi: fwairDropRoundAbi, functionName: "advanceBlockedPull", args: [4n] })],
@@ -556,7 +600,7 @@ export async function planFwairDropJobs(parameters: {
     });
     if (canEnd[0]) {
       return wrap(await buildJob({
-        ...parameters,
+        ...jobParameters,
         executor: executor.address,
         executorDeployed: executor.deployed,
         calls: [encodeFunctionData({ abi: fwairDropRoundAbi, functionName: "beginEnding" })],
@@ -573,7 +617,7 @@ export async function planFwairDropJobs(parameters: {
   });
   return canFinalize
     ? wrap(await buildJob({
-        ...parameters,
+        ...jobParameters,
         executor: executor.address,
         executorDeployed: executor.deployed,
         calls: [encodeFunctionData({ abi: fwairDropRoundAbi, functionName: "finalizeEconomics" })],

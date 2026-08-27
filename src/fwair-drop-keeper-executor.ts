@@ -60,6 +60,8 @@ export const fwairDropRoundAbi = parseAbi([
   "function fundingClosesAt() view returns (uint256)",
   "function lockedAt() view returns (uint64)",
   "function spendable() view returns (uint256)",
+  "function crankBudgetWei() view returns (uint256)",
+  "function crankSpent() view returns (uint256)",
   "function pullCount() view returns (uint256)",
   "function outstanding() view returns (uint256)",
   "function pendingReadyToSync() view returns (uint256)",
