@@ -1377,6 +1377,15 @@ ETH lifecycle is now `+0.002221696036726217 ETH` net. At block `25848098`,
 `pullCount == 10`, pull 9 is outstanding, and both ready-to-sync and settlement
 queues are empty.
 
+Three further composed batches landed without retries at blocks `25848105`,
+`25848114`, and `25848120`, retaining `0.000432156764714960 ETH`,
+`0.000383839121523320 ETH`, and `0.000367921660800945 ETH`. Their exact sum,
+`0.001183917547039225 ETH`, reconciled to the wallet delta: the new balance is
+`0.862938122280420131 ETH` and `latest == pending == 2296`. Cumulative SAVE ETH
+lifecycle profit is now `+0.003405613583765442 ETH` net. At block `25848124`,
+`pullCount == 13`, pull 12 is outstanding, and both ready-to-sync and settlement
+queues remain empty.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
