@@ -1460,6 +1460,24 @@ the full two-transaction composition, while executor deployment (if ever
 needed) remains mandatory. No transaction was sent during the detection
 window and nonce remained `2340/2340`.
 
+Live validation of the optional-prefix follow-up succeeded on revision
+`fba2819`. The first pass selected only `rescueFinalize(21)`, omitted the
+unprofitable request, and landed block `25848367` for
+`+0.000111820578208564 ETH`. Subsequent independent prefix choices landed
+sync/settle at `25848372`, another rescue finalization at `25848373`, and a
+newly profitable standalone request at `25848374`, retaining another
+`+0.000451784856560040 ETH`. The authoritative
+wallet/receipt reconciliation after block `25848374` is balance
+`0.871083591477427839 ETH`, `latest == pending == 2353`, a
+`+0.001908748794614643 ETH` delta from the pre-fix boundary, and cumulative
+SAVE ETH lifecycle `+0.011551082780773150 ETH` net. State at block `25848379`
+is Hunting with `pullCount == 41`, pull 40 outstanding, and empty ready-to-sync
+and settlement queues. No fatal, revert, partial prefix, or pending nonce was
+observed. Transaction nonce 2340 at block `25848344` was successful and
+reconciles to `+0.000091197100130572 ETH`, but its receipt event was absent
+from retained deployment logs across the lease handoff; wallet plus exact
+on-chain receipt supplied the authoritative accounting boundary.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
