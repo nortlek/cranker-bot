@@ -1274,6 +1274,23 @@ exact signed-bundle gas before valuing reimbursement; exact retained-profit
 simulation remains final. `lock -> requestPull` is one reward-gated atomic
 execution so the first exposed pull cannot be separated from activation.
 
+The first live `lock -> requestPull` bundle at target block `25847775`
+successfully deployed the owner-bound executor and opened pull 0, but exposed
+an economic-model bug. The round's verified source caps reimbursement by
+`tx.gasprice` in addition to `basefee + priorityFeeCap` and the absolute gas
+ceiling; the keeper had omitted the `tx.gasprice` cap. It therefore modeled
+`0.003672395059003366 ETH` of reward while the successful receipt paid only
+`0.002725612227191324 ETH`. The two receipts spent
+`0.003671395058844180 ETH` and the reconciled wallet delta confirmed an exact
+`-0.000945782831652856 ETH` realized loss. Nonces reconciled at
+`latest == pending == 2271`. The signed-bundle reward path now caps every
+gas-reimbursement estimate at the exact EIP-1559 gas price of that signed
+transaction; the historical gas, base fee, signed fee, deployment prefix, and
+negative retained-profit counterfactual are pinned in regression coverage.
+The executor is now deployed, so later lifecycle actions do not repeat the
+one-time deployment cost, but every action remains subject to the corrected
+exact retained-profit gate.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled

@@ -5241,6 +5241,7 @@ export function estimatedJobReward(parameters: {
   readonly job: KeeperJob;
   readonly gasUsed: bigint;
   readonly baseFeePerGas: bigint;
+  readonly transactionGasPricePerGas?: bigint;
   readonly poolBountyEstimateBps: bigint;
   readonly poolPullBountyEstimateBps: bigint;
 }): bigint {
@@ -5249,10 +5250,16 @@ export function estimatedJobReward(parameters: {
   }
   if (parameters.job.reward.kind === "gas_reimbursement") {
     const terms = parameters.job.reward;
-    const reimbursementPrice =
+    let reimbursementPrice =
       parameters.baseFeePerGas + terms.priorityFeeCap < terms.gasPriceCeiling
         ? parameters.baseFeePerGas + terms.priorityFeeCap
         : terms.gasPriceCeiling;
+    if (
+      parameters.transactionGasPricePerGas !== undefined &&
+      parameters.transactionGasPricePerGas < reimbursementPrice
+    ) {
+      reimbursementPrice = parameters.transactionGasPricePerGas;
+    }
     const reimbursedGas =
       parameters.gasUsed > terms.executorGasDiscount
         ? parameters.gasUsed - terms.executorGasDiscount

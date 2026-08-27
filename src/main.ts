@@ -1309,6 +1309,11 @@ async function main(): Promise<void> {
             job: request,
             gasUsed: transactionGas,
             baseFeePerGas: bountyBaseFeePerGas,
+            transactionGasPricePerGas: effectiveEip1559GasPrice({
+              baseFeePerGas: baseFeeAllowancePerGas,
+              maxFeePerGas: request.maxFeePerGas,
+              maxPriorityFeePerGas: request.maxPriorityFeePerGas,
+            }),
             poolBountyEstimateBps:
               config.poolBountyEstimateBps,
             poolPullBountyEstimateBps:
@@ -2126,6 +2131,12 @@ async function main(): Promise<void> {
               job: request,
               gasUsed: transactionGas,
               baseFeePerGas: bountyBaseFeePerGas,
+              transactionGasPricePerGas: effectiveEip1559GasPrice({
+                baseFeePerGas: baseFeeAllowancePerGas,
+                maxFeePerGas: request.maxFeePerGas,
+                maxPriorityFeePerGas:
+                  request.maxPriorityFeePerGas,
+              }),
               poolBountyEstimateBps:
                 config.poolBountyEstimateBps,
               poolPullBountyEstimateBps:
@@ -2193,6 +2204,12 @@ async function main(): Promise<void> {
                 job: request,
                 gasUsed: transactionGas,
                 baseFeePerGas: bountyBaseFeePerGas,
+                transactionGasPricePerGas: effectiveEip1559GasPrice({
+                  baseFeePerGas: baseFeeAllowancePerGas,
+                  maxFeePerGas: request.maxFeePerGas,
+                  maxPriorityFeePerGas:
+                    request.maxPriorityFeePerGas,
+                }),
                 poolBountyEstimateBps:
                   config.poolBountyEstimateBps,
                 poolPullBountyEstimateBps:
@@ -2246,6 +2263,12 @@ async function main(): Promise<void> {
               job: request,
               gasUsed: transactionGas,
               baseFeePerGas: bountyBaseFeePerGas,
+              transactionGasPricePerGas: effectiveEip1559GasPrice({
+                baseFeePerGas: baseFeeAllowancePerGas,
+                maxFeePerGas: request.maxFeePerGas,
+                maxPriorityFeePerGas:
+                  request.maxPriorityFeePerGas,
+              }),
               poolBountyEstimateBps:
                 config.poolBountyEstimateBps,
               poolPullBountyEstimateBps:
@@ -2304,6 +2327,15 @@ async function main(): Promise<void> {
                               gasUsed: transactionGas,
                               baseFeePerGas:
                                 bountyBaseFeePerGas,
+                              transactionGasPricePerGas:
+                                effectiveEip1559GasPrice({
+                                  baseFeePerGas:
+                                    baseFeeAllowancePerGas,
+                                  maxFeePerGas:
+                                    request.maxFeePerGas,
+                                  maxPriorityFeePerGas:
+                                    request.maxPriorityFeePerGas,
+                                }),
                               poolBountyEstimateBps:
                                 config.poolBountyEstimateBps,
                               poolPullBountyEstimateBps:
