@@ -1478,6 +1478,14 @@ reconciles to `+0.000091197100130572 ETH`, but its receipt event was absent
 from retained deployment logs across the lease handoff; wallet plus exact
 on-chain receipt supplied the authoritative accounting boundary.
 
+The next exact-state pair then landed independently at blocks `25848382` and
+`25848383`: sync/settle retained `+0.000228214321510268 ETH` and the request
+retained `+0.000129959438351862 ETH`. The latest reconciled boundary at block
+`25848388` is wallet `0.871441765237289969 ETH`,
+`latest == pending == 2355`, cumulative SAVE ETH lifecycle
+`+0.011909256540635280 ETH` net, `pullCount == 42`, pull 41 outstanding, and
+empty ready-to-sync and settlement queues.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
