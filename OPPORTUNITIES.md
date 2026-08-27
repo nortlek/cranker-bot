@@ -1351,6 +1351,17 @@ The receipt earned `0.001372599055261216 ETH`, spent
 post-incident receipts are now `0.000679365995144338 ETH`, leaving the entire
 temporary lifecycle at `-0.000266416836508518 ETH` net after the initial loss.
 
+The new same-block composition then proved itself twice in live production.
+At block `25848058`, `syncReveals(1) -> settleBackstop(3)` and the separate
+follow-on request both landed as a mandatory two-transaction prefix, retaining
+`0.000413160931276230 ETH` net at 1,434 effective builder bps. At block
+`25848067`, the same structure settled pull 4 and opened pull 5 for another
+`0.000435767153785030 ETH` net at 1,423 effective bps. All four receipts were
+successful with no partial prefix, revert, or expiration. Wallet balance
+reconciled exactly at `0.860115019945207431 ETH`,
+`latest == pending == 2282`; the temporary lifecycle has now recovered the
+initial loss and is `+0.000582511248552742 ETH` net. Pull 5 is outstanding.
+
 At block 25847418 the round remained Funding with `3.81 ETH`, zero pulls, and
 the launch reported `0 / 1000` NFTs submitted and `fullyFundedAt == 0`; this
 is inventory, not an actionable or realized reward. The new lane is disabled
