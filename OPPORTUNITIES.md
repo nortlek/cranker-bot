@@ -1107,6 +1107,38 @@ active runs and signer leases returned to zero, and PostgreSQL remained
 online. Routine production is offline; token 7 or any later auction needs the
 same fresh gates rather than inheriting token 6's activation.
 
+Token 11 missed-settlement incident and token 12 boundary, 2026-08-29:
+routine production and the signer remained intentionally offline, while the
+daily monitor cadence did not revisit the terminal window. Competitor wrapper
+transaction
+`0x00fcf866949045920edbe0a23f8c69de086ba390565ee2cca279e9138ce7b970`
+then finalized token 11 in block `25857817`. The canonical event paid wrapper
+`0x00000F91109c4d0007e90000D9facAD5298A0CAc` exactly
+`0.00025515 ETH` from the `0.025515 ETH` winning bid. Its successful receipt
+used `703,566` gas at `0.043264411 gwei`, costing
+`0.000030439368589626 ETH`. Exact internal-call reconstruction proves the
+wrapper paid block beneficiary `0x396343362be2A4dA1cE0C1C210945346fb82Aa49`
+`0.000022383162837209 ETH` and returned
+`0.000232766837162801 ETH` to transaction sender
+`0x5C096EF846447cb935C5d247E4ab2A867EcC33a9`, retaining
+`0.000202327468573175 ETH` after gas. This was a distinct, safely
+capital-free and economically profitable opportunity that the daily cadence
+failed to defend; it is an operational scheduling miss, not a bid, relay, or
+builder-construction loss from our keeper because no bundle was submitted.
+
+At exact block `25861722`, the pinned runtime and immutable configuration
+still matched. Token 12 had a `0.022 ETH` bid, exact `0.00022 ETH` settler
+reward, no extension yet, and a current deadline of
+`2026-08-29 20:43:47 America/Denver`. The observed parent base fee was
+`0.045108268 gwei`, but this snapshot is not authorization to activate:
+terminal operation still requires a fresh exact runtime/configuration and
+auction check, current-state fork replay, signed-bundle simulation, retained
+profit, nonce/balance, zero-lease, and source/test gates. A bounded terminal
+watch replaces the daily cadence for this window and must restore the ordinary
+09:00 daily schedule after token 12 settles and any temporary worker is
+removed. GachaTable battle 25 was still Open with zero seats and no exposed
+keeper action at the same boundary.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
@@ -1117,6 +1149,15 @@ read-only dry run, the fork replay, and `git diff --check` passed. Recheck the
 winning bid, runtime/configuration, exact gas economics, keeper nonce/balance,
 and zero-to-one signer lease immediately before any temporary activation, then
 remove the worker after settlement.
+
+Release watch, 2026-08-29: @ripe0x post `2093400475898876289` was a
+retrospective on the completed SAVE ETH/FWAIR and collection-targeted MegaRip
+round (77 pulls, 14 target hits, 47 auction bids, and seven NFTs placed through
+auctions), not a new contract or lifecycle announcement. Canonical-deployer
+activity remained unchanged since its 2026-08-27 SAVE ETH calls: there was no
+new creation, upgrade, factory, ownership/configuration change, or successor
+relationship. No release integration or production activation is warranted
+from this evidence.
 
 Release watch, 2026-08-20: canonical-deployer nonces 3477-3481 contained no
 creation, upgrade, factory, ownership, or configuration change. Nonce 3477 was
