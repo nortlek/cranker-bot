@@ -1139,6 +1139,37 @@ watch replaces the daily cadence for this window and must restore the ordinary
 removed. GachaTable battle 25 was still Open with zero seats and no exposed
 keeper action at the same boundary.
 
+Token 12 terminal activation, 2026-08-29 20:15-20:22 America/Denver: the
+deadline and `0.022 ETH` bid remained unchanged. Exact parent block
+`25865036` had timestamp `1788056171`, base fee `0.043661756 gwei`, and an
+immediate-child base fee derived to `0.041452759 gwei`. The pinned runtime,
+86,400-second duration, 300-second extension, and 100-bps maximum/current
+reward configuration matched. A mainnet fork of that exact parent, warped to
+the deadline, finalized token 12, emitted the exact `0.00022 ETH` reward to a
+fresh no-code test account, advanced the Core to zero-bid token 13, and
+reconciled the account delta exactly to reward minus gas. Estimation used
+699,285 gas and the successful fork receipt used 668,589 gas. With the
+2,048-gas Hypertoadz reserve, the production 10,000-bps request is
+profit-capped at `0.285102441 gwei` priority,
+`0.000190616355925749 ETH` builder payment, and
+`0.0000010000003376 ETH` expected retained profit at the derived target base
+fee.
+
+Before activation, the wallet was unchanged at
+`0.872394370189281977 ETH` with `latest == pending == 2364`, PostgreSQL had
+zero signer leases, the production HTTP and WebSocket paths were healthy, the
+worktree was clean, and exact `HEAD == origin/main == 2beeef3`. TypeScript,
+all 435 tests, both builds, `git diff --check`, the exact Hypertoadz fork, and
+all 28 Solidity tests including their live-fork cases passed. Railway
+deployment `77e9f439-67ff-4dfc-9528-ae7523264539` now runs exact revision
+`2beeef35544bd39fb9fd42c20607e33fdc4a03d6` with only Hypertoadz enabled and
+every routine/retired lane disabled. Startup proved the source revision,
+seven private relay paths, one signer lease, initial and WebSocket-headed
+zero-job passes, and no fatal or repeating failure. Continue the 15-minute
+terminal watch through the current 20:43:47 deadline and any extension, then
+reconcile the receipt or exact competitor miss, remove the worker, require
+zero leases and no pending nonce, and restore the ordinary daily schedule.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
