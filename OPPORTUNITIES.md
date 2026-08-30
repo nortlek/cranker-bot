@@ -1170,6 +1170,38 @@ terminal watch through the current 20:43:47 deadline and any extension, then
 reconcile the receipt or exact competitor miss, remove the worker, require
 zero leases and no pending nonce, and restore the ordinary daily schedule.
 
+Token 12 terminal result and direct-builder repair, 2026-08-29 20:43-20:47
+America/Denver: on authoritative parent block `25865172`, the keeper's exact
+signed simulation used 672,335 gas. The 10,000-bps request was profit-capped
+at `0.282497881 gwei` priority, `0.000189933212822135 ETH` builder payment,
+and `0.000001000000020994 ETH` expected retained profit. The final
+nonce/balance/lease/target gate passed and all seven configured paths accepted
+the bundle for target `25865173`, but BobTheBuilder omitted it.
+Competitor wrapper transaction
+`0xe138bd37a4f99d63a7a1ebbed76c86ced2c5176cc983b3c7544c04a4b9c11a6f`
+finalized token 12 in that target. Its receipt used 703,127 gas at the exact
+`0.042243401 gwei` base fee and cost `0.000029702475814927 ETH`. Exact
+internal calls paid the BobTheBuilder beneficiary
+`0xD87f3d6c5624E8B02bE13c2C92f8511B88B94d96`
+`0.000018943926500696 ETH` and returned
+`0.000201056073499314 ETH` to the sender, leaving the competitor
+`0.000171353597684387 ETH` net after gas.
+
+Our builder payment exceeded the competitor's exact direct payment by more
+than 10x, so payment was not causal and raising the bid is unjustified. The
+block had ample capacity and the opportunity was independently callable at
+the parent; this is builder delivery/construction evidence despite Flashbots
+multiplex acceptance. The Flashbots builder-registration source lists
+BobTheBuilder's standard v0.1 endpoint as `https://rpc.bobthebuilder.xyz`.
+The default private relay set therefore adds that direct path, increasing
+evidence-backed coverage from seven to eight while preserving the existing
+private-only, exact-simulation, retained-profit, nonce, balance, and lease
+gates. Token 12 realized no keeper profit: the wallet remained
+`0.872394370189281977 ETH`, `latest == pending == 2364`, and PostgreSQL stored
+no receipt. Hypertoadz was disabled, deployment
+`77e9f439-67ff-4dfc-9528-ae7523264539` was removed, and signer leases returned
+to zero.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses

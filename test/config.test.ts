@@ -461,6 +461,7 @@ describe("private builder coverage", () => {
       "https://rpc.bombora.build",
       "https://rpc.eurekabuilder.xyz",
       "https://rpc.buildernet.org",
+      "https://rpc.bobthebuilder.xyz",
     ]);
   });
 
