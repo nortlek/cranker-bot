@@ -1202,6 +1202,37 @@ no receipt. Hypertoadz was disabled, deployment
 `77e9f439-67ff-4dfc-9528-ae7523264539` was removed, and signer leases returned
 to zero.
 
+Token 13 terminal boundary, 2026-08-30 09:00 America/Denver: exact block
+`25868855` retains the pinned Core runtime and 1% settler reward. The current
+auction has a `0.01 ETH` bid, exact `0.0001 ETH` reward, token 13, and an
+unextended deadline of `2026-08-30 21:25:23 America/Denver`. A mainnet fork of
+that exact block warped to the deadline and proved permissionless
+`finalize()` returns token 13 with a `1,359,137` gas estimate. At the observed
+`0.0580306 gwei` parent base fee this remains plausibly profitable, but current
+economics are not authorization to deploy hours early: exact terminal-parent
+gas, signed-bundle simulation, receipt reserve, maximum-safe builder payment,
+retained profit, nonce, balance, leases, and all eight private delivery paths
+remain mandatory. The ordinary daily schedule would revisit after the
+deadline and repeat token 11's scheduling miss, so the monitor is moved to a
+15-minute terminal watch beginning at 20:30 America/Denver. Continue through
+any bid extension, deploy only a bounded Hypertoadz-only worker if every gate
+passes, then reconcile, remove it, require zero leases and no pending nonce,
+and restore the daily schedule.
+
+The same boundary keeps routine production offline with no worker deployment,
+zero PostgreSQL advisory signer leases, wallet
+`0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
+or realized-profit change occurred after the token-12 closeout. Canonical
+deployer `latest == pending == 3511`; its newest transaction remains the
+already reviewed SAVE ETH `requestPull` at block `25848541`, so there is no
+new creation, successor, factory, ownership, or configuration evidence. No
+new readable @ripe0x post was found through the available public index; social
+absence is not treated as on-chain evidence. Exact current protocol state is
+also quiet: V1 has no pending lifecycle, V2 has no pending pull, GroupPull has
+no live or buying round, GachaTable battle 25 is open with zero seats, MegaRip
+V3 remains finalized with empty FWA queue, and SAVE ETH remains settled with
+77 pulls and exhausted keeper budget.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
