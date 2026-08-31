@@ -1289,6 +1289,26 @@ inherit token 13 activation; at the closeout boundary it had only a
 `0.000000001 ETH` bid, a `0.00000000001 ETH` reward, and a
 `2026-09-01 00:20:59 America/Denver` deadline.
 
+Token 14 daily boundary, 2026-08-31 09:00 America/Denver: exact blocks
+`25876034`-`25876035` retain the pinned Core runtime/configuration and token 14
+deadline, but the bid has increased to `0.01 ETH`, raising the exact settler
+reward to `0.0001 ETH`. This is a fresh potential terminal opportunity, not
+authorization to inherit token 13's activation. Railway remains intentionally
+offline with no worker deployment, Hypertoadz disabled, zero signer leases,
+wallet `0.872394370189281977 ETH`, and `latest == pending == 2364`; PostgreSQL
+has no newer keeper receipt. Canonical deployer `latest == pending == 3511`
+also remains unchanged, and the available public index exposes no new readable
+@ripe0x post. Exact lane state remains quiet: V1 has no pending lifecycle, V2
+has no current open round or pending pull, GroupPull has no live or buying
+round, GachaTable battle 25 remains open with zero seats, MegaRip V3 is
+finalized with an empty FWA queue, and SAVE ETH is settled with empty queues
+and exhausted keeper budget. Move the monitor to a `23:30 America/Denver`
+terminal check, then recheck exact auction state and every extension, replay
+the current parent on a fork, and deploy a new bounded Hypertoadz-only worker
+only if all identity, economics, simulation, nonce, balance, lease, test, and
+eight-path delivery gates pass. Continue at 15-minute cadence through
+settlement, then remove the worker and restore the ordinary daily schedule.
+
 The same boundary keeps routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
