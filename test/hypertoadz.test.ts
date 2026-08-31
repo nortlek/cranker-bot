@@ -5,6 +5,7 @@ import { quoteCompetitiveFees } from "../src/bidding.js";
 import {
   hypertoadzAbi,
   hypertoadzCanFinalizeInNextBlock,
+  hypertoadzPlanningMaxFeePerGas,
   HYPERTOADZ_RECEIPT_GAS_BUFFER,
 } from "../src/hypertoadz.js";
 
@@ -111,5 +112,24 @@ describe("Hypertoadz settlement", () => {
     expect(quote.maxPriorityFeePerGas).toBeLessThan(
       parseGwei("0.740787913"),
     );
+  });
+
+  it("admits token 13 using its independent zero-priority pricing floor", () => {
+    const reward = 105_000_000_000_000n;
+    const bufferedGas = 1_631_000n;
+    const baseFeeAllowancePerGas = 40_270_244n;
+    const laneMaxFeePerGas = hypertoadzPlanningMaxFeePerGas({
+      baseFeeAllowancePerGas,
+      minimumPriorityFeePerGas: 0n,
+    });
+    const unrelatedGlobalMaxFeePerGas =
+      baseFeeAllowancePerGas + parseGwei("0.1");
+
+    expect(
+      reward - bufferedGas * laneMaxFeePerGas,
+    ).toBeGreaterThan(parseEther("0.000001"));
+    expect(
+      reward - bufferedGas * unrelatedGlobalMaxFeePerGas,
+    ).toBeLessThan(0n);
   });
 });

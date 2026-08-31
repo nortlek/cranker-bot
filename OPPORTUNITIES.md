@@ -1219,6 +1219,26 @@ any bid extension, deploy only a bounded Hypertoadz-only worker if every gate
 passes, then reconcile, remove it, require zero leases and no pending nonce,
 and restore the daily schedule.
 
+Token 13 terminal watch, 2026-08-30 20:30 America/Denver: exact block
+`25872294` still has the pinned runtime/configuration, token 13, no extension,
+and the same deadline; the winning bid increased to `0.0105 ETH`, raising the
+exact reward to `0.000105 ETH`. Wallet `latest == pending == 2364`, balance
+`0.872394370189281977 ETH`, and PostgreSQL signer leases remain zero with no
+new receipt. The exact fork exposed a terminal admission false negative: the
+preliminary Hypertoadz planner charged the unrelated global `0.1 gwei`
+priority floor even though this lane's independent maximum-safe private bid
+uses the configured pool minimum of zero. At the exact `0.040270244 gwei`
+next-block base fee, that mismatch suppressed the live lane. The bounded fix
+prices preliminary admission with the same lane-specific priority floor. A
+fork at the first eligible parent selected the exact-simulation-required job;
+a signed EIP-1559 transaction from a fresh funded EOA then finalized token 13
+at the deadline using `1,330,913` gas and retained
+`0.000003312903184305 ETH`, above the `0.000001 ETH` floor after the modeled
+maximum-safe builder bid. The historical regression proves the lane-specific
+quote profitable and the former global-floor quote unprofitable. Deploy only
+this tested revision with Hypertoadz alone enabled, then require the live
+signed-bundle simulation and all eight private paths before submission.
+
 The same boundary keeps routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt

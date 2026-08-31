@@ -106,6 +106,7 @@ import { planFwairDropJobs } from "./fwair-drop.js";
 import { fwairDropKeeperExecutorAbi } from "./fwair-drop-keeper-executor.js";
 import {
   hypertoadzAbi,
+  hypertoadzPlanningMaxFeePerGas,
   planHypertoadzFinalize,
 } from "./hypertoadz.js";
 import { megaRipAbi, planMegaRipJobs } from "./mega-rip.js";
@@ -4910,7 +4911,12 @@ async function planJobs(parameters: {
         account: parameters.account,
         blockNumber: parameters.headBlockNumber,
         blockTimestamp: parameters.headTimestamp,
-        maxFeePerGas: parameters.maxFeePerGas,
+        maxFeePerGas: hypertoadzPlanningMaxFeePerGas({
+          baseFeeAllowancePerGas:
+            parameters.baseFeeAllowancePerGas,
+          minimumPriorityFeePerGas:
+            parameters.config.poolMinPriorityFeePerGas,
+        }),
         gasLimitMultiplierBps:
           parameters.config.gasLimitMultiplierBps,
         minProfitWei: parameters.config.minProfitWei,

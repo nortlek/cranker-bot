@@ -27,6 +27,16 @@ export const HYPERTOADZ_SLOT_SECONDS = 12n;
 // floor when the canonical builder executes the same signed transaction.
 export const HYPERTOADZ_RECEIPT_GAS_BUFFER = 2_048n;
 
+export function hypertoadzPlanningMaxFeePerGas(parameters: {
+  readonly baseFeeAllowancePerGas: bigint;
+  readonly minimumPriorityFeePerGas: bigint;
+}): bigint {
+  return (
+    parameters.baseFeeAllowancePerGas +
+    parameters.minimumPriorityFeePerGas
+  );
+}
+
 export const hypertoadzAbi = parseAbi([
   "function currentAuction() view returns ((uint256 tokenId,uint256 bid,address bidder,address recipient,uint64 start,uint64 end,bytes32 seed,bool ended,bool hasBid) state)",
   "function auctionDuration() view returns (uint64)",
