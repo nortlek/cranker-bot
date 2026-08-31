@@ -1249,6 +1249,31 @@ for the lease, then starting with exact revision, only Hypertoadz enabled,
 eight relays/eight Flashbots builders, exactly one signer lease, continuing
 WebSocket passes, no pending nonce, and no fatal or repeating failure.
 
+Token 13 deadline incident, 2026-08-30 21:25 America/Denver: subscribed parent
+block `25872555` had timestamp `1788146711`, base fee `1.878862624 gwei`, and
+an exact child base fee of `1.701222184 gwei` for first-eligible target block
+`25872556`. The lane selected token 13, but Flashbots preliminary
+`eth_callBundle` rejected the signed transaction before delivery because its
+`1.801222184 gwei` maximum fee covered the child base fee but not the relay's
+parent-state simulation base fee. No economic opportunity was lost: the exact
+current `finalize()` estimate is `1,368,713` gas and even the later
+`1.538629723 gwei` base fee makes gas alone
+`0.002105942504056499 ETH`, versus the fixed `0.000105 ETH` reward. The event
+also proved that Core's `ended` snapshot means the deadline elapsed, not that
+permissionless finalization completed; treating it as terminal would suppress
+future retries if gas later falls. Revision
+`2a0f46bfdff6b336a9da72ae1131867b0801cb12` therefore (1) keeps an expired,
+unfinalized auction eligible and (2) makes preliminary signing cover the
+higher of exact child base fee and relay simulation-parent base fee, while
+leaving exact signed-bundle profitability and retained-profit gates intact.
+Typecheck, all 438 tests, both builds, and `git diff --check` passed. Railway
+deployment `259c201c-1338-4aa5-b753-f90e39864c2d` acquired the sole signer
+lease after a 62-second safe handoff, reported the exact revision and eight
+private paths, and correctly emitted zero work at the then-unprofitable state.
+Token 13 remains ended but unfinalized; keep the bounded worker until exact
+economics become profitable or another actor settles it, then reconcile and
+remove it.
+
 The same boundary keeps routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
