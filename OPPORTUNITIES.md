@@ -1238,6 +1238,16 @@ maximum-safe builder bid. The historical regression proves the lane-specific
 quote profitable and the former global-floor quote unprofitable. Deploy only
 this tested revision with Hypertoadz alone enabled, then require the live
 signed-bundle simulation and all eight private paths before submission.
+Revision `c1da140e1b3d229d3253732c562cf87d7582f683` passed typecheck, all
+436 tests, both builds, `git diff --check`, the exact fork, and signed
+transaction replay, then deployed as bounded Railway lifecycle
+`461c605e-e6f6-4ec9-9e97-37723ffc416e`. Production's explicit seven-entry
+relay variable had masked the new BobTheBuilder default; the rollout was held
+fail-closed until that public direct route was appended and the exact source
+was redeployed. The safe overlap showed the replacement waiting 62 seconds
+for the lease, then starting with exact revision, only Hypertoadz enabled,
+eight relays/eight Flashbots builders, exactly one signer lease, continuing
+WebSocket passes, no pending nonce, and no fatal or repeating failure.
 
 The same boundary keeps routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
