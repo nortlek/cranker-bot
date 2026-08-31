@@ -1270,9 +1270,24 @@ Typecheck, all 438 tests, both builds, and `git diff --check` passed. Railway
 deployment `259c201c-1338-4aa5-b753-f90e39864c2d` acquired the sole signer
 lease after a 62-second safe handoff, reported the exact revision and eight
 private paths, and correctly emitted zero work at the then-unprofitable state.
-Token 13 remains ended but unfinalized; keep the bounded worker until exact
-economics become profitable or another actor settles it, then reconcile and
-remove it.
+Token 13 closeout, 2026-08-31 00:19 America/Denver: another actor finalized
+token 13 in block `25873425` with transaction
+`0x868eff378e8c5353d315eaac81ecec6bf4a2cd9e4b087457e2dd898ecfb66d3c`.
+The canonical event paid the exact `0.000105 ETH` settler reward to
+`0x5D98609F4a43ED4d36DAe38A58365B352109C7a6`. The receipt consumed
+`1,330,923` gas at `2.465775101 gwei`, costing
+`0.003281756794748223 ETH`; the exact internal value transfers contain no
+direct fee-recipient payment, so the competitor retained
+`-0.003176756794748223 ETH` before any off-chain consideration. The block was
+built by Quasar (`Quasar (quasar.win)` extra data). Our bounded worker remained
+fail-closed with no submission or receipt, so token 13 realized exactly zero
+keeper profit and the wallet remained `0.872394370189281977 ETH` with
+`latest == pending == 2364`. Hypertoadz was disabled, deployment
+`259c201c-1338-4aa5-b753-f90e39864c2d` was removed, and PostgreSQL advisory
+signer leases returned to zero. Token 14 is a fresh lifecycle and must not
+inherit token 13 activation; at the closeout boundary it had only a
+`0.000000001 ETH` bid, a `0.00000000001 ETH` reward, and a
+`2026-09-01 00:20:59 America/Denver` deadline.
 
 The same boundary keeps routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
