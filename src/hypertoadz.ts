@@ -29,10 +29,14 @@ export const HYPERTOADZ_RECEIPT_GAS_BUFFER = 2_048n;
 
 export function hypertoadzPlanningMaxFeePerGas(parameters: {
   readonly baseFeeAllowancePerGas: bigint;
+  readonly simulationBaseFeePerGas: bigint;
   readonly minimumPriorityFeePerGas: bigint;
 }): bigint {
   return (
-    parameters.baseFeeAllowancePerGas +
+    (parameters.baseFeeAllowancePerGas >
+    parameters.simulationBaseFeePerGas
+      ? parameters.baseFeeAllowancePerGas
+      : parameters.simulationBaseFeePerGas) +
     parameters.minimumPriorityFeePerGas
   );
 }
@@ -73,11 +77,9 @@ export function hypertoadzCanFinalizeInNextBlock(parameters: {
   readonly auctionEnd: bigint;
   readonly parentTimestamp: bigint;
   readonly hasBid: boolean;
-  readonly ended: boolean;
 }): boolean {
   return (
     parameters.hasBid &&
-    !parameters.ended &&
     parameters.auctionEnd > 0n &&
     parameters.auctionEnd <=
       parameters.parentTimestamp + HYPERTOADZ_SLOT_SECONDS
@@ -178,7 +180,6 @@ export async function planHypertoadzFinalize(parameters: {
       auctionEnd: snapshot.end,
       parentTimestamp: parameters.blockTimestamp,
       hasBid: snapshot.hasBid,
-      ended: snapshot.ended,
     })
   ) {
     return base;

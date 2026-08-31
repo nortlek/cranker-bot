@@ -4834,6 +4834,7 @@ async function planJobs(parameters: {
   readonly stakeDaoMaxFeePerGas: bigint;
   readonly firmMaxFeePerGas: bigint;
   readonly baseFeeAllowancePerGas: bigint;
+  readonly parentBaseFeePerGas: bigint;
   readonly bountyBaseFeePerGas: bigint;
   readonly headBlockNumber: bigint;
   readonly headTimestamp: bigint;
@@ -4914,6 +4915,8 @@ async function planJobs(parameters: {
         maxFeePerGas: hypertoadzPlanningMaxFeePerGas({
           baseFeeAllowancePerGas:
             parameters.baseFeeAllowancePerGas,
+          simulationBaseFeePerGas:
+            parameters.parentBaseFeePerGas,
           minimumPriorityFeePerGas:
             parameters.config.poolMinPriorityFeePerGas,
         }),
@@ -5848,6 +5851,8 @@ export async function runKeeperPass(
             ? feeQuote.maxFeePerGas
             : maxFeePerGas,
         baseFeeAllowancePerGas,
+        parentBaseFeePerGas:
+          latestBlock.baseFeePerGas ?? baseFeeAllowancePerGas,
         bountyBaseFeePerGas,
         headBlockNumber: latestBlock.number,
         headTimestamp: latestBlock.timestamp,

@@ -16,7 +16,6 @@ describe("Hypertoadz settlement", () => {
         auctionEnd: 1_012n,
         parentTimestamp: 1_000n,
         hasBid: true,
-        ended: false,
       }),
     ).toBe(true);
     expect(
@@ -24,7 +23,6 @@ describe("Hypertoadz settlement", () => {
         auctionEnd: 1_013n,
         parentTimestamp: 1_000n,
         hasBid: true,
-        ended: false,
       }),
     ).toBe(false);
   });
@@ -35,17 +33,18 @@ describe("Hypertoadz settlement", () => {
         auctionEnd: 1_000n,
         parentTimestamp: 1_000n,
         hasBid: false,
-        ended: false,
       }),
     ).toBe(false);
+  });
+
+  it("continues planning an expired but unfinalized auction", () => {
     expect(
       hypertoadzCanFinalizeInNextBlock({
         auctionEnd: 1_000n,
         parentTimestamp: 1_000n,
         hasBid: true,
-        ended: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("pins the reward-authority event", () => {
@@ -120,6 +119,7 @@ describe("Hypertoadz settlement", () => {
     const baseFeeAllowancePerGas = 40_270_244n;
     const laneMaxFeePerGas = hypertoadzPlanningMaxFeePerGas({
       baseFeeAllowancePerGas,
+      simulationBaseFeePerGas: baseFeeAllowancePerGas,
       minimumPriorityFeePerGas: 0n,
     });
     const unrelatedGlobalMaxFeePerGas =
@@ -131,5 +131,15 @@ describe("Hypertoadz settlement", () => {
     expect(
       reward - bufferedGas * unrelatedGlobalMaxFeePerGas,
     ).toBeLessThan(0n);
+  });
+
+  it("covers the parent base fee used by pre-deadline relay simulation", () => {
+    expect(
+      hypertoadzPlanningMaxFeePerGas({
+        baseFeeAllowancePerGas: 1_701_222_184n,
+        simulationBaseFeePerGas: 1_878_862_624n,
+        minimumPriorityFeePerGas: 100_000_000n,
+      }),
+    ).toBe(1_978_862_624n);
   });
 });
