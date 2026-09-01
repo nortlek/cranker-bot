@@ -1335,7 +1335,29 @@ from a successful receipt reconciled to the wallet, then disable Hypertoadz,
 remove the worker, require zero leases and `latest == pending`, and restore the
 daily schedule.
 
-The same boundary keeps routine production offline with no worker deployment,
+Token 14 closeout, 2026-09-01 00:21 America/Denver: the bounded worker built
+the exact one-transaction `finalize()` bundle from parent block `25880599`,
+simulated `690,557` gas, and profit-capped its independent maximum-safe bid to
+`33.09%` effective at the then-current fee boundary. All eight private paths
+accepted the bundle. Transaction
+`0x40b5f4478031244626db3a562fc7dbf8568f150c4ee003779111295825eeb4e8`
+landed in target block `25880600`, which Titan built, and finalized token 14.
+The successful receipt used exactly `689,031` gas at `0.142938615 gwei`, paid
+the canonical `0.0001 ETH` reward, cost `0.000098489136832065 ETH` fully
+including the priority builder payment, and retained exactly
+`+0.000001510863167935 ETH`. The wallet independently advanced from
+`0.872394370189281977 ETH` at nonce `2364` to
+`0.872395881052449912 ETH` with `latest == pending == 2365`, matching the
+receipt-level realized profit exactly. One foreground fixed-block read first
+returned the already classified provider `InvalidInputRpcError[-32000]`; the
+bounded same-head retry succeeded and submitted from the same parent, so this
+was neither a delivery miss nor a repeating production failure. Core advanced
+to fresh token 15 with no bid. Hypertoadz was disabled, Railway deployment
+`8fd77af9-40ec-4e33-b8b7-07c3d39efc70` was removed, and PostgreSQL advisory
+signer leases returned to zero. Token 15 must not inherit token 14 activation;
+any future auction requires a fresh bounded validation and deployment.
+
+The prior daily boundary kept routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
 or realized-profit change occurred after the token-12 closeout. Canonical
