@@ -1309,6 +1309,32 @@ only if all identity, economics, simulation, nonce, balance, lease, test, and
 eight-path delivery gates pass. Continue at 15-minute cadence through
 settlement, then remove the worker and restore the ordinary daily schedule.
 
+Token 14 terminal validation, 2026-08-31 23:30 America/Denver: exact parent
+block `25880354` retained the pinned runtime/configuration, unchanged
+`0.01 ETH` bid and `0.0001 ETH` reward, and the unextended
+`2026-09-01 00:20:59 America/Denver` deadline. The wallet remained
+`0.872394370189281977 ETH` with `latest == pending == 2364`; canonical deployer
+`latest == pending == 3511`, Railway had no worker deployment, and signer
+leases were zero. A mainnet fork of that exact parent warped to the deadline
+and finalized token 14 from a freshly generated, funded, no-code EOA. The
+exact immediate-child base fee was `0.048012092 gwei`; the zero-builder-bid
+signed replay used `690,910` gas. The independent `10,000`-bps maximum-safe
+quote capped itself to a `65.54%` effective bid, reserved the evidence-backed
+`2,048` receipt gas, and conservatively retained
+`0.000001000000270642 ETH`; a second exact signed replay succeeded, advanced
+the Core to token 15, and realized a fork-only balance delta of
+`+0.000005601025599283 ETH`. Typecheck, all 438 tests, both builds, and
+`git diff --check` passed. Pushed revision
+`6f1ce1a6027c105db2ab779b64fb7ffbb0e7e45c` was then deployed as bounded
+Railway lifecycle `8fd77af9-40ec-4e33-b8b7-07c3d39efc70` with only
+Hypertoadz enabled. Startup proved exact source, eight relays/eight Flashbots
+builders, one signer lease, healthy initial and WebSocket passes, zero work
+before the terminal block, and no fatal or repeating failure. Continue at
+15-minute cadence through every extension and settlement; count profit only
+from a successful receipt reconciled to the wallet, then disable Hypertoadz,
+remove the worker, require zero leases and `latest == pending`, and restore the
+daily schedule.
+
 The same boundary keeps routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
