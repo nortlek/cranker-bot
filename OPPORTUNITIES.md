@@ -1406,6 +1406,27 @@ terminal window; deploy a bounded Hypertoadz-only worker only if all ordinary
 gates freshly prove positive retained profit. Token 15 must not inherit token
 14 activation.
 
+Token 15 terminal activation, 2026-09-02 16:23 America/Denver: exact block
+`25892560` retained the same bid, reward, deadline, runtime, and configuration;
+its exact immediate-child base fee had fallen to `0.041652866 gwei`, below the
+zero-builder profitability ceiling. A fresh block-`25892541` mainnet fork
+warped past the deadline and again advanced the Core to token 16. The zero-bid
+signed replay used `689,725` gas. The independent `10,000`-bps maximum-safe
+quote reserved the required `2,048` receipt gas, capped itself to a `30.32%`
+effective bid, and conservatively retained `0.000001000000045868 ETH`; its
+signed max-safe replay succeeded and realized a fork-only balance delta of
+`+0.000005278057302608 ETH`. Typecheck, all 438 tests, both builds,
+`git diff --check`, clean pushed main, nonce/balance, zero prior leases,
+production RPC and WebSocket, lane isolation, and eight-path gates passed.
+Bounded Railway deployment `96d41897-c9b9-4aca-8324-f1ac9d397893` now runs
+exact revision `46fbcd248d7f4d76527188d1a2237097fd855aca` with only Hypertoadz
+enabled. Startup proved migrations, exact source, `relayCount=8`,
+`builderCount=8`, exactly one signer lease, healthy initial and WebSocket
+passes, and no fatal or repeating failure. Continue at 15-minute cadence
+through every extension and settlement; after settlement reconcile exact
+receipt and wallet P&L, disable Hypertoadz, remove the worker, require zero
+leases and aligned nonces, and restore the daily schedule.
+
 The prior daily boundary kept routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
