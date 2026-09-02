@@ -1427,6 +1427,27 @@ through every extension and settlement; after settlement reconcile exact
 receipt and wallet P&L, disable Hypertoadz, remove the worker, require zero
 leases and aligned nonces, and restore the daily schedule.
 
+Token 15 settlement, 2026-09-02 17:09 America/Denver: a final bid increased
+the winning amount to `0.00525 ETH` and extended the deadline from
+`17:04:23` to `17:09:11`. Exact parent block `25892798` retained the pinned
+runtime and configuration with that bid and a `0.0000525 ETH` reward. The
+keeper's independent maximum-safe quote capped itself to a `35.12%` effective
+bid, simulated `674,185` gas, and conservatively retained
+`0.000001000000344594 ETH`. All eight private paths accepted the one-call
+bundle for target `25892799`. Transaction
+`0x3782f4425f3df793492fc8a758072083deda4c0e9c84eea0611f9f9f56247fd8`
+landed successfully in Eureka-built block `25892799`, used `672,280` gas at
+`0.076157182 gwei`, and paid no direct fee-recipient transfer. The exact
+`0.000051198950314960 ETH` transaction cost comprised
+`0.000032813712509760 ETH` base fee and `0.000018385237805200 ETH` priority
+builder payment, retaining `+0.000001301049685040 ETH`. The wallet delta
+reconciled exactly from `0.020534504400781060 ETH` to
+`0.020535805450466100 ETH`, with `latest == pending == 2369`. Hypertoadz was
+disabled, Railway deployment `96d41897-c9b9-4aca-8324-f1ac9d397893` was
+removed, and signer leases returned to zero. Token 16 is a fresh lifecycle
+with no bid and must not inherit token 15 activation; require fresh exact-state
+validation and another bounded deployment before any future auction.
+
 The prior daily boundary kept routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
