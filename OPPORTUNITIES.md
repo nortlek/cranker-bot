@@ -1389,6 +1389,23 @@ readable @ripe0x post was found through the available public index; social
 absence is not treated as on-chain evidence. No code, config, or production
 change is warranted.
 
+Token 15 fresh lifecycle, 2026-09-02 09:05 America/Denver: exact block
+`25890388` retains the pinned Hypertoadz runtime and configuration. Token 15
+now has a `0.005 ETH` winning bid, a canonical `0.00005 ETH` settler reward,
+no extension, and deadline `2026-09-02 17:04:23 America/Denver`. A mainnet
+fork of that exact parent warped past the deadline and finalized token 15 from
+a freshly generated funded no-code EOA, advancing the Core to token 16. The
+successful zero-builder-payment replay used `689,338` gas; with the required
+`2,048`-gas receipt reserve and `0.000001 ETH` retained-profit floor, even a
+zero builder bid requires the exact child base fee to be below
+`0.070872132 gwei`. The exact immediate-child base fee from block `25890388`
+was `0.314298645 gwei`, so the lifecycle is currently unprofitable and remains
+offline. Recheck exact state, every extension, current child base fee, signed
+bundle simulation, nonce/balance, and zero leases beginning shortly before the
+terminal window; deploy a bounded Hypertoadz-only worker only if all ordinary
+gates freshly prove positive retained profit. Token 15 must not inherit token
+14 activation.
+
 The prior daily boundary kept routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
