@@ -1448,6 +1448,69 @@ removed, and signer leases returned to zero. Token 16 is a fresh lifecycle
 with no bid and must not inherit token 15 activation; require fresh exact-state
 validation and another bounded deployment before any future auction.
 
+Daily release boundary, 2026-09-04 09:01 America/Denver: routine production
+remains intentionally offline. Railway has no active worker deployment,
+PostgreSQL is healthy, advisory signer leases are zero, and the wallet remains
+exactly `0.020535805450466100 ETH` with `latest == pending == 2369` and zero
+WETH/USDC. There are no keeper receipts after token 15, so realized keeper
+profit is unchanged. Exact current protocol state is quiet: V1 has no pending
+lifecycle; V2 retains its pinned runtimes and relationships with no open round
+or pending pull; GroupPull is unpaused and nondeprecated with `liveRound=0`
+and `buyingRounds=0`; GachaTable battle 25 is OPEN with zero seats; MegaRip V3
+is FINALIZED with zero remaining pulls, no pending sync, and an empty FWA
+queue; and SAVE ETH remains settled with 77 pulls, empty queues, and
+`crankSpent == crankBudgetWei == 0.1156 ETH`.
+
+Canonical-deployer nonces `3511-3532` are 22 newly reviewed successful
+transactions. Nonces `3511-3517` deployed the verified Shapes libraries
+`CopyValidation` (`0xEdE9393cF5Bd8037B9d4A15C2D864f97f98A9Da7`),
+`EIP712Signature` (`0x48208746f35222a751e5Fe286a8942BFcEaf0906`),
+`AdminOps` (`0xdE64667e15fF3999f6Fa0bcf9930C1653E361597`),
+`GeometrySampling` (`0x991e1352b0f6131748f36D8d45f756d55ee930D3`),
+`InkGenes` (`0x34a7a97B92288B3F804F416B3B15214FB85e4200`),
+`ComposeCompute` (`0xfBF7F6e9552f93d2dBD86E30B3B0637Be5d520Ea`), and
+`RecompositionOps` (`0x94F63d2bCBcd6A3980bebbBe71de498E57f200f2`)
+through the canonical singleton factory. Nonces `3518-3527` then deployed and
+configured verified `ShapeRenderer`
+(`0xe9ac8D910767d8EFC71bF4f2Cb5d7eF4C4F69295`), `Shapes`
+(`0x6fE9193276bF7aBCbEE44AB7aFd717d637D6FAf0`), `ShapeCollection`
+(`0x9d1BD0C348900D5C6bCE28148F2adC68F73c8af3`), and
+`ShapeAuctionHouse` (`0x90b79dBf4f301c239983eE37e6a466132e1532df`).
+Exact decoded configuration binds those relationships and places Shape token
+0 in auction 0. At block `25904755`, Shapes had unit `0.01 ETH`, mint fee
+`0.001 ETH`, mint start `2026-09-03 13:00 America/Denver`, 79 cumulative mints,
+64 live tokens, `3.99 ETH` redeemable backing, and auction 0 had no bid.
+@ripe0x's new public posts describing ETH-backed Shapes, burn-to-redeem, and
+the playground corroborate the canonical release, but the verified source is
+the authority for keeper analysis. `ShapeAuctionHouse.settle(uint256)` is
+permissionless but only marks the auction settled and pays no caller reward;
+minting, bidding, and redemption require capital or token ownership. Reject a
+Shapes keeper lane under the capital-free mandate.
+
+Nonces `3528-3529` deployed verified `SovereignAuctionHouseV2`
+implementation `0x88b48793F38EF7370F2e7Bc12E2f73DC565C117F` and verified factory
+`0x77Ab853543286c9CDd7Dd6c01222A7cC4aC93D63`. The implementation is correctly
+disabled/uninitialized and the factory currently has zero houses. Verified
+source exposes permissionless `endAuction`, `expireAuction`, and recovery
+calls, but sale proceeds go only to the configured seller and protocol fee
+recipient; there is no caller bounty. Reject this release as a keeper lane
+unless a future canonical house adds an independently verified reward.
+Nonces `3530-3532` were ordinary paid mint/use calls to already deployed,
+verified `ToBeAMachine` and `ToBeAMachineEditions`, not another keeper release.
+
+Hypertoadz token 16 was finalized by another account in block `25900468`.
+Its exact `0.0000042 ETH` reward was far below the transaction's
+`0.000315349914316800 ETH` gas cost, an exact pre-payment loss of
+`0.000311149914316800 ETH`; this is not missed profit. At block `25904759`,
+fresh token 17 retained the pinned runtime/configuration with a
+`0.00042 ETH` bid, `0.0000042 ETH` reward, and deadline
+`2026-09-04 18:49:23 America/Denver`. Even with no builder payment, its reward,
+the observed finalize gas, the 2,048-gas receipt reserve, and the required
+`0.000001 ETH` floor permit a base fee of only about `0.004626 gwei`, versus
+the current `0.296808313 gwei`; production therefore stays offline. Token 17
+is a fresh lifecycle and must receive fresh exact-state validation before any
+bounded activation.
+
 The prior daily boundary kept routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
