@@ -1511,6 +1511,74 @@ the current `0.296808313 gwei`; production therefore stays offline. Token 17
 is a fresh lifecycle and must receive fresh exact-state validation before any
 bounded activation.
 
+Daily release boundary, 2026-09-05 09:09 America/Denver: routine production
+remains intentionally offline. Railway's latest worker deployment remains
+`REMOVED`, PostgreSQL's deployment is healthy, advisory signer leases are
+zero, and there are no new keeper receipts or fatal/pass-failure events. The
+wallet is unchanged at `0.020535805450466100 ETH`, zero WETH/USDC, with
+`latest == pending == 2369`; realized keeper profit is unchanged. V1 has no
+pending lifecycle; V2 retains all pinned runtimes and relationships with no
+open round or pending pull; GroupPull is unpaused and nondeprecated with
+`liveRound=0` and `buyingRounds=0`; GachaTable battle 25 remains OPEN with
+zero seats; MegaRip V3 remains FINALIZED with no remaining pull/sync work and
+an empty FWA queue; SAVE ETH remains settled with 77 pulls, empty queues, and
+its full `0.1156 ETH` crank budget spent. Shapes remains non-actionable, and
+the SovereignAuctionHouseV2 factory still has zero houses.
+
+Canonical-deployer nonces `3533-3565` are 33 newly reviewed successful
+transactions and establish a verified, internally related `Midway` release:
+
+- `RewardVault` `0xD22C3e6422744fAF9A58841EB313835B4f37357E`
+- `MidwayRegistry` `0xb5efc66Aa8dAF6482d24052b752d43F39574b395`
+- `AssetPolicy` `0x78D6943cD712b6c13D5E8b1233278e971F1DECdf`
+- `MidwayBuyer` `0x1fb010F5C4A569DBD1CB6bD14b189a53ADdD49A8`
+- `SharedUpside` `0x115f38e0Db9C39e0eF601D9300A7207dD2a8A788`
+- `RequestBuyer` implementation `0x94014A1CA361DD0c066325E26e77cE18D4Aa3Cc5`
+- `ReferralRewards` `0xb978e3fC88c09910851C616c17b0cb3cD4B16bBD`
+- `RewardSplitter` `0xA3637B88246F535e241fd7BE257B1faCB2269CC5`
+- `FwaEngineV1` `0xF9aCC9C45b642C6febD87e1e1345E86461eCD4fa`
+- `FwaConversionFloor` `0x53A4B5954a577a100780512885f78581D9F9F41C`
+- `ChainlinkVrfAdapter` `0x22778A7268125c3cE00780B58Dc3A871d508b6C1`
+- `MidwayBatchAccountFactory` `0x5c7f2552F3868130D12c4c98B0fff2705F27e482`
+
+Exact decoded configuration binds the engine to canonical FWA, FWAT, and FWA
+rewards; binds the registry, buyer, reward vault/splitter, shared-upside,
+conversion-floor, request-buyer, and referral components to each other; adds
+the VRF adapter as a funded Chainlink consumer; and moves operational control
+to `0x105a823B6e7215dBC78083259A772A6C7BA2610E`. Current state is explicitly
+pre-launch: acquisitions are paused, `nextMidwayRequestId=1`,
+`nextApplicationId=1`, the batch factory has zero accounts, the reward vault
+and shared-upside pot are empty, the conversion floor has zero usable
+observations, and shared-upside genesis is
+`2026-09-07 18:00 America/Denver`. Verified source makes processing,
+activation, synchronization, recovery, observation, and shared-upside
+maintenance permissionless, but exposes no payment to the external caller;
+application rewards remain routed to recorded accounts, referral recipients,
+the treasury, and shared-upside. Do not add a Midway keeper lane or reactivate
+production. Re-evaluate only after a canonical activation creates exact live
+state and prove any caller reward from receipt/balance deltas rather than from
+the word "keeper" in source comments. A new @ripe0x post about FWA's inventory
+network is a compatible lead but does not itself identify or authorize this
+deployment.
+
+Hypertoadz token 17 was finalized by another account in block `25907681`
+after its reward rose to `0.0000045 ETH`. Its transaction spent
+`0.000257747090449205 ETH` on gas before any direct builder payment, an exact
+pre-payment loss of `0.000253247090449205 ETH`; this is not missed profit.
+Fresh token 18 has a `0.001 ETH` bid, `0.00001 ETH` reward, and deadline
+`2026-09-05 22:07:35 America/Denver`. Even using the lower historical
+zero-bid gas plus the required 2,048-gas reserve and `0.000001 ETH` floor, its
+zero-builder base-fee ceiling is only about `0.013010048 gwei`, versus the
+current `0.098012925 gwei`; production stays offline and token 18 must not
+inherit activation.
+
+Railway CLI now warns that `railway.toml` configuration is deprecated in
+favor of `.railway/railway.ts` and remains supported only until
+`2026-12-01`. Treat this as a bounded infrastructure-migration backlog item:
+reproduce the existing pre-deploy migration, overlap, drain, restart, and
+source-revision behavior exactly in the new format, validate it without a live
+signer, and do not combine that migration with an opportunity deployment.
+
 The prior daily boundary kept routine production offline with no worker deployment,
 zero PostgreSQL advisory signer leases, wallet
 `0.872394370189281977 ETH`, and `latest == pending == 2364`. No keeper receipt
