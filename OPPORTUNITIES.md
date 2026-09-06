@@ -1593,6 +1593,81 @@ no live or buying round, GachaTable battle 25 is open with zero seats, MegaRip
 V3 remains finalized with empty FWA queue, and SAVE ETH remains settled with
 77 pulls and exhausted keeper budget.
 
+Daily release boundary, 2026-09-06 13:39 America/Denver: routine production
+remains intentionally offline. Railway worker deployment
+`96d41897-c9b9-4aca-8324-f1ac9d397893` remains `REMOVED`, PostgreSQL
+deployment `5186bec4-3cb9-4375-ab8b-73a11493f357` is `SUCCESS`, the exact
+PostgreSQL advisory signer lease count is zero, and there are no
+`keeper_receipt`, `fatal`, `keeper_pass_failed`, or `signer_lease_acquired`
+events in the prior 72 hours. The wallet remains exactly
+`0.020535805450466100 ETH`, zero supported tokens, with
+`latest == pending == 2369`; realized keeper profit is unchanged. A guarded
+read-only local pass at block `25920456` found zero viable jobs and submitted
+nothing. V2 retained its exact pinned runtimes and relationships with
+`currentOpenRound=0` and `pendingPullCount=0`; GroupPull remained unpaused and
+nondeprecated with `liveRound=0` and `buyingRounds=0`; GachaTable battle 25
+remained OPEN with zero seats; MegaRip V3 remained FINALIZED with no pull or
+sync work and an empty FWA queue. The legacy V1 pool's expired open round 375
+has only five tickets and no pending lifecycle, so it is not actionable.
+
+Hypertoadz token 18 was finalized by another account without creating a
+keeper receipt. Fresh token 19 at exact block `25920433` retained the pinned
+configuration with a `0.0004 ETH` bid, `0.000004 ETH` caller reward, no
+extension, and deadline `2026-09-06 22:13:59 America/Denver`. Its reward leaves
+only `0.000003 ETH` for gas after the required `0.000001 ETH` retained-profit
+floor, implying a zero-builder base-fee ceiling of roughly `0.00434 gwei` at
+the observed finalize gas plus receipt reserve. Exact current base fee was
+`0.067028554 gwei`, over 15 times that ceiling. This is not a deployable
+lifecycle; production remains offline and token 19 must not inherit any prior
+activation.
+
+Canonical-deployer nonces `3566-3598` were newly reviewed and show that the
+first Midway deployment was immediately exercised and then superseded by a
+fresh full deployment. Nonce 3566 registered application 1 in the first
+registry with the deployer as purchaser-reward recipient, and nonce 3567
+deployed unverified contract `0xE11163587321de6a0da859935E2e4B48AEC0b981`
+with only the canonical deployer encoded as its constructor argument. Nonces
+3568-3587 then deployed the replacement, internally related Midway stack:
+
+- `RewardVault` `0xaA9178647be2C670E8998364caa44d3F4FE25D46`
+- `MidwayRegistry` `0x072faB53363817e7F1dDd1AD9EC38D07604a5e1b`
+- `AssetPolicy` `0xeDa2Feb255D3474564212F50B263c4C4a950C0b6`
+- `MidwayBuyer` `0x3DE80E9583a25e9E9B4b444a3392c00b911D7b7F`
+- `SharedUpside` `0x5710A58688E452122a917f656F80Ca0AAD50bd06`
+- `RequestBuyer` `0xD92DFcb483f0c993A778Ac09CD034b90F7eB8A46`
+- `ReferralRewards` `0xA7Eb489f1Ad98Cd72C1d6afD3D725257021cC65E`
+- `RewardSplitter` `0x4d7BE30350C94487c33b43c2462767679dcCC15d`
+- `FwaEngineV1` `0xAf1472D68f2F2Fd4efA591e97A1E3D621Ab69e53`
+- `FwaConversionFloor` `0x550e8Aaed7C5571168751e5e62713B4Ded810eCa`
+- `ChainlinkVrfAdapter` `0x3d9eE8772a3DEA709DCe7503A3795E691C1f718C`
+- `MidwayBatchAccountFactory` `0x510EA3199B5423871b93d4FA946fc69c88dC6001`
+
+Exact constructor and configuration evidence binds the replacement buyer to
+the replacement registry and engine, the engine to canonical FWA/FWAT/rewards
+and every replacement reward/settlement component, the registry's cycle
+boundary to replacement SharedUpside, and its conversion floor to the
+replacement observation contract. The deployer configured the conversion
+floor to a 300-bps slippage cap, 64-block window, and four observations,
+recorded its first observation, added the replacement VRF adapter to the
+funded Chainlink subscription, removed the old adapter, enabled the replacement
+engine as vault depositor/referral engine, and set the Midway fee configuration
+to 50 bps with treasury `0xea194A186EBe76A84E2B2027f5f23F81939c05AD`.
+It then proposed operational ownership handoffs, including registry and policy
+operator `0x105a823B6e7215dBC78083259A772A6C7BA2610E`.
+
+The replacement remains explicitly pre-launch at block `25920445`:
+`acquisitionsPaused=true`, `nextMidwayRequestId=1`,
+`nextApplicationId=1`, `openAccessAt=0`, the canonical deployer remains the
+current registry operator pending acceptance, and cycle genesis remains
+`2026-09-07 18:00 America/Denver`. No exact caller reward is established and
+the first deployment's application is not registered in the replacement
+registry. Do not integrate Midway or reactivate production. Recheck only after
+the handoff and a canonical unpause/application registration, and require
+verified replacement source plus receipt/balance proof of any external caller
+payment. No new Midway-specific public @ripe0x announcement was found in the
+available index; the prior inventory-network post remains context rather than
+identity authority.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
