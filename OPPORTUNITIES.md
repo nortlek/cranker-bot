@@ -1668,6 +1668,57 @@ payment. No new Midway-specific public @ripe0x announcement was found in the
 available index; the prior inventory-network post remains context rather than
 identity authority.
 
+Daily release boundary, 2026-09-07 10:57 America/Denver: routine production
+remains intentionally offline. Railway reports no active worker deployment,
+PostgreSQL deployment `5186bec4-3cb9-4375-ab8b-73a11493f357` remains
+`SUCCESS`, the exact advisory signer lease count is zero, and there are no
+`keeper_receipt`, `fatal`, `keeper_pass_failed`, or `signer_lease_acquired`
+events in the prior 48 hours. The wallet remains exactly
+`0.020535805450466100 ETH`, zero supported tokens, with
+`latest == pending == 2369`; realized keeper profit is unchanged. A guarded
+read-only pass at exact block `25926790` found zero viable jobs and submitted
+nothing. V2 had `currentOpenRound=0` and `pendingPullCount=0`; GroupPull had
+`liveRound=0` and `buyingRounds=0`; GachaTable battle 25 remained OPEN with
+zero seats; MegaRip V3 remained FINALIZED with no pull or sync work and an
+empty FWA queue.
+
+Hypertoadz tokens 19 and 20 settled without a keeper receipt. Fresh token 21
+at block `25926813` had a `0.0008 ETH` bid, `0.000008 ETH` caller reward, no
+extension, and deadline `2026-09-08 08:19:11 America/Denver`. With the required
+`0.000001 ETH` retained-profit floor and the observed roughly 690k finalize
+gas, its zero-builder base-fee ceiling is only about `0.0101 gwei`; the exact
+current base fee was `0.096276643 gwei`. This fresh lifecycle is not
+profitable and must not inherit any prior Hypertoadz activation.
+
+The replacement Midway deployment crossed its first validated activation
+boundary. Operator `0x105a823B6e7215dBC78083259A772A6C7BA2610E`
+accepted registry and buyer ownership in blocks `25920497` and `25920501`.
+Canonical-deployer nonces `3599-3602` then deployed unverified 1,206-byte
+application account `0xC27342EA4C06Acc527C3ea4F819523a7c10eB949`,
+registered application 1, invited that account, and used its `exec` wrapper to
+accept the invitation. The operator allowed application 1 in transaction
+`0x29058cc47b373ab43bab09c76d055748999b9aa8f3c1a8268819c91cf094a50b`
+and unpaused acquisitions in
+`0x2c53f635ac0592b2f1e5b4d76965b43807e7491d6ffbec6d53b6fa1913303023`.
+Exact block `25926813` state confirms application and account status Active,
+`applicationAllowed=true`, `isAccountActiveForNewAcquisition=true`,
+`acquisitionsPaused=false`, and completed ownership handoff. No acquisition
+has occurred (`nextMidwayRequestId=1`), open access remains unscheduled, and
+cycle genesis is still `2026-09-07 18:00 America/Denver`. Verified Midway
+maintenance source still exposes no external caller payment, so this launch
+transition does not justify a keeper lane or production activation. Recheck
+after the first acquisition/settlement receipt for exact value flow.
+
+Canonical-deployer nonce 3603 separately created zero-fee
+`SovereignAuctionHouseV2` clone
+`0x2B06E62ea47fA419e83bb7912e9dDB1CfC91Cc1f` through verified factory
+`0x77aB853543286C9Cdd7dd6c01222A7cC4Ac93d63`. Exact state reports version 2,
+the canonical deployer as owner, and `nextAuctionId=0`. Verified settlement
+source pays only seller proceeds and any configured protocol fee, not the
+permissionless `endAuction` caller; reject it as a keeper opportunity unless
+future source or receipt evidence establishes a caller payment. No new
+Midway-specific public @ripe0x announcement was found in the available index.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
