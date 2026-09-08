@@ -1719,6 +1719,60 @@ permissionless `endAuction` caller; reject it as a keeper opportunity unless
 future source or receipt evidence establishes a caller payment. No new
 Midway-specific public @ripe0x announcement was found in the available index.
 
+Daily release boundary, 2026-09-08 10:20 America/Denver: routine production
+remains intentionally offline. Railway still has no active worker deployment,
+PostgreSQL deployment `5186bec4-3cb9-4375-ab8b-73a11493f357` remains
+`SUCCESS`, the exact advisory signer lease count is zero, and the prior 72
+hours contain no `keeper_receipt`, `fatal`, `keeper_pass_failed`, or
+`signer_lease_acquired` events. The wallet remains exactly
+`0.020535805450466100 ETH`, zero supported tokens, with
+`latest == pending == 2369`; realized keeper profit is unchanged. A guarded
+read-only pass at exact block `25933775` found zero viable jobs and submitted
+nothing. V2 retained `currentOpenRound=0` and `pendingPullCount=0`; GroupPull
+retained `liveRound=0` and `buyingRounds=0`; GachaTable battle 25 remained
+OPEN with zero seats; MegaRip V3 remained FINALIZED with no remaining pull or
+sync work and an empty FWA queue.
+
+Hypertoadz token 21 reached its deadline with a `0.0008 ETH` bid and exact
+`0.000008 ETH` caller reward but remained unfinalized at block `25933787`.
+Exact base fee was `0.213320362 gwei`, over twenty times the roughly
+`0.0101 gwei` zero-builder ceiling after the required retained-profit floor.
+It is not a missed-profit event and does not justify deployment.
+
+Canonical-deployer nonces `3604-3624` created and configured another complete
+Midway replacement immediately after the previously validated activation.
+The newly observed, internally related addresses are:
+
+- registry `0x837C686BE67f23f04A1d55B681B95F014590dc9A`
+- reward vault `0x3197f0947863B1E0A8c1DE8539ADfCB5535f1E22`
+- buyer `0xC6B81466F40DdA21f23977ea0cf9C322FF5b7180`
+- shared-upside contract `0x0c5cBf7bE69c77ee8802b6Db377f17189b417Bc2`
+- request-buyer implementation `0x570af983A58877febf5eF653357Aa3A334d7b009`
+- reward splitter `0xB6851C7845cFe56dbaF2234367C8367AB6682434`
+- FWA engine `0xd372c38Adc63Aa264F023AEe7A57C2261B67a435`
+- Chainlink VRF adapter `0x973797f122523FaaF5b2D3777fB2429C59BB8779`
+
+Configuration and exact getters bind the new buyer, registry, vault,
+shared-upside contract, splitter, engine, canonical FWA/FWAT/rewards, and VRF
+adapter together. The deployer replaced the prior VRF consumer, armed the new
+engine and vault depositor, and transferred every observed operator/owner role
+to `0x105a823B6e7215dBC78083259A772A6C7BA2610E`; the recipient accepted those
+handoffs in blocks `25933665-25933673`. The previously active buyer was then
+paused in transaction
+`0xd201d3ed892ba188c9f79b5cd95190b48be192adb07b1a558bc5200b3d9aadea`.
+
+This replacement is fail-closed at block `25933798`:
+`acquisitionsPaused=true`, `nextMidwayRequestId=1`,
+`nextApplicationId=1`, and the canonical deployer has no pending nonce
+(`latest == pending == 3625`). The new runtimes differ materially from the
+prior stack, and only the VRF adapter was verified in the available explorer
+index during this audit. Treat all other role names above as relationship- and
+interface-corroborated but pending source verification. Do not integrate this
+replacement or reactivate production until its source, application identity,
+runtime graph, exact acquisition/settlement behavior, and any external caller
+payment are independently proven. No new Midway-specific public @ripe0x post
+was found in the available index.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
