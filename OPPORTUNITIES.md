@@ -1773,6 +1773,53 @@ runtime graph, exact acquisition/settlement behavior, and any external caller
 payment are independently proven. No new Midway-specific public @ripe0x post
 was found in the available index.
 
+Daily release boundary, 2026-09-09 09:02 America/Denver: routine production
+remains intentionally offline. Railway has no active worker deployment,
+PostgreSQL deployment `5186bec4-3cb9-4375-ab8b-73a11493f357` remains
+`SUCCESS`, the exact advisory signer lease count is zero, and the prior 96
+hours contain no `keeper_receipt`, `fatal`, `keeper_pass_failed`, or
+`signer_lease_acquired` events. The keeper wallet remains exactly
+`0.020535805450466100 ETH`, with zero supported token balances and
+`latest == pending == 2369`; realized keeper profit is unchanged. A guarded
+read-only pass at block `25940588` found zero viable jobs and submitted
+nothing. V2 has no open round or pending pull, GroupPull has no live or buying
+round, GachaTable battle 25 remains open with zero seats, and MegaRip V3 is
+finalized with an empty FWA queue.
+
+Hypertoadz token 22 has a `0.0001 ETH` bid and exact `0.000001 ETH` caller
+reward. At exact block `25940603`, base fee was `0.209703367 gwei`; the reward
+equals the required retained-profit floor before any gas is paid. This fresh
+lifecycle is unprofitable and does not justify a temporary deployment.
+
+The newest Midway replacement crossed its first complete lifecycle boundary.
+Canonical-deployer nonces `3625-3631` registered application 1, invited and
+activated account `0xC27342EA4C06Acc527C3ea4F819523a7c10eB949`, funded it,
+and executed request 1 through the application account. Transaction
+`0xf19f6ed1d2e47293bec1ed4b3a24445c492099fbc44284d67df24ed9ed34ba48`
+created FWA sequence `182060` and paid an acquisition fee of
+`0.060083657700620558 ETH`. Transaction
+`0xcc429dc745292b42672f2da69d225fc0be0474480592010c627331a16b93c554`
+finalized exact qualifying spend of `0.060149592814540558 ETH`, including a
+`0.000300747964072702 ETH` fee, and synchronized listing `191156`.
+Transaction
+`0xa74ba06c35720df40b044345703b55d38c81eaa61ef59a1c8eb4b4ec2f29697c`
+then accepted the depositor bid, transferred token 8273, paid
+`0.0225 ETH` of proceeds, retained `0.0025 ETH`, and synchronized request 1
+to terminal state 5. Exact block `25940603` state shows application 1 allowed,
+its account active for new acquisitions, acquisitions unpaused,
+`nextMidwayRequestId=2`, and the application account holding
+`0.025452939009966583 ETH`.
+
+These receipts prove an application-controlled acquisition and settlement,
+not a permissionless keeper surface: every action came from the canonical
+deployer through its registered application account, and the exact logs show
+protocol, depositor, and application value flows but no external caller
+reward. Most replacement runtimes remain explorer-unverified, so no Midway
+integration or production activation is justified. Canonical-deployer
+`latest == pending == 3634`; nonces `3632-3633` only canceled and claimed a
+separate zero-index auction. No new Midway-specific public @ripe0x post was
+found in the available index.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
