@@ -1820,6 +1820,44 @@ integration or production activation is justified. Canonical-deployer
 separate zero-index auction. No new Midway-specific public @ripe0x post was
 found in the available index.
 
+Daily release boundary, 2026-09-10 09:08 America/Denver: routine production
+remains intentionally offline. Railway has no active worker deployment,
+PostgreSQL deployment `5186bec4-3cb9-4375-ab8b-73a11493f357` remains
+`SUCCESS`, the exact advisory signer lease count is zero, and the prior 120
+hours contain no `keeper_receipt`, `fatal`, `keeper_pass_failed`, or
+`signer_lease_acquired` events. The keeper wallet remains exactly
+`0.020535805450466100 ETH`, with zero supported token balances and
+`latest == pending == 2369`; realized keeper profit is unchanged. A guarded
+read-only pass at exact block `25947760` found zero viable jobs and submitted
+nothing. V2 has no open round or pending pull, GroupPull has no live or buying
+round, GachaTable battle 25 remains OPEN with zero seats, and MegaRip V3 is
+FINALIZED with no remaining pull or sync work and an empty FWA queue
+(`nextSequence=182902`, `lastIssuedSequence=182901`). Hypertoadz has advanced
+to fresh token 23 with no bid, deadline, or caller reward, so it does not
+justify a temporary deployment.
+
+Canonical-deployer nonces `3634-3638` form a verified Shapes release update.
+Nonce 3634 deployed verified `ShapeAuctionHouse`
+`0xE123d75956CB2C487251593e1be50985B23F427D`; nonces 3635-3637 pointed the
+verified Shapes contract at that house and approved Shape token 0; nonce 3638
+created auction 0. Exact block `25947774` state proves the relationship in
+both directions: `Shapes.market()` is the new house and the house's
+`shapes()` is canonical Shapes
+`0x6fE9193276bF7aBCbEE44AB7aFd717d637D6FAf0`. Auction 0 holds token 0 with no
+bid or active end time, an 86,400-second duration, 900-second extension,
+zero reserve, and a scheduled start of `2027-09-08 10:00 America/Denver`.
+Current Shapes state reports 79 cumulative mints, 51 live tokens, and
+`3.91 ETH` redeemable backing.
+
+Verified source confirms permissionless `settle(uint256)` only records the
+outcome and pays no caller; bidding requires Shape cards or ETH capital,
+`claimLot` is restricted to the winner, and `claimProceeds` is restricted to
+the seller. Reject this new auction house as a capital-free keeper surface.
+New public @ripe0x posts announcing “eth in, shape out; shape burned, eth
+returned” and the playground at `https://shapes.ripe.wtf/play` corroborate the
+Shapes launch, but do not change its economics. Canonical-deployer
+`latest == pending == 3639`; no code or production change is warranted.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
