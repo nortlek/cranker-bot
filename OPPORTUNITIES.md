@@ -1918,6 +1918,31 @@ continuation of already reviewed product activity, not a new capital-free
 keeper surface. Preserve the offline topology and monitor for fresh canonical
 deployments.
 
+Daily delta, 2026-09-14 09:39 America/Denver: the intentionally offline
+topology remains exact. Railway still has no worker deployment, PostgreSQL is
+`SUCCESS`/`RUNNING`, and a fresh tunneled PostgreSQL query returned exactly
+zero advisory signer leases. The wallet remains
+`0.020535805450466100 ETH` with zero supported token balances and
+`latest == pending == 2369`; no keeper receipt or realized-profit change
+occurred.
+
+A guarded read-only pass at block `25976636` planned zero jobs and submitted
+nothing. V2 has no open or lifecycle round and `pendingPullCount=0`; GroupPull
+has no live or buying round; GachaTable battle 25 remains OPEN with zero seats;
+MegaRip V3 remains FINALIZED with no pending sync and an empty FWA queue
+(`nextSequence=185328`, `lastIssuedSequence=185327`). Hypertoadz token 25 is
+ended and its `0.0000006 ETH` caller reward remains below the retained-profit
+floor before gas. Canonical-deployer `latest == pending == 3639`, with no new
+transactions, and the public social index exposed no new corroborated release.
+
+Railway CLI now warns that `railway.toml`/`railway.json` Config as Code is
+deprecated and scheduled to stop working on 2026-12-01. Existing production
+remains healthy and offline, so do not mutate infrastructure during this
+monitoring pass. Before the deadline, review and migrate the deployment
+configuration to `.railway/railway.ts`, preserving the pre-deploy migration,
+overlap, drain, restart, and exact-source safeguards, then validate the plan
+without activating the signer.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
