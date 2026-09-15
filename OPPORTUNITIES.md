@@ -1943,6 +1943,33 @@ configuration to `.railway/railway.ts`, preserving the pre-deploy migration,
 overlap, drain, restart, and exact-source safeguards, then validate the plan
 without activating the signer.
 
+Daily boundary, 2026-09-15 09:00 America/Denver: Railway has no active worker
+deployment; PostgreSQL is `SUCCESS`/`RUNNING`, and a fresh read-only query
+returned exactly zero advisory signer leases and no new keeper receipt, fatal,
+pass-failure, or lease-acquisition event since the prior boundary. The wallet
+remains `0.020535805450466100 ETH`, with zero supported token balances and
+`latest == pending == 2369`; realized keeper profit is unchanged. A guarded
+dry pass at block `25983624` found zero viable jobs and submitted nothing.
+V2 has no open or pending pull, GroupPull has no live or buying round,
+GachaTable battle 25 is OPEN with zero seats, MegaRip V3 is FINALIZED with no
+pending sync and an empty FWA queue (`nextSequence=186534`,
+`lastIssuedSequence=186533`). Hypertoadz token 26 is live with a
+`0.00005 ETH` bid, but its exact `0.0000005 ETH` caller reward is below the
+retained-profit floor before gas. It is not an actionable lifecycle.
+
+The newly indexed public @ripe0x posts say the creator is killing Midway and
+plans to open-source its repository because FWA V2's protocol-level custom
+pools and builder primitives supersede much of its purpose. The creator also
+discusses future MegaRip campaigns and a Shapes-only FWA custom-pool game,
+including a proposed FWAIR PFP deposit/revenue-sharing system. These are
+product/release leads, not a keeper authorization. Canonical deployer remains
+`latest == pending == 3639` with no new deployment or configuration activity
+since the previous boundary; no on-chain Midway shutdown, V2 successor, new
+game contract, or external permissionless bounty has been corroborated. Do
+not integrate or activate any lane from these posts. Recheck exact canonical
+identity, runtime, relationships, source, terms, and state only after a fresh
+on-chain deployment appears.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
