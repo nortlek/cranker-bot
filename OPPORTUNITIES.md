@@ -1970,6 +1970,45 @@ not integrate or activate any lane from these posts. Recheck exact canonical
 identity, runtime, relationships, source, terms, and state only after a fresh
 on-chain deployment appears.
 
+Daily boundary, 2026-09-17 09:00 America/Denver: Railway worker has no active
+deployment; PostgreSQL remains SUCCESS/RUNNING. A read-only local-socket SQL
+query inside PostgreSQL confirmed zero granted advisory locks and no keeper
+receipt, fatal, pass-failure, or lease-acquisition event since September 15.
+Wallet remains exactly `0.020535805450466100 ETH`, supported tokens zero,
+`latest == pending == 2369`; no realized keeper-profit change. Guarded dry-run
+block `25997982` completed with zero planned/selected jobs and no submission.
+V2 has no open/pending round; GroupPull has no live/buying round. At block
+`25997985`, GachaTable 25 is OPEN with zero seats; MegaRip V3 is FINALIZED
+with 126 pulls and no pending sync. The old FWA queue pointers are 186779 and
+186780 (two outstanding sequences, not evidence of profitable work).
+Hypertoadz token 27 has ended with a `0.00005 ETH` bid and exact
+`0.0000005 ETH` caller reward, below the retained-profit floor before gas;
+its pinned runtime still matches. No temporary deployment is warranted.
+
+Canonical deployer is now `latest == pending == 3647`. Newly reviewed nonces
+3639-3646 at blocks 25984764-25984853 comprise two NFT approvals, four
+`listNFT` calls, and two `withdrawListing` calls. Listing calls target verified
+nonproxy `FWAV2` at `0x958C41181182e76F221331b2755b77D9e1426A98`;
+example transaction:
+`0xf7626ec62995e50cfe0490c51fc6aad25c81ab0f50629444d22668f5d105e7f6`.
+This corroborates canonical-deployer use of a new FWA surface, not a verified
+permissionless keeper opportunity. Source `processAcquisitions` calls
+`_finishAcquisition`, which settles/refunds the purchaser reward module and
+emits the processor identity without a direct processor payment. The immutable
+VRF service's optional surplus sponsorship is a separate research lead.
+Next: verify creation/runtime, service/reward relationships and exact service
+source/state, then add a read-only inspector only if an external capital-free
+reward is proven. Do not repoint legacy pool adapters or activate from this
+evidence. Indexed @ripe0x posts add no independently verified deployed game;
+the Shapes game/deposit proposal remains a lead and custody is out of scope.
+
+Inspection incident: sandbox DNS failures were resolved by authorized network
+access; the read-only dry run then succeeded. An uncaught ad-hoc viem error
+printed an RPC credential-bearing endpoint in tool output. Subsequent ad-hoc
+checks use secret-safe catch handling. Request credential rotation; do not
+copy the endpoint into evidence or notifications. No signer was started and
+no infrastructure/source execution configuration changed.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
