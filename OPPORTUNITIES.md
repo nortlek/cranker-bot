@@ -2009,6 +2009,39 @@ checks use secret-safe catch handling. Request credential rotation; do not
 copy the endpoint into evidence or notifications. No signer was started and
 no infrastructure/source execution configuration changed.
 
+Daily boundary, 2026-09-18 09:00 America/Denver: worker still has no active
+deployment; PostgreSQL remains SUCCESS/RUNNING. Fresh read-only local-socket
+SQL returned zero advisory leases and no new keeper receipts, fatal errors,
+pass failures, or lease acquisitions since September 17. Wallet and supported
+token balances are unchanged at `0.020535805450466100 ETH`, tokens zero,
+`latest == pending == 2369`; no new realized keeper profit. Guarded dry run
+block `26005146` completed with zero planned jobs and no submissions. GroupPull
+has no live/buying round, GachaTable 25 remains OPEN with zero seats, and
+MegaRip V3 remains FINALIZED with no pending sync. At block `26005149` the
+old FWA queue is empty (186856 next, 186855 last issued). Canonical deployer
+remains `latest == pending == 3647`, so there is no new deployer activity to
+review. Hypertoadz token 28 at block `26005151` has a `0.00005 ETH` bid and
+`0.0000005 ETH` reward, below the floor before gas; pinned runtime matches.
+SAVE ETH at block `26005155` remains state 3 with 77 pulls, empty lifecycle
+queues, and `crankSpent == crankBudgetWei == 0.1156 ETH`; never reactivate it.
+Indexed social results contain previously reviewed leads only; freshness is
+limited by the public index and is not proof of no new posts.
+
+FWA V2 sponsorship hypothesis rejected for this keeper: the verified constructor
+binds VRF service `0xCACBd874e24B533935176154E990Bf710F56693A`. Verified
+`FWAVRFService.processAcquisitions` is `onlyOperator`; `setOperator` is
+`onlyOwner`, while public `topUpSubscription` pays no caller bounty. At exact
+block `26005151`, service `fwa()` matches
+`0x958C41181182e76F221331b2755b77D9e1426A98`, owner is
+`0x019817aD02a31B990433542097bE29D97613E8Cb`, and
+`operators(keeper) == false`. Service runtime hash is
+`0x0927eea39fd413d3dfc31ee90e9a7bbac0e42a05b4f1e6a12265b33993e4cf61`.
+Its subsidy also clamps gas, base fee, priority fee, total payment, and liquid
+surplus after callback reserves. Do not integrate, seek approvals, or deploy a
+lane around an inaccessible subsidy. Watch only genuinely new canonical
+capital-free permissionless reward surfaces. Documentation-only evidence update;
+no code/configuration/deployment change, and no repeat routine Discord update.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
