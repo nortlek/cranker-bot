@@ -2117,6 +2117,49 @@ permissionless reward surface. New @ripe0x posts `2102209586027446537` and
 24-hour edition mint, not MegaRip. Keep production offline and continue fresh
 identity/runtime/economics validation if that dormant suite becomes active.
 
+Daily boundary and FWAIR V2 release classification, 2026-09-23 09:08
+America/Denver: Railway remains intentionally offline with no active worker
+deployment; PostgreSQL is SUCCESS/RUNNING. Read-only SQL returned zero granted
+advisory locks and zero keeper receipts, fatal errors, pass failures, or lease
+acquisitions since the September 22 boundary. The wallet remains exactly
+`0.020535805450466100 ETH`, supported tokens zero, with
+`latest == pending == 2369`; realized keeper profit is unchanged. A guarded
+HTTP dry run at block `26040953` completed with zero planned jobs and zero
+submissions. PullPool V2 has no active/lifecycle round, GroupPull has no
+live/buying round, GachaTable battle 25 remains OPEN with zero seats, MegaRip
+V3 remains FINALIZED with no pending sync, Hypertoadz token 32 has no bid or
+reward, and SAVE ETH remains terminal with its budget exhausted.
+
+The only new canonical-deployer transaction was nonce `3666`, successful
+transaction `0x1b4a8cd8baeddd3e6c801e800e6322172f43987cc5dcc07fce8e7c270afa7885`
+at block `26034539`: `support(1,1)` with `0.05 ETH` into verified
+`FWAIRLaunchV2` `0xA59A249355efE20c6de666aaC43773aA1FD59De6`.
+@ripe0x post `2102451806441980284` corroborates this as backing the Fwiends
+FWA drop, not a MegaRip pull. The launch is canonically registered as manager
+launch ID 1 for collection `0x1977f9f8653fFd79Fa3198A9c66A0E5EfcaE02e3`;
+manager `0x716486a7bD6B4d7409fC4F8B52f0B23D2BcFac72` returns `isLaunch=true`,
+the launch runtime hash exactly matches its pinned
+`0xd2f846d0b74c36de0c54892e824ee4ab326b4a1049b8bd56cdb3fbc08da60516`,
+and both bind verified FWAV2 `0x958C41181182e76F221331b2755b77D9e1426A98`.
+At block `26040972`, all 666 positions were supported and launched, phase was
+Complete, and 202 were terminal. The FWAV2 queue was empty at block
+`26040988` (`pendingAcquisitionCount=0`, `unsettledAcquisitionCount=0`,
+`nextSequenceToProcess=25733`, `lastIssuedSequence=25732`).
+
+This fresh lifecycle is not a capital-free keeper opportunity. Verified
+launch source makes `depositNext`, `launchNext`, `expire`, range finalization,
+`syncPosition`, and fee/reward harvesting permissionless where applicable,
+but pays no caller bounty: harvested value is credited only to the artist or
+supporters. `requestRandomness` requires the caller to fund the Chainlink
+quote, which is capital expenditure and likewise pays no caller reward.
+Verified FWAV2 `activateListings`, `processAcquisitions`,
+`reconcileUnfulfilledVrfCount`, `kickListing`, and `finalizeUnsettled` also pay
+no processor/finalizer bounty. Do not add a lane or fund lifecycle calls.
+Canonical deployer is now `latest == pending == 3667`; the prior MegaRip
+deployer remains `latest == pending == 104`, and the unverified September 20
+suite still has no post-setup calls through block `26040985`. Keep production
+offline and monitor only for a separately proven permissionless caller reward.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
