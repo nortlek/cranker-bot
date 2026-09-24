@@ -2160,6 +2160,49 @@ deployer remains `latest == pending == 104`, and the unverified September 20
 suite still has no post-setup calls through block `26040985`. Keep production
 offline and monitor only for a separately proven permissionless caller reward.
 
+Punk MegaRip release and completed pilot rounds, 2026-09-24 09:05
+America/Denver: canonical-deployer nonces `3668-3683` deployed and configured
+the source-verified `src/punkmegarip` suite. The canonical controller is
+`PunkSeries` `0xcAc67d60Db1801522985A2380eB7c125aA0A32D4`; Sourcify has exact creation
+and runtime matches for it, its shared round implementation and modules,
+`PunkV2PurchaseRouter` `0xA7DEe9A1DA6bfCb7db12AEA6eDAA9e02aFEd6FED`, and
+`PunkRewardVault` `0xEa20a110ad3Dfc483977d14f80203994E65D34FB`. Exact reads bind the series to
+FWAV2 `0x958C41181182e76F221331b2755b77D9e1426A98`, the canonical CryptoPunks
+wrapper, and the canonical deployer as operator. The verified source and live
+terms establish a capital-free permissionless surface: bounded
+`requestPullBatch` and `syncAndSettle` reimburse measured gas at the capped
+base-plus-priority price while preserving the round's required gas budget.
+
+Two small pilot rounds started and completed before this daily check. Round
+`0x33aebFf9a99af4ba6b6DaDc5e90d02247433560D` locked `0.1 ETH`, made one
+non-hit pull, and finalized. Round
+`0x4688269036359E125B270B21AC83C49174144dA9` locked `0.15 ETH`, made two
+non-hit pulls, and finalized. Six successful permissionless request/sync
+transactions by EOAs `0x874d840924FAf476E922Ff417b26d81C3EE64B56` and
+`0x5924Cd24E626bF1Df50a3C84A1F902Df2B0eFdB4` received exact aggregate
+`KeeperReimbursed` payments of `0.002244826312131317 ETH`; after exact receipt
+gas of `0.002124434329865386 ETH` and with no additional direct beneficiary
+payment, they retained `0.000120391982265931 ETH`. This is missed external
+profit, not keeper P&L and not an estimate. The existing wallet had no receipt
+or balance change and remains `0.020535805450466100 ETH` with
+`latest == pending == 2369`.
+
+At block `26048102`, both pilots are terminal: the series has
+`liveRounds=[]`, `fundingRounds=[]`, round count 2, and the second round is
+state 4 with `economicallySettled=true`, zero bankroll, zero outstanding,
+zero ready-to-sync, and zero pending settlements. There is therefore no safe
+transaction or reason to reactivate production now. The canonical deployer is
+`latest == pending == 3698`; its final calls restored future terms after the
+pilots. The only newer visible @ripe0x post (`2102789206343029235`) is an
+unrelated repost caption and supplies no launch timing. Add a dedicated
+Punk MegaRip inspector/planner before any bounded activation: pin the verified
+series, implementation and module runtime hashes and relationships; detect
+fresh round creation immediately; model the round's protected reimbursement
+budget and exact gas-price ceiling; fork-replay the complete request and
+sync/settle paths; use an independent lane bid; and preserve nonce, balance,
+simulation, private-delivery, retained-profit and signer-lease gates. Never
+start or fund a round—the starter deposit is capital and remains out of scope.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
