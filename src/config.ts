@@ -40,6 +40,7 @@ export interface KeeperConfig {
   readonly groupPullCollectBuilderBidBps: bigint;
   readonly groupPullStandingOrderBuilderBidBps: bigint;
   readonly megaRipBuilderBidBps: bigint;
+  readonly punkMegaRipBuilderBidBps: bigint;
   readonly gachaTableDefaultBuilderBidBps: bigint;
   readonly gachaTableLifecycleBuilderBidBps: bigint;
   readonly hypertoadzBuilderBidBps: bigint;
@@ -77,6 +78,7 @@ export interface KeeperConfig {
   readonly enablePoolLifecycle: boolean;
   readonly enableGroupPull: boolean;
   readonly enableMegaRip: boolean;
+  readonly enablePunkMegaRip: boolean;
   readonly enableFwairDrop: boolean;
   readonly enableGachaTable: boolean;
   readonly enableHypertoadz: boolean;
@@ -323,10 +325,15 @@ export function loadConfig(): KeeperConfig {
     "ENABLE_GACHA_TABLE",
     false,
   );
+  const enablePunkMegaRip = booleanEnv(
+    "ENABLE_PUNK_MEGA_RIP",
+    false,
+  );
   if (
     (enableStakeDaoCurveHarvests ||
       enableFirmReplenishments ||
       enableGachaTable ||
+      enablePunkMegaRip ||
       enableDirectCoinbasePayments ||
       enablePendingFundingBackruns ||
       enablePendingFwaFulfillmentBackruns) &&
@@ -344,6 +351,8 @@ export function loadConfig(): KeeperConfig {
           ? "ENABLE_FIRM_REPLENISHMENTS"
           : enableGachaTable
           ? "ENABLE_GACHA_TABLE"
+          : enablePunkMegaRip
+          ? "ENABLE_PUNK_MEGA_RIP"
           : "ENABLE_STAKEDAO_CURVE_HARVESTS"
       } requires SUBMISSION_MODE=flashbots`,
     );
@@ -360,6 +369,34 @@ export function loadConfig(): KeeperConfig {
           : "ENABLE_PENDING_FUNDING_BACKRUNS"
       } requires WS_URL`,
     );
+  }
+  if (enablePunkMegaRip) {
+    const conflictingLane = [
+      ["ENABLE_PULL_POOL_PLANNING", booleanEnv("ENABLE_PULL_POOL_PLANNING", true)],
+      ["ENABLE_POOL_LIFECYCLE", booleanEnv("ENABLE_POOL_LIFECYCLE", true)],
+      ["ENABLE_GROUP_PULL", booleanEnv("ENABLE_GROUP_PULL", true)],
+      ["ENABLE_MEGA_RIP", booleanEnv("ENABLE_MEGA_RIP", true)],
+      ["ENABLE_FWAIR_DROP", booleanEnv("ENABLE_FWAIR_DROP", false)],
+      ["ENABLE_GACHA_TABLE", enableGachaTable],
+      ["ENABLE_HYPERTOADZ", booleanEnv("ENABLE_HYPERTOADZ", false)],
+      ["ENABLE_STANDING_ORDERS", booleanEnv("ENABLE_STANDING_ORDERS", true)],
+      ["ENABLE_VAULTS", booleanEnv("ENABLE_VAULTS", true)],
+      ["ENABLE_BUYBACK", booleanEnv("ENABLE_BUYBACK", true)],
+      ["ENABLE_LIVE_BID_SWEEP", booleanEnv("ENABLE_LIVE_BID_SWEEP", false)],
+      ["ENABLE_LIQUITY_LIQUIDATIONS", booleanEnv("ENABLE_LIQUITY_LIQUIDATIONS", false)],
+      ["ENABLE_CONVEX_EARMARKS", booleanEnv("ENABLE_CONVEX_EARMARKS", true)],
+      ["ENABLE_CONVEX_KICKS", booleanEnv("ENABLE_CONVEX_KICKS", true)],
+      ["ENABLE_STAKEDAO_CURVE_HARVESTS", enableStakeDaoCurveHarvests],
+      ["ENABLE_FIRM_REPLENISHMENTS", enableFirmReplenishments],
+      ["ENABLE_PENDING_FUNDING_BACKRUNS", enablePendingFundingBackruns],
+      ["ENABLE_PENDING_FWA_FULFILLMENT_BACKRUNS", enablePendingFwaFulfillmentBackruns],
+      ["ENABLE_DIRECT_COINBASE_PAYMENTS", enableDirectCoinbasePayments],
+    ].find(([, enabled]) => enabled === true)?.[0];
+    if (conflictingLane !== undefined) {
+      throw new Error(
+        `ENABLE_PUNK_MEGA_RIP requires ${conflictingLane}=false`,
+      );
+    }
   }
   const builderBidBps = integerEnv("BUILDER_BID_BPS", 1_000, {
     min: 0,
@@ -436,6 +473,11 @@ export function loadConfig(): KeeperConfig {
       min: 0,
       max: 10_000,
     },
+  );
+  const punkMegaRipBuilderBidBps = integerEnv(
+    "PUNK_MEGA_RIP_BUILDER_BID_BPS",
+    10_000,
+    { min: 0, max: 10_000 },
   );
   const gachaTableDefaultBuilderBidBps = integerEnv(
     "GACHA_TABLE_DEFAULT_BUILDER_BID_BPS",
@@ -570,6 +612,7 @@ export function loadConfig(): KeeperConfig {
       groupPullStandingOrderBuilderBidBps,
     ),
     megaRipBuilderBidBps: BigInt(megaRipBuilderBidBps),
+    punkMegaRipBuilderBidBps: BigInt(punkMegaRipBuilderBidBps),
     gachaTableDefaultBuilderBidBps: BigInt(
       gachaTableDefaultBuilderBidBps,
     ),
@@ -660,6 +703,7 @@ export function loadConfig(): KeeperConfig {
     enablePoolLifecycle: booleanEnv("ENABLE_POOL_LIFECYCLE", true),
     enableGroupPull: booleanEnv("ENABLE_GROUP_PULL", true),
     enableMegaRip: booleanEnv("ENABLE_MEGA_RIP", true),
+    enablePunkMegaRip,
     enableFwairDrop: booleanEnv("ENABLE_FWAIR_DROP", false),
     enableGachaTable,
     enableHypertoadz: booleanEnv("ENABLE_HYPERTOADZ", false),

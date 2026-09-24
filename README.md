@@ -511,6 +511,14 @@ successful `crank` fees are sent to that keeper address.
   deterministic owner-bound executor. The executor requires and forwards the
   planned ETH bounty, making partial FWA progress and stale same-block work
   revert. It defaults to `false` and requires private bundle submission.
+- `ENABLE_PUNK_MEGA_RIP`: enables only the verified canonical Punk MegaRip
+  `requestPullBatch` and `syncAndSettle` reimbursement calls. It pins every
+  series/module runtime and relationship, discovers only registered live
+  rounds, binds calldata to the exact pull/sync cursor and target witness, and
+  defaults to `false`; it never starts or funds a round.
+- `PUNK_MEGA_RIP_BUILDER_BID_BPS`: independent Punk MegaRip private-bundle
+  bid target. It defaults to `10000`; signed-bundle gas, the exact protected
+  reimbursement budget, and the retained-profit floor cap the actual payment.
 - `GACHA_TABLE_DEFAULT_BUILDER_BID_BPS` and
   `GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS`: independent starting bids for
   default elections and fire/settle work. Exact signed-bundle gas and the

@@ -2203,6 +2203,41 @@ sync/settle paths; use an independent lane bid; and preserve nonce, balance,
 simulation, private-delivery, retained-profit and signer-lease gates. Never
 start or fund a round—the starter deposit is capital and remains out of scope.
 
+Punk MegaRip keeper implementation, 2026-09-24 09:45 America/Denver: the
+dedicated lane is now implemented behind disabled-by-default
+`ENABLE_PUNK_MEGA_RIP`. It pins the exact series, shared round implementation,
+twelve component runtime hashes, the canonical operator, FWAV2, CryptoPunks
+wrapper, and round relationships; discovers only series-registered
+`liveRounds`; and permits only
+cursor-bound, one-item `requestPullBatch` and `syncAndSettle` calls. It never
+funds, starts, or terminates a round. Request pricing protects the contract's
+reported `requiredGasBudget` plus one maximum pull cost and the full
+`4,200,000 * gasPriceCeiling` acquisition reserve. Both actions use the
+contract's current reimbursement ceiling and priority cap, a conservative
+15,000-gas reimbursement bonus, an independent maximum-safe private builder
+bid, required signed-bundle simulation, and the existing retained-profit,
+nonce, balance, lease, and target-block gates. Configuration requires every
+routine and retired lane to remain disabled whenever this lane is enabled.
+
+The 15,000-gas modeled bonus is below every exact successful pilot receipt.
+Across the six external request/sync transactions, the reimbursement-equivalent
+surplus over outer receipt gas was respectively `18,365`, `49,693`, `35,565`,
+`49,693`, `95,853`, and `49,669` gas. Exact receipt reward decoding remains
+authoritative for realized P&L. Mainnet fork tests at the exact round-two
+parents `26047356` and `26047389` proved the bounded request and sync paths,
+cursor advancement, reimbursement, and preservation of the protected gas
+budget. TypeScript, all 444 tests, both builds, `git diff --check`, and a
+production-shaped read-only WebSocket pass succeeded at block `26048411`.
+That exact pass observed `liveRounds=[]` and `fundingRounds=[]` and emitted
+zero jobs/transactions.
+Railway remains intentionally offline with PostgreSQL healthy and zero signer
+leases; at block `26048413` the keeper wallet remained
+`0.020535805450466100 ETH`, `latest == pending == 2369`. The canonical deployer
+remained `latest == pending == 3698` with no activity newer than its already
+reviewed block-`26047866` `setTerms`. Do not deploy until a fresh live round
+passes the complete exact-state, fork, signed-simulation, economics, nonce,
+balance, zero-prior-lease, isolation, and eight-private-path gates.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses

@@ -406,6 +406,18 @@ function laneForKind(kind: string): {
                 : "recover",
         accent: "#ff8ac8",
       };
+    case "punk_mega_rip_request":
+    case "punk_mega_rip_sync_settle":
+      return {
+        laneKey: "other",
+        lane: "Punk MegaRip",
+        contract: "PunkRound",
+        strategy:
+          kind === "punk_mega_rip_request"
+            ? "request batch"
+            : "sync and settle",
+        accent: "#ff8ac8",
+      };
     case "fwair_drop_executor_deploy":
     case "fwair_drop_crank":
       return {

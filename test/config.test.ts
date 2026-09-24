@@ -29,6 +29,11 @@ const originalGachaTableLifecycleBuilderBidBps =
   process.env.GACHA_TABLE_LIFECYCLE_BUILDER_BID_BPS;
 const originalHypertoadzBuilderBidBps =
   process.env.HYPERTOADZ_BUILDER_BID_BPS;
+const originalPunkMegaRip = process.env.ENABLE_PUNK_MEGA_RIP;
+const originalPunkMegaRipBuilderBidBps =
+  process.env.PUNK_MEGA_RIP_BUILDER_BID_BPS;
+const originalPullPoolPlanning =
+  process.env.ENABLE_PULL_POOL_PLANNING;
 const originalPendingFundingBuilderBidBps =
   process.env.PENDING_FUNDING_BUILDER_BID_BPS;
 const originalBuybackBuilderBidBps =
@@ -117,6 +122,23 @@ afterEach(() => {
   } else {
     process.env.HYPERTOADZ_BUILDER_BID_BPS =
       originalHypertoadzBuilderBidBps;
+  }
+  if (originalPunkMegaRip === undefined) {
+    delete process.env.ENABLE_PUNK_MEGA_RIP;
+  } else {
+    process.env.ENABLE_PUNK_MEGA_RIP = originalPunkMegaRip;
+  }
+  if (originalPunkMegaRipBuilderBidBps === undefined) {
+    delete process.env.PUNK_MEGA_RIP_BUILDER_BID_BPS;
+  } else {
+    process.env.PUNK_MEGA_RIP_BUILDER_BID_BPS =
+      originalPunkMegaRipBuilderBidBps;
+  }
+  if (originalPullPoolPlanning === undefined) {
+    delete process.env.ENABLE_PULL_POOL_PLANNING;
+  } else {
+    process.env.ENABLE_PULL_POOL_PLANNING =
+      originalPullPoolPlanning;
   }
   if (originalPendingFundingBuilderBidBps === undefined) {
     delete process.env.PENDING_FUNDING_BUILDER_BID_BPS;
@@ -259,7 +281,7 @@ describe("Hypertoadz keeper lane", () => {
 
 describe("standing-order builder bid", () => {
   it("can disable PullPool planning without changing the default", () => {
-    delete process.env.ENABLE_PULL_POOL_PLANNING;
+    process.env.ENABLE_PULL_POOL_PLANNING = "true";
     expect(loadConfig().enablePullPoolPlanning).toBe(true);
 
     process.env.ENABLE_PULL_POOL_PLANNING = "false";
@@ -478,5 +500,33 @@ describe("private builder coverage", () => {
       "Bombora",
       "Eureka",
     ]);
+  });
+});
+
+describe("Punk MegaRip", () => {
+  it("is fail-closed by default with an independent maximum-safe bid", () => {
+    delete process.env.ENABLE_PUNK_MEGA_RIP;
+    delete process.env.PUNK_MEGA_RIP_BUILDER_BID_BPS;
+
+    const config = loadConfig();
+    expect(config.enablePunkMegaRip).toBe(false);
+    expect(config.punkMegaRipBuilderBidBps).toBe(10_000n);
+  });
+
+  it("requires private submission when enabled", () => {
+    process.env.ENABLE_PUNK_MEGA_RIP = "true";
+    process.env.SUBMISSION_MODE = "public";
+    expect(() => loadConfig()).toThrow(
+      "ENABLE_PUNK_MEGA_RIP requires SUBMISSION_MODE=flashbots",
+    );
+  });
+
+  it("requires every other planner lane to be disabled", () => {
+    process.env.ENABLE_PUNK_MEGA_RIP = "true";
+    process.env.SUBMISSION_MODE = "flashbots";
+    delete process.env.ENABLE_PULL_POOL_PLANNING;
+    expect(() => loadConfig()).toThrow(
+      "ENABLE_PUNK_MEGA_RIP requires ENABLE_PULL_POOL_PLANNING=false",
+    );
   });
 });

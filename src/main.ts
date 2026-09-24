@@ -1413,6 +1413,16 @@ async function main(): Promise<void> {
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
           } else if (
+            request.kind === "punk_mega_rip_request" ||
+            request.kind === "punk_mega_rip_sync_settle"
+          ) {
+            requestBidBps =
+              request.configuredBuilderBidBps ??
+              config.punkMegaRipBuilderBidBps;
+            requestBidPolicy = "punk_mega_rip";
+            requestMinimumPriorityFeePerGas =
+              config.poolMinPriorityFeePerGas;
+          } else if (
             request.kind === "mega_rip_executor_deploy" ||
             request.kind === "mega_rip_lock" ||
             request.kind === "mega_rip_pull" ||
@@ -1769,6 +1779,8 @@ async function main(): Promise<void> {
             config.groupPullStandingOrderBuilderBidBps.toString(),
           configuredMegaRipBuilderBidBps:
             config.megaRipBuilderBidBps.toString(),
+          configuredPunkMegaRipBuilderBidBps:
+            config.punkMegaRipBuilderBidBps.toString(),
           configuredGachaTableDefaultBuilderBidBps:
             config.gachaTableDefaultBuilderBidBps.toString(),
           configuredGachaTableLifecycleBuilderBidBps:
@@ -4159,6 +4171,8 @@ async function main(): Promise<void> {
       config.groupPullStandingOrderBuilderBidBps.toString(),
     configuredMegaRipBuilderBidBps:
       config.megaRipBuilderBidBps.toString(),
+    configuredPunkMegaRipBuilderBidBps:
+      config.punkMegaRipBuilderBidBps.toString(),
     gachaTableEnabled: config.enableGachaTable,
     pullPoolPlanningEnabled: config.enablePullPoolPlanning,
     standingOrdersEnabled: config.enableStandingOrders,
@@ -4204,6 +4218,7 @@ async function main(): Promise<void> {
     poolLifecycle: config.enablePoolLifecycle,
     groupPull: config.enableGroupPull,
     megaRip: config.enableMegaRip,
+    punkMegaRip: config.enablePunkMegaRip,
     hypertoadz: config.enableHypertoadz,
     vaults: config.enableVaults,
     buyback: config.enableBuyback,

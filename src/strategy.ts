@@ -111,6 +111,10 @@ import {
 } from "./hypertoadz.js";
 import { megaRipAbi, planMegaRipJobs } from "./mega-rip.js";
 import { megaRipKeeperExecutorAbi } from "./mega-rip-keeper-executor.js";
+import {
+  planPunkMegaRipJobs,
+  punkMegaRipRoundAbi,
+} from "./punk-mega-rip.js";
 import { retryTransientRead } from "./heads.js";
 import {
   ACQUISITION_STATUS,
@@ -170,6 +174,8 @@ export type KeeperJobKind =
   | "mega_rip_reveal"
   | "mega_rip_settle"
   | "mega_rip_recover"
+  | "punk_mega_rip_request"
+  | "punk_mega_rip_sync_settle"
   | "fwair_drop_executor_deploy"
   | "fwair_drop_crank"
   | "gacha_executor_deploy"
@@ -207,6 +213,7 @@ export type JobReward =
       readonly gasPriceCeiling: bigint;
       readonly priorityFeeCap: bigint;
       readonly executorGasDiscount: bigint;
+      readonly reimbursementGasBonus?: bigint;
       readonly reimbursedGasCap?: bigint;
       readonly maximumPayoutWei?: bigint;
     };
@@ -4881,6 +4888,17 @@ async function planJobs(parameters: {
           parameters.config.megaRipBuilderBidBps,
       })
     : Promise.resolve(undefined);
+  const punkMegaRipPromise = parameters.config.enablePunkMegaRip
+    ? planPunkMegaRipJobs({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        gasLimitMultiplierBps:
+          parameters.config.gasLimitMultiplierBps,
+        builderBidBps:
+          parameters.config.punkMegaRipBuilderBidBps,
+      })
+    : Promise.resolve(undefined);
   const fwairDropPromise = parameters.config.enableFwairDrop
     ? planFwairDropJobs({
         client: parameters.client,
@@ -4936,6 +4954,7 @@ async function planJobs(parameters: {
     groupPullPromise,
     groupPullStandingOrderPromise,
     megaRipPromise,
+    punkMegaRipPromise,
     fwairDropPromise,
     gachaTablePromise,
     hypertoadzPromise,
@@ -5002,6 +5021,7 @@ async function planJobs(parameters: {
     groupPullPlan,
     groupPullStandingOrderJobs,
     megaRipPlan,
+    punkMegaRipPlan,
     fwairDropPlan,
     gachaTablePlan,
     hypertoadzPlan,
@@ -5091,31 +5111,51 @@ async function planJobs(parameters: {
                   ? 1
                   : selectedWithMegaRip.minimumViablePrefix,
             };
+  const selectedWithPunkMegaRip: PlannedJobs =
+    punkMegaRipPlan === undefined || punkMegaRipPlan.jobs.length === 0
+      ? selectedWithFwairDrop
+      : selectedWithFwairDrop.jobs.length >= maxJobs(parameters.config)
+        ? selectedWithFwairDrop
+        : {
+            ...selectedWithFwairDrop,
+            jobs: [
+              ...selectedWithFwairDrop.jobs,
+              ...punkMegaRipPlan.jobs.slice(
+                0,
+                maxJobs(parameters.config) -
+                  selectedWithFwairDrop.jobs.length,
+              ),
+            ],
+            minimumViablePrefix:
+              selectedWithFwairDrop.minimumViablePrefix === 0
+                ? 1
+                : selectedWithFwairDrop.minimumViablePrefix,
+          };
   const selectedWithGachaTable: PlannedJobs =
     gachaTablePlan === undefined ||
     gachaTablePlan.jobs.length === 0
-      ? selectedWithFwairDrop
+      ? selectedWithPunkMegaRip
       : gachaTablePlan.minimumViablePrefix > 1
         ? {
             jobs: gachaTablePlan.jobs,
             minimumViablePrefix:
               gachaTablePlan.minimumViablePrefix,
-            orders: selectedWithFwairDrop.orders,
-            skipped: selectedWithFwairDrop.skipped,
+            orders: selectedWithPunkMegaRip.orders,
+            skipped: selectedWithPunkMegaRip.skipped,
           }
-        : selectedWithFwairDrop.jobs.length >=
+        : selectedWithPunkMegaRip.jobs.length >=
             maxJobs(parameters.config)
-          ? selectedWithFwairDrop
+          ? selectedWithPunkMegaRip
           : {
-              ...selectedWithFwairDrop,
+              ...selectedWithPunkMegaRip,
               jobs: [
-                ...selectedWithFwairDrop.jobs,
+                ...selectedWithPunkMegaRip.jobs,
                 ...gachaTablePlan.jobs,
               ],
               minimumViablePrefix:
-                selectedWithFwairDrop.minimumViablePrefix === 0
+                selectedWithPunkMegaRip.minimumViablePrefix === 0
                   ? 1
-                  : selectedWithFwairDrop.minimumViablePrefix,
+                  : selectedWithPunkMegaRip.minimumViablePrefix,
             };
   const hypertoadzJob = hypertoadzPlan?.job;
   const selectedWithHypertoadz: PlannedJobs =
@@ -5219,6 +5259,17 @@ async function planJobs(parameters: {
     megaRipSelected: selected.jobs.some((job) =>
       job.kind.startsWith("mega_rip_"),
     ),
+    punkMegaRipEnabled: parameters.config.enablePunkMegaRip,
+    punkMegaRipLiveRounds: JSON.stringify(
+      punkMegaRipPlan?.liveRounds ?? [],
+    ),
+    punkMegaRipFundingRounds: JSON.stringify(
+      punkMegaRipPlan?.fundingRounds ?? [],
+    ),
+    punkMegaRipPlannedJobs: punkMegaRipPlan?.jobs.length ?? 0,
+    punkMegaRipSelected: selected.jobs.some((job) =>
+      job.kind.startsWith("punk_mega_rip_"),
+    ),
     gachaTableEnabled: parameters.config.enableGachaTable,
     gachaTableCurrentBattle:
       gachaTablePlan?.currentBattleId.toString() ?? "",
@@ -5275,6 +5326,7 @@ export function estimatedJobReward(parameters: {
       parameters.gasUsed > terms.executorGasDiscount
         ? parameters.gasUsed - terms.executorGasDiscount
         : 0n;
+    reimbursedGas += terms.reimbursementGasBonus ?? 0n;
     if (
       terms.reimbursedGasCap !== undefined &&
       reimbursedGas > terms.reimbursedGasCap
@@ -5546,6 +5598,33 @@ function actualJobReward(
         }
       } catch {
         // Ignore unrelated executor logs.
+      }
+    }
+    return total;
+  }
+  if (
+    request.kind === "punk_mega_rip_request" ||
+    request.kind === "punk_mega_rip_sync_settle"
+  ) {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) {
+        continue;
+      }
+      try {
+        const decoded = decodeEventLog({
+          abi: punkMegaRipRoundAbi,
+          data: entry.data,
+          topics: entry.topics,
+        });
+        if (
+          decoded.eventName === "KeeperReimbursed" ||
+          decoded.eventName === "CustodyGasPaid"
+        ) {
+          total += decoded.args.amount;
+        }
+      } catch {
+        // Ignore unrelated round logs.
       }
     }
     return total;

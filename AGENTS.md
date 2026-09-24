@@ -1102,6 +1102,18 @@ on exact simulated gas; this protects the configured floor against the
 observed simulation-to-receipt drift without inflating the competitive bid.
 Never bid in the auction or accept NFT custody.
 
+Punk MegaRip execution is limited to canonical series
+`0xcAc67d60Db1801522985A2380eB7c125aA0A32D4`, its pinned verified module
+suite, FWAV2, and the canonical CryptoPunks wrapper. The lane may discover only
+series-registered `liveRounds()` and may call only cursor-bound
+`requestPullBatch` or `syncAndSettle`; it must never call `startNextRound`,
+deposit, top-up, bid, or any purchase path. Recheck the round clone runtime,
+module relationships, terminal state, protected gas budget, reimbursement
+price, exact signed-bundle simulation, nonce, balance, signer lease, and
+retained-profit floor on every bounded activation. Its maximum-safe builder bid
+is independent of legacy MegaRip. A terminal or merely funding round produces
+no work, and every new round requires fresh bounded activation.
+
 ## Security and change boundaries
 
 - Never print, commit, or message `.env`, private keys, webhook URLs, database
