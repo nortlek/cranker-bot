@@ -2238,6 +2238,43 @@ reviewed block-`26047866` `setTerms`. Do not deploy until a fresh live round
 passes the complete exact-state, fork, signed-simulation, economics, nonce,
 balance, zero-prior-lease, isolation, and eight-private-path gates.
 
+Punk or Bust successor release, 2026-09-24 14:36 America/Denver: the user's
+fresh @ripe0x screenshot announced “punk or bust” round 1 for Punk 3190 with a
+`1 ETH` collective pool. Canonical-deployer nonces `3698-3721` independently
+corroborate a newly deployed successor suite, a completed setup/pilot round,
+fresh terms, and `startNextRound` transaction
+`0x0795bd97b702c51309a92b56932e8731198d0db9a01a01a79f79db292875b9d0`.
+The new canonical series is
+`0x0b6b58578c74012c0c0294d5b7e181b680934E6A`, not the already integrated
+`0xcAc6...` series. Its current registered round is
+`0xDdd0c297BB34c8d2F41FaA0829898cDB0247BFaF`; exact FWAV2 listing `55`
+resolves to the canonical CryptoPunks wrapper and token `3190`, matching the
+social lead.
+
+At exact block `26049755`, the successor series was unhalted and unretired with
+`roundCount=2`, and the current round appeared in both `liveRounds` and
+`fundingRounds`. The round was state `Funding`, initialized, not economically
+settled, and had `0.1 / 1.0 ETH` contributed, a `1 ETH` cap/minimum, and a
+funding deadline of `2026-09-25 14:30:23 America/Denver`. It had zero bankroll,
+zero crank budget/spend, zero pulls, zero outstanding work, zero ready syncs,
+zero pending settlements, and `canRequest=false`; therefore there is no keeper
+transaction now. The keeper wallet remains `0.020535805450466100 ETH` with
+`latest == pending == 2369`; the deployer is `latest == pending == 3722`;
+Railway has no worker deployment, PostgreSQL is healthy, and exact advisory
+signer leases are zero.
+
+Fail closed: the successor's series and round implementation were not yet
+verified by Blockscout or Sourcify during this check, and revision `3b5e759`
+intentionally pins the predecessor addresses/runtimes. Do not broaden or
+activate that lane from selector similarity alone. Monitor the funding total,
+deadline, canonical deployer, source verification, runtime/component hashes,
+terms, and every round transition. Before any activation, require exact
+verified source/relationships, a successor-specific implementation or pinned
+configuration, current-state mainnet-fork request and sync/settle proof,
+signed maximum-safe eight-path simulation, positive retained profit, settled
+nonce/balance, zero prior leases, full validation, and a bounded isolated
+Railway deployment.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
