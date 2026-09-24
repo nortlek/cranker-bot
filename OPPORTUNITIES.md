@@ -2263,6 +2263,11 @@ transaction now. The keeper wallet remains `0.020535805450466100 ETH` with
 Railway has no worker deployment, PostgreSQL is healthy, and exact advisory
 signer leases are zero.
 
+Funding advanced to `0.145 ETH` by block `26049781`, while the round remained
+state `Funding` with `canRequest=false`. The new series and implementation were
+still unverified at that boundary; this changes neither the offline posture nor
+the source-verification gate.
+
 Fail closed: the successor's series and round implementation were not yet
 verified by Blockscout or Sourcify during this check, and revision `3b5e759`
 intentionally pins the predecessor addresses/runtimes. Do not broaden or
