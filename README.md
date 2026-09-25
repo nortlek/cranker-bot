@@ -511,7 +511,8 @@ successful `crank` fees are sent to that keeper address.
   deterministic owner-bound executor. The executor requires and forwards the
   planned ETH bounty, making partial FWA progress and stale same-block work
   revert. It defaults to `false` and requires private bundle submission.
-- `ENABLE_PUNK_MEGA_RIP`: enables only the verified canonical Punk MegaRip
+- `ENABLE_PUNK_MEGA_RIP`: enables only the pinned canonical Punk or Bust
+  successor generation's
   `requestPullBatch` and `syncAndSettle` reimbursement calls. It pins every
   series/module runtime and relationship, discovers only registered live
   rounds, binds calldata to the exact pull/sync cursor and target witness, and

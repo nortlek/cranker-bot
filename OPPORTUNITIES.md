@@ -2302,13 +2302,60 @@ called `beginEnding()` in block `26051825`; transaction
 `0x0ef962d8ed72deb465b5a88cf1b92d85d2402732815fa0bb4a389ea63af838b9`
 called `finalizeEconomics()` in block `26051845` and emitted `Finalized` with
 `0.078813989918701259 ETH` returned to the participant pool and zero sponsor
-refund. The successor source remained unverified, so production correctly
+refund. The successor source had not yet been recovered, so production
 stayed offline: no keeper transaction or profit occurred, the keeper wallet
 remained `0.020535805450466100 ETH` with `latest == pending == 2369`, the
 deployer settled at `latest == pending == 3727`, Railway had no worker
 deployment, and advisory signer leases were zero. This lifecycle is complete;
 any later successor round requires fresh source verification and an entirely
 new bounded validation/deployment decision.
+
+Punk or Bust missed-opportunity correction and successor repair, 2026-09-24
+22:57 America/Denver: the explorer's unverified label was not a sufficient end
+state for the investigation. Sourcify v2 similarity verification recovered the
+successor round implementation `0x76B60F60c95BF4598A7E62492c6172E439c36EED`,
+batch, ledger, execution, value, and round-factory source. Every one of the 18
+round source files, including `PunkRound.sol`, `PunkRoundStorage.sol`,
+`PunkPullBudgetLib.sol`, `PunkRoundQueryLib.sol`, and `FwaClientLib.sol`, is
+byte-for-byte identical to the already verified predecessor source. The five
+changed core modules and round factory likewise have no source differences;
+their runtime hash changes are attributable to new immutable relationships.
+The successor series and adapter-factory source are not verified, so their
+exact runtime hashes and every exposed canonical relationship remain mandatory
+fail-closed pins; neither is a keeper transaction target.
+
+The completed first successor round contained 46 reimbursed permissionless
+transactions. Exact receipts paid `0.011240202682080106 ETH`, consumed
+`0.010965773123166284 ETH` of gas, and included
+`0.000215144453527998 ETH` of traced direct builder payments, leaving observed
+external net profit of `0.000059285105385824 ETH`. Thirty-eight receipts were
+positive and retained `0.000533646013864998 ETH` before eight losing receipts
+reduced the aggregate. Dominant caller
+`0x5924Cd24E626bF1Df50a3C84A1F902Df2B0eFdB4` retained
+`0.000259605485434704 ETH` across 37 transactions despite one large loss. This
+is missed external opportunity, not our realized P&L and not proof that every
+receipt was independently capturable; it disproves the earlier implication
+that the lifecycle had no profitable keeper work.
+
+The lane now pins successor series
+`0x0b6b58578c74012c0c0294d5b7e181b680934E6A`, all successor component
+addresses/runtime hashes, the exact clone runtime, and relationships. Exact
+mainnet forks at successor parents `26051666` and `26051685` proved the bounded
+one-item request and sync paths, cursor advancement, positive reimbursement,
+and protected gas-budget preservation. TypeScript, all 445 tests, both builds,
+`git diff --check`, and both fork tests passed. A production-shaped isolated
+read-only WebSocket pass at block `26052222` verified the pins and discovered
+fresh round `0xAC7e986D68A1CEF9DbF0eA6dd62790cc9640DdFD` while emitting zero jobs.
+
+At block `26052205`, that fresh round was Funding with target listing `55`,
+`0.11 / 1.00 ETH` contributed, deadline `2026-09-25 21:46:23
+America/Denver`, zero bankroll/pulls/lifecycle queues, and `canRequest=false`.
+Production therefore remains offline and signer leases must remain zero. Watch
+this round at lifecycle cadence. If it locks and enters Hunting, require a
+fresh exact-parent fork and signed maximum-safe eight-path bundle simulation,
+positive retained profit, settled nonce/balance, zero prior leases, clean
+pushed main, and an isolated bounded Railway activation with only
+`ENABLE_PUNK_MEGA_RIP=true`; remove it immediately after settlement.
 
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and

@@ -22,22 +22,22 @@ contract PunkMegaRipLiveForkTest {
     VmPunkMegaRipFork internal constant vm =
         VmPunkMegaRipFork(address(uint160(uint256(keccak256("hevm cheat code")))));
     IPunkMegaRipRound internal constant ROUND =
-        IPunkMegaRipRound(0x4688269036359E125B270B21AC83C49174144dA9);
+        IPunkMegaRipRound(0xDdd0c297BB34c8d2F41FaA0829898cDB0247BFaF);
     address internal constant CALLER = 0x1111111111111111111111111111111111111111;
 
     function testExactPilotParentSupportsBoundedRequestBatchWithProtectedBudget() external {
         string memory rpcUrl = vm.envOr("RPC_URL", string(""));
         if (bytes(rpcUrl).length == 0) return;
 
-        vm.createSelectFork(rpcUrl, 26_047_356);
+        vm.createSelectFork(rpcUrl, 26_051_666);
         vm.deal(CALLER, 1 ether);
-        vm.txGasPrice(512_137_553);
+        vm.txGasPrice(156_539_530);
         uint256 balanceBefore = CALLER.balance;
 
         vm.prank(CALLER);
-        ROUND.requestPullBatch(0, 55, 1);
+        ROUND.requestPullBatch(30, 55, 1);
 
-        require(ROUND.pullCount() == 1, "request did not advance exact cursor");
+        require(ROUND.pullCount() == 31, "request did not advance exact cursor");
         require(CALLER.balance > balanceBefore, "request reimbursement missing");
         require(ROUND.bankroll() >= ROUND.requiredGasBudget(), "protected gas budget breached");
     }
@@ -46,15 +46,15 @@ contract PunkMegaRipLiveForkTest {
         string memory rpcUrl = vm.envOr("RPC_URL", string(""));
         if (bytes(rpcUrl).length == 0) return;
 
-        vm.createSelectFork(rpcUrl, 26_047_389);
+        vm.createSelectFork(rpcUrl, 26_051_685);
         vm.deal(CALLER, 1 ether);
-        vm.txGasPrice(455_069_785);
+        vm.txGasPrice(154_763_686);
         uint256 balanceBefore = CALLER.balance;
 
         vm.prank(CALLER);
-        ROUND.syncAndSettle(0, 1);
+        ROUND.syncAndSettle(35, 1);
 
-        require(ROUND.syncCursor() == 1, "sync did not advance exact cursor");
+        require(ROUND.syncCursor() == 36, "sync did not advance exact cursor");
         require(CALLER.balance > balanceBefore, "sync reimbursement missing");
         require(ROUND.bankroll() >= ROUND.requiredGasBudget(), "protected gas budget breached");
     }
