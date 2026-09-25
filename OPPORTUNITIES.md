@@ -2268,6 +2268,19 @@ state `Funding` with `canRequest=false`. The new series and implementation were
 still unverified at that boundary; this changes neither the offline posture nor
 the source-verification gate.
 
+The round reached its exact `1 ETH` cap in block `26051556`, and canonical-
+deployer transaction
+`0x1c55013122a7030e0d27be4c2215cadc42331daace67d486060fd72a39ecbc49`
+called `lock()` in block `26051566`. By exact block `26051593` the round had
+left `fundingRounds`, entered state `2` with `canRequest=true`, held
+`0.713006700851656114 ETH` of bankroll, and had already advanced to ten pulls:
+three were outstanding, three were ready to sync, and none were pending
+settlement. The deployer was `latest == pending == 3725`; the keeper wallet
+remained `0.020535805450466100 ETH` with `latest == pending == 2369`.
+Blockscout still exposed no verified source for the successor series, so the
+source gate remains closed despite the live lifecycle. Railway remained
+intentionally offline, PostgreSQL healthy, and advisory signer leases zero.
+
 Fail closed: the successor's series and round implementation were not yet
 verified by Blockscout or Sourcify during this check, and revision `3b5e759`
 intentionally pins the predecessor addresses/runtimes. Do not broaden or
