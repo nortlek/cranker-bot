@@ -2293,6 +2293,23 @@ signed maximum-safe eight-path simulation, positive retained profit, settled
 nonce/balance, zero prior leases, full validation, and a bounded isolated
 Railway deployment.
 
+The Punk or Bust round settled without acquiring Punk 3190. At exact block
+`26051859`, the round was state `Settled` (`4`), `economicallySettled=true`,
+`punkAcquired=false`, `endingReason=1`, and every lifecycle queue was empty
+after `65` pulls. Canonical-deployer transaction
+`0x5bbbc9009352a6dbef9e0e527dcdb34f444af9542a1db11c74724b343b09d2b4`
+called `beginEnding()` in block `26051825`; transaction
+`0x0ef962d8ed72deb465b5a88cf1b92d85d2402732815fa0bb4a389ea63af838b9`
+called `finalizeEconomics()` in block `26051845` and emitted `Finalized` with
+`0.078813989918701259 ETH` returned to the participant pool and zero sponsor
+refund. The successor source remained unverified, so production correctly
+stayed offline: no keeper transaction or profit occurred, the keeper wallet
+remained `0.020535805450466100 ETH` with `latest == pending == 2369`, the
+deployer settled at `latest == pending == 3727`, Railway had no worker
+deployment, and advisory signer leases were zero. This lifecycle is complete;
+any later successor round requires fresh source verification and an entirely
+new bounded validation/deployment decision.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
