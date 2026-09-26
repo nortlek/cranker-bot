@@ -4,6 +4,7 @@ import type { KeeperConfig } from "../src/config.js";
 import {
   PULL_POOL_SUCCESSOR_FACTORY_ADDRESS,
   PULL_POOL_V2_ADDRESS,
+  PULL_POOL_V2_DEPLOYMENT_BLOCK,
   PULL_POOL_V2_FACTORY_ADDRESS,
   PULL_POOL_V2_ORDER_FACTORY_ADDRESSES,
 } from "../src/constants.js";
@@ -213,5 +214,43 @@ describe("PullPool V2 active-round index", () => {
     ).toEqual([
       { roundId: 1n, state: ROUND_STATE.claimable },
     ]);
+  });
+
+  it("bounds concurrent historical event scans on cold startup", async () => {
+    let concurrent = 0;
+    let maximumConcurrent = 0;
+    let scans = 0;
+    const getLogs = async () => {
+      scans += 1;
+      concurrent += 1;
+      maximumConcurrent = Math.max(maximumConcurrent, concurrent);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      concurrent -= 1;
+      return [];
+    };
+    const readContract = async (request: {
+      readonly functionName: string;
+    }) => {
+      if (
+        request.functionName === "currentOpenRound" ||
+        request.functionName === "pendingPullCount"
+      ) {
+        return 0n;
+      }
+      throw new Error(`unexpected read ${request.functionName}`);
+    };
+    const client = { getLogs, readContract } as never;
+
+    await readPullPoolV2Routing(
+      client,
+      PULL_POOL_V2_DEPLOYMENT_BLOCK - 1n,
+    );
+    await readPullPoolV2Routing(
+      client,
+      PULL_POOL_V2_DEPLOYMENT_BLOCK + 10_000n,
+    );
+
+    expect(scans).toBe(6);
+    expect(maximumConcurrent).toBe(4);
   });
 });

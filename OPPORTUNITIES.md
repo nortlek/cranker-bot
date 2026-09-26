@@ -2357,6 +2357,44 @@ positive retained profit, settled nonce/balance, zero prior leases, clean
 pushed main, and an isolated bounded Railway activation with only
 `ENABLE_PUNK_MEGA_RIP=true`; remove it immediately after settlement.
 
+Punk or Bust round-two closeout and cold-start scan repair, 2026-09-26 09:14
+America/Denver: round `0xAC7e...DdFD` missed its exact funding deadline at
+only `0.26001 / 1.00 ETH`, never locked, never exposed `canRequest`, and never
+created a keeper transaction or profit opportunity. Expected participant
+withdrawals reduced `totalContributed` to `0.20 ETH` by exact block
+`26062393`; the newest withdrawal was successful transaction
+`0x419342eef23334c64fcf8cbb57fb53c74beba17eba00a6cd64afa585e4f2c99f`
+for `0.05 ETH` in block `26061563`. The round remains state `Funding` with
+zero bankroll, pulls, outstanding work, ready syncs, and pending settlements.
+@ripe0x post `2103675407241277736` corroborated the one-hour funding warning
+and documented that an underfunded round ends with participant withdrawals;
+it is not a new release. The canonical deployer remains settled at
+`latest == pending == 3731` with no newer activity.
+
+The daily production-shaped read-only pass exposed a separate readiness
+regression: a cold process attempted all 2,000-block PullPool V2 lifecycle-log
+ranges concurrently. The index has grown to more than 420,000 blocks, and the
+foreground WebSocket provider closed under that burst; repeated cold passes
+failed immediately after `head_and_fees` with no transaction risk. The event
+scan now preserves ordered reconstruction while limiting RPC concurrency to
+four ranges. A regression test proves a six-range cold scan never exceeds
+four simultaneous requests. The repaired production-shaped WebSocket pass at
+block `26062440` completed cleanly with zero jobs and zero submissions; it
+reconstructed no active V2 rounds and observed healthy subsequent heads.
+TypeScript, all 446 tests, both builds, the focused scan test, and
+`git diff --check` passed.
+
+Railway remains intentionally offline with PostgreSQL healthy and zero signer
+leases. No new keeper receipts, submissions, lease acquisitions, pass failures,
+or fatal events appeared after the prior boundary. The wallet remains exactly
+`0.020535805450466100 ETH`, supported tokens zero, with
+`latest == pending == 2369`; realized keeper profit is unchanged. PullPool V2
+has no open or lifecycle round, GroupPull has no live or buying round,
+GachaTable battle 25 remains open with zero seats, MegaRip V3 is finalized,
+Hypertoadz token 32 has no bid or reward, and the FWA queue is empty. Keep the
+worker offline; the scan repair is source readiness for a future independently
+validated bounded lifecycle, not authority to reactivate routine production.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses

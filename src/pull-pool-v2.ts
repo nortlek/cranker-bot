@@ -70,6 +70,7 @@ type LifecycleEvent = {
 };
 
 const V2_EVENT_SCAN_BLOCK_RANGE = 2_000n;
+const V2_EVENT_SCAN_CONCURRENCY = 4;
 
 let activeRoundIndex:
   | {
@@ -115,23 +116,35 @@ async function readLifecycleEvents(
         : toBlock;
     ranges.push({ fromBlock: start, toBlock: end });
   }
-  const chunks = await Promise.all(
-    ranges.map((range) =>
-      client.getLogs({
-        address: PULL_POOL_V2_ADDRESS,
-        events: poolV2LifecycleAbi,
-        fromBlock: range.fromBlock,
-        toBlock: range.toBlock,
-        strict: true,
-      }),
-    ),
-  );
-  return chunks.flatMap((logs) =>
-    logs.map((entry) => ({
-      eventName: entry.eventName,
-      args: { roundId: entry.args.roundId },
-    })),
-  );
+  const chunks: LifecycleEvent[][] = [];
+  for (
+    let offset = 0;
+    offset < ranges.length;
+    offset += V2_EVENT_SCAN_CONCURRENCY
+  ) {
+    const batch = ranges.slice(
+      offset,
+      offset + V2_EVENT_SCAN_CONCURRENCY,
+    );
+    chunks.push(
+      ...(await Promise.all(
+        batch.map(async (range) => {
+          const logs = await client.getLogs({
+            address: PULL_POOL_V2_ADDRESS,
+            events: poolV2LifecycleAbi,
+            fromBlock: range.fromBlock,
+            toBlock: range.toBlock,
+            strict: true,
+          });
+          return logs.map((entry) => ({
+            eventName: entry.eventName,
+            args: { roundId: entry.args.roundId },
+          }));
+        }),
+      )),
+    );
+  }
+  return chunks.flat();
 }
 
 export function pullPoolV2ShouldBeSelected(parameters: {
