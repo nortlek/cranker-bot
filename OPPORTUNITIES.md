@@ -2427,6 +2427,20 @@ Railway deployment gates before enabling only `ENABLE_PUNK_MEGA_RIP=true`.
 Restore the ordinary daily schedule after cancellation or fully reconciled
 settlement and never carry activation into a successor round.
 
+Round-three funding-window closeout, 2026-09-27 14:13 America/Denver: exact
+block `26071096`, 384 seconds after the funding deadline, still showed only
+`0.145 / 1 ETH` contributed. The round remained Funding solely for explicit
+cancellation/refunds, with zero bankroll, pulls, outstanding work, ready syncs,
+or pending settlements and `canRequest=false`. It never locked, never entered
+Hunting, and never created a keeper opportunity. Production remained offline
+throughout; PostgreSQL reported zero signer leases and no keeper submission,
+receipt, lease acquisition, pass failure, or fatal event. The wallet stayed
+exactly `0.020535805450466100 ETH` with supported tokens zero and
+`latest == pending == 2369`; realized keeper profit did not change. Return the
+automation to its ordinary daily 09:00 America/Denver schedule. Continue to
+observe cancellation/refunds in the daily pass, but never reactivate this
+underfunded lifecycle; any successor round requires fresh validation.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
