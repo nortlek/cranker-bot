@@ -2395,6 +2395,38 @@ Hypertoadz token 32 has no bid or reward, and the FWA queue is empty. Keep the
 worker offline; the scan repair is source readiness for a future independently
 validated bounded lifecycle, not authority to reactivate routine production.
 
+Punk or Bust round-three lifecycle watch, 2026-09-27 09:04 America/Denver:
+the canonical deployer cancelled the underfunded prior round through nonces
+`3731-3732`, then called the pinned series `startNextRound` with listing `55`
+and `0.1 ETH` in successful transaction
+`0xdb18b1014af1298f0f468558931e049e3a3ef2b1e81ff8f02aea63a79976c6ef`
+at block `26063909`. Exact block `26069567` identified the fresh registered
+round as `0x14D0dFB5B985a98aabbAC37578185559b9aDd3E0`; it retained the pinned
+runtime hash and canonical series relationships, was initialized in state
+Funding, had `0.145 / 1 ETH` contributed, target listing `55`, deadline
+`2026-09-27 14:06:35 America/Denver`, zero bankroll/pulls/lifecycle queues,
+and `canRequest=false`. @ripe0x post `2103943085264908579` independently
+announced the new one-ETH round and approximately 65 pulls, but the exact
+on-chain state remains authoritative. There is no keeper transaction or
+realized profit while the round is Funding and `canRequest=false`.
+
+The deployer also created verified `FwaClientLib`
+`0xAf7004D41A852C7ddA377551ce4Af2FffEAbdf23` and verified `VaultFactory`
+`0x2d774be0c47902306d911b049e03d02dd7e399c6` after this round started.
+Neither changes the current round's pinned runtime or relationships; treat them
+as a separate future-release lead until exact downstream deployments and
+canonical relationships are established. Railway remains intentionally
+offline, PostgreSQL signer leases are zero, the wallet remains
+`0.020535805450466100 ETH` with `latest == pending == 2369`, and no keeper
+receipt, submission, fatal, pass failure, or lease acquisition appeared after
+the prior boundary. The lifecycle monitor is temporarily on a 15-minute cadence.
+If the round fully funds and locks into Hunting, require the full exact-parent
+fork, signed maximum-safe eight-path simulation, positive retained profit,
+nonce/balance, zero-prior-lease, clean-source, test, and isolated bounded
+Railway deployment gates before enabling only `ENABLE_PUNK_MEGA_RIP=true`.
+Restore the ordinary daily schedule after cancellation or fully reconciled
+settlement and never carry activation into a successor round.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
