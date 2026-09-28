@@ -2476,6 +2476,32 @@ isolated bounded Railway deployment with only `ENABLE_PUNK_MEGA_RIP=true`.
 After cancellation or fully reconciled settlement, restore the ordinary daily
 schedule and never carry activation into another successor.
 
+Punk or Bust round-four closeout, 2026-09-28 15:06 America/Denver: the round
+expired underfunded at exactly `0.01 / 1 ETH` and never entered Hunting. In
+block `26078492` at `2026-09-28T20:58:35Z`, 24 seconds after the funding
+deadline, participant `0x02e797524881ed9e188e163914f4ffaeea93eb2f`
+successfully called `lock(55)` in transaction
+`0xbf7c970aaacf5a146977e41258125b7f86a7caef6c8c96dda4473af943fa27d1`;
+the underfunded lock moved the round to `Cancelled`. The same participant then
+claimed the exact `0.01 ETH` contribution through successful `claim(address)`
+transaction
+`0xaa6ba006269db07febd8d06b204ccbeb5d302b482a9f06415b703079eb9e5611`
+in block `26078521`. At exact block `26078532` the round was state `Cancelled`
+(`1`), `economicallySettled=true`, absent from both canonical series arrays,
+and had zero bankroll, gas budget, pulls, outstanding work, ready syncs, or
+pending settlements; `canRequest=false` and the planner emitted zero jobs.
+
+There was no keeper opportunity, submission, receipt, or realized-profit
+change in this lifecycle. The keeper wallet remains exactly
+`0.020535805450466100 ETH` with `latest == pending == 2369`; the canonical
+deployer remains `latest == pending == 3736`. Railway has no worker deployment,
+PostgreSQL remains healthy with zero signer leases, and no keeper submission,
+receipt, expiration, pass failure, fatal, or lease acquisition appeared after
+the prior boundary. Return the lifecycle automation to its ordinary daily
+09:00 America/Denver schedule. Any successor is fresh and requires complete
+identity, runtime, state, fork, economics, validation, and bounded-deployment
+gates before activation.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
