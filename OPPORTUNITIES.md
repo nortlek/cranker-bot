@@ -2441,6 +2441,41 @@ automation to its ordinary daily 09:00 America/Denver schedule. Continue to
 observe cancellation/refunds in the daily pass, but never reactivate this
 underfunded lifecycle; any successor round requires fresh validation.
 
+Punk or Bust round-four lifecycle watch, 2026-09-28 09:07 America/Denver:
+the underfunded round-three contract is now state `Cancelled`, economically
+settled, and absent from the series arrays. The pinned canonical series instead
+identifies fresh registered round
+`0x47Fef8e050c2b0Bd0E4015ed639ce3c8cD1d529A` in both `liveRounds` and
+`fundingRounds`. It was created by the series in successful permissionless
+`startNextRound(55, 0x43ce...7ac2)` transaction
+`0x109740eacbef7637442395fcb14cbb6244d7d1cbcebccbbc05ed9ced6be45287`
+at block `26071319`; the non-deployer caller supplied `0.04 ETH`. Exact block
+`26076745` proved the round is initialized and registered, its runtime hash is
+the pinned `0x32a78b...5b55`, and the complete pinned series/component and
+round relationship checks pass.
+
+The exact round state remains Funding with `0.01 / 1 ETH` contributed, target
+listing `55`, a funding deadline of `2026-09-28 14:58:11 America/Denver`, zero
+bankroll, zero gas budget, zero pulls, and empty outstanding, ready-sync, and
+settlement queues. `canRequest=false`; the production planner emitted zero
+jobs. Therefore there is no keeper transaction or realized profit now and the
+worker must remain offline. The keeper wallet remains
+`0.020535805450466100 ETH` with `latest == pending == 2369`; the canonical
+deployer remains `latest == pending == 3736`. PostgreSQL has zero advisory
+signer leases and no keeper submission, receipt, expiration, pass failure,
+fatal, or lease acquisition after the prior boundary. New public @ripe0x posts
+since the prior review are unrelated commentary and Punk 5893 artwork; they do
+not modify the exact on-chain lifecycle.
+
+Watch this fresh round at 15-minute lifecycle cadence through its funding
+deadline and every later transition. If it fully funds and locks into Hunting,
+require the complete exact-parent mainnet-fork request/sync proof, signed
+maximum-safe eight-path simulation, positive retained profit, settled
+nonce/balance, zero prior leases, clean pushed source, full tests, and an
+isolated bounded Railway deployment with only `ENABLE_PUNK_MEGA_RIP=true`.
+After cancellation or fully reconciled settlement, restore the ordinary daily
+schedule and never carry activation into another successor.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
