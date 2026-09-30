@@ -2502,6 +2502,42 @@ the prior boundary. Return the lifecycle automation to its ordinary daily
 identity, runtime, state, fork, economics, validation, and bounded-deployment
 gates before activation.
 
+Networked auctions/TBAM activity review, 2026-09-30 09:10 America/Denver:
+the canonical deployer advanced from nonce 3736 to 3748 through twelve
+successful `collectPatronEdition(uint256,address)` calls for auction 1034 and
+auctions 1036-1046 at verified `NetworkedAuctions`
+`0xaB48082d28049873ce54F672541D29779a3392Ef`. Each call sent exactly
+`0.000373711559986099 ETH` plus gas. Public @ripe0x posts about the TBAM
+calibration-plate bidder edition corroborate this activity, but do not announce
+a FWA, PullPool, GroupPull, MegaRip, or Punk-or-Bust lifecycle.
+
+The non-proxy contract was created by
+`0x100140d76E155d9289F5b0bb93548D56E3281001` in transaction
+`0xa6a6635111aaa4d0bdd2c7c736dd028a9e1064c3fe551f8a4fd13152abd4db00`,
+has pinned observed runtime hash
+`0x5504123c5c0eaffa3d111e5a5fef1ed137a95c4f76f3ee953f63a5f35e997f38`,
+and is verified as Solidity 0.8.36/Cancun. Its `settle(uint256)` entrypoint is
+permissionless, but verified source only marks the auction settled, delivers
+the asset, and distributes the winning bid to the seller, fee ledger,
+collection owner, and optional referrer. It pays no caller bounty or gas
+reimbursement. `collectPatronEdition` is payable rather than rewarded. At exact
+block 26091095, `lastAuctionId=1050`; recent auction 1048 was ended and
+unsettled, but settling it would realize negative keeper P&L because the caller
+receives zero. Reject this surface as a capital-free keeper lane unless a
+future verified runtime adds explicit caller compensation.
+
+The ordinary keeper remains intentionally offline. Exact block 26091067 had
+no Punk-or-Bust live/funding round, no Hypertoadz bid or reward, no PullPool V2
+open/lifecycle round, no GroupPull live/buying round, finalized MegaRip V3 with
+an empty queue, and a dry-run planner result of zero jobs. GachaTable battle 25
+remains open with zero seats. The wallet remains exactly
+`0.020535805450466100 ETH` with `latest == pending == 2369`. Railway's latest
+worker deployments remain removed, PostgreSQL deployment
+`5186bec4-3cb9-4375-ab8b-73a11493f357` remains `SUCCESS`, and a read-only
+database check found zero advisory signer leases and no new keeper submission,
+receipt, expiration, pass-failure, fatal, or lease-acquisition event. No code,
+configuration, production, or realized-profit change is warranted.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
