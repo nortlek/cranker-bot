@@ -2538,6 +2538,58 @@ database check found zero advisory signer leases and no new keeper submission,
 receipt, expiration, pass-failure, fatal, or lease-acquisition event. No code,
 configuration, production, or realized-profit change is warranted.
 
+FWA V2 autonomous-vault activation and keeper miss, 2026-10-01 09:18
+America/Denver: the `VaultFactory`
+`0x2D774bE0c47902306D911b049E03D02dD7E399C6` recorded as a future-release
+lead on September 27 became a live keeper surface after the prior daily
+boundary. Canonical deployer nonce `3750` called verified
+`createVault(...)` in successful transaction
+`0x24b3bc1ec0e507de95e368e75317f8d962b2c7f4ba7681302703f9a2a2283634`
+at block `26092364`, creating the registered EIP-1167 vault
+`0x12E9aC05B754D9000D5d1D66046457CaBad3D2b6` backed by verified
+implementation `0x0e4bC3E18919cDD4A83746F030b7b89f9Dc522F1`. The factory and vault bind
+the new FWA V2 deployment `0x958C41181182e76F221331b2755b77D9e1426A98` and router
+`0x186F4c10152f9a902573b3Fe07F48689Fa8a4927`; this is not the legacy
+PullPool vault factory or the Punk-or-Bust series.
+
+The deployer funded the run with `0.12 ETH`, public mode, a `0.5 gwei` gas
+ceiling, the default `0.0003 ETH` request/finalize bounty, a sync bounty that
+ramps to `0.003 ETH`, a `0.15 ETH` maximum pull cost, and four keep
+collections. Verified source makes `requestPulls(uint256)`, `sync(uint256)`,
+and `finalizeAuction(uint256)` permissionless and reimburses eligible callers
+for bounded gas before paying the bounty. This is an explicit capital-free
+keeper surface, not a social-media hypothesis.
+
+The complete first run lasted only 21 blocks. Competitors called three
+profitable `requestPulls` batches, four profitable syncs, and the final
+run-ending `requestPulls` from blocks `26092365-26092385`. The eight receipts
+received exactly `0.005057487498041347 ETH` of vault reimbursement and bounty,
+spent `0.002518362115007024 ETH` of transaction gas, and sent another `1187`
+wei of transaction value, retaining exactly `0.002539125383033136 ETH` in
+aggregate. This is competitor-realized profit and a counterfactual opportunity,
+not keeper P&L. Our wallet and nonce remained unchanged at
+`0.020535805450466100 ETH` and `latest == pending == 2369`.
+
+Root cause: the September 27 factory discovery was left as a downstream lead
+instead of being fully classified from its already verified implementation,
+and the intentionally offline worker has no FWA V2 autonomous-vault lane or
+factory-event discovery. The ordinary daily monitor first revisited the
+deployer after the entire four-minute lifecycle had ended. This was a product
+discovery/integration and scheduling miss, not a private-delivery or bid-price
+loss. Do not count the `0.002539125383033136 ETH` as realized keeper profit.
+
+At exact block `26098232` the vault is already idle: `status=0`, `idle=0`,
+`pullsRequested=6`, `keeps=3`, `outstandingCount=0`, `openAuctions=0`, and
+all three `syncStatus` fields are zero. It has no remaining transaction or
+profit to capture. P0 follow-up is to implement and fork-test a dedicated FWA
+V2 vault lane with canonical factory/runtime/relationship verification,
+`VaultCreated` discovery, exact fixed-parent `requestPulls`/`sync`/auction
+planning, reimbursement-cap modeling, independent maximum-safe bidding,
+nonce/balance/lease gates, and isolated bounded activation. A passive daily
+deployer poll cannot defend a one-block-first-action lifecycle. Never point the
+legacy vault adapter at this factory or reactivate routine production without
+the full new-lane validation and deployment gates.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
