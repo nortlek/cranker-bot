@@ -44,6 +44,7 @@ export interface KeeperConfig {
   readonly gachaTableDefaultBuilderBidBps: bigint;
   readonly gachaTableLifecycleBuilderBidBps: bigint;
   readonly hypertoadzBuilderBidBps: bigint;
+  readonly fwaV2VaultBuilderBidBps: bigint;
   readonly liveBidSweepBuilderBidBps: bigint;
   readonly liquityBuilderBidBps: bigint;
   readonly convexBuilderBidBps: bigint;
@@ -82,6 +83,7 @@ export interface KeeperConfig {
   readonly enableFwairDrop: boolean;
   readonly enableGachaTable: boolean;
   readonly enableHypertoadz: boolean;
+  readonly enableFwaV2Vault: boolean;
   readonly enableStandingOrders: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
@@ -329,11 +331,16 @@ export function loadConfig(): KeeperConfig {
     "ENABLE_PUNK_MEGA_RIP",
     false,
   );
+  const enableFwaV2Vault = booleanEnv(
+    "ENABLE_FWA_V2_VAULT",
+    false,
+  );
   if (
     (enableStakeDaoCurveHarvests ||
       enableFirmReplenishments ||
       enableGachaTable ||
       enablePunkMegaRip ||
+      enableFwaV2Vault ||
       enableDirectCoinbasePayments ||
       enablePendingFundingBackruns ||
       enablePendingFwaFulfillmentBackruns) &&
@@ -353,6 +360,8 @@ export function loadConfig(): KeeperConfig {
           ? "ENABLE_GACHA_TABLE"
           : enablePunkMegaRip
           ? "ENABLE_PUNK_MEGA_RIP"
+          : enableFwaV2Vault
+          ? "ENABLE_FWA_V2_VAULT"
           : "ENABLE_STAKEDAO_CURVE_HARVESTS"
       } requires SUBMISSION_MODE=flashbots`,
     );
@@ -503,6 +512,11 @@ export function loadConfig(): KeeperConfig {
       max: 10_000,
     },
   );
+  const fwaV2VaultBuilderBidBps = integerEnv(
+    "FWA_V2_VAULT_BUILDER_BID_BPS",
+    1_000,
+    { min: 0, max: 10_000 },
+  );
   const liveBidSweepBuilderBidBps = integerEnv(
     "LIVE_BID_SWEEP_BUILDER_BID_BPS",
     100,
@@ -620,6 +634,7 @@ export function loadConfig(): KeeperConfig {
       gachaTableLifecycleBuilderBidBps,
     ),
     hypertoadzBuilderBidBps: BigInt(hypertoadzBuilderBidBps),
+    fwaV2VaultBuilderBidBps: BigInt(fwaV2VaultBuilderBidBps),
     liveBidSweepBuilderBidBps:
       BigInt(liveBidSweepBuilderBidBps),
     liquityBuilderBidBps: BigInt(liquityBuilderBidBps),
@@ -707,6 +722,7 @@ export function loadConfig(): KeeperConfig {
     enableFwairDrop: booleanEnv("ENABLE_FWAIR_DROP", false),
     enableGachaTable,
     enableHypertoadz: booleanEnv("ENABLE_HYPERTOADZ", false),
+    enableFwaV2Vault,
     enableStandingOrders: booleanEnv(
       "ENABLE_STANDING_ORDERS",
       true,

@@ -279,6 +279,24 @@ describe("Hypertoadz keeper lane", () => {
   });
 });
 
+describe("FWA V2 autonomous-vault keeper lane", () => {
+  it("defaults off with an independent ten-percent builder bid", () => {
+    delete process.env.ENABLE_FWA_V2_VAULT;
+    delete process.env.FWA_V2_VAULT_BUILDER_BID_BPS;
+    const config = loadConfig();
+    expect(config.enableFwaV2Vault).toBe(false);
+    expect(config.fwaV2VaultBuilderBidBps).toBe(1_000n);
+  });
+
+  it("requires private bundle submission when enabled", () => {
+    process.env.ENABLE_FWA_V2_VAULT = "true";
+    process.env.SUBMISSION_MODE = "public";
+    expect(() => loadConfig()).toThrow(
+      "ENABLE_FWA_V2_VAULT requires SUBMISSION_MODE=flashbots",
+    );
+  });
+});
+
 describe("standing-order builder bid", () => {
   it("can disable PullPool planning without changing the default", () => {
     process.env.ENABLE_PULL_POOL_PLANNING = "true";

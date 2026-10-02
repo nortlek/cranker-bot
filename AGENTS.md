@@ -76,6 +76,19 @@ all of the post-gas reward, so Hypertoadz must request the maximum safe bid and
 let exact gas plus the configured minimum retained profit cap the payment. Do
 not reuse a lower standing-order or pool bid for this independent lane.
 
+The canonical FWA V2 autonomous vault at
+`0x12E9aC05B754D9000D5d1D66046457CaBad3D2b6` is a validated capital-free
+request, sync, and auction-finalization surface. The disabled-by-default
+`ENABLE_FWA_V2_VAULT` lane pins its factory, implementation, FWA, router, and
+EIP-1167 runtime; exact-simulates sync so processing-ready work is not hidden
+by a zero pre-state resolvable count; and models the verified reimbursement,
+bounty-ramp, and idle-balance caps. A four-minute first run on 2026-10-01 was
+missed before this integration existed. Never rely on the ordinary daily poll
+to defend a live run. Any activation requires fresh exact-parent/fork
+simulation, nonce/balance and zero-prior-lease gates, all tests, and a bounded
+temporary deployment with every unrelated lane disabled. Remove it again when
+the run is idle.
+
 ## Start here
 
 Requirements:

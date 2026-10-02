@@ -109,6 +109,10 @@ import {
   hypertoadzPlanningMaxFeePerGas,
   planHypertoadzFinalize,
 } from "./hypertoadz.js";
+import {
+  fwaV2VaultAbi,
+  planFwaV2VaultJob,
+} from "./fwa-v2-vault.js";
 import { megaRipAbi, planMegaRipJobs } from "./mega-rip.js";
 import { megaRipKeeperExecutorAbi } from "./mega-rip-keeper-executor.js";
 import {
@@ -183,6 +187,9 @@ export type KeeperJobKind =
   | "gacha_settle"
   | "gacha_default"
   | "hypertoadz_finalize"
+  | "fwa_v2_vault_request"
+  | "fwa_v2_vault_sync"
+  | "fwa_v2_vault_finalize"
   | "fwa_buyback"
   | "live_bid_sweep"
   | "liquity_liquidation"
@@ -4945,6 +4952,18 @@ async function planJobs(parameters: {
           parameters.config.hypertoadzBuilderBidBps,
       })
     : Promise.resolve(undefined);
+  const fwaV2VaultPromise = parameters.config.enableFwaV2Vault
+    ? planFwaV2VaultJob({
+        client: parameters.client,
+        account: parameters.account,
+        blockNumber: parameters.headBlockNumber,
+        blockTimestamp: parameters.headTimestamp,
+        baseFeePerGas: parameters.parentBaseFeePerGas,
+        maxFeePerGas: parameters.maxFeePerGas,
+        gasLimitMultiplierBps: parameters.config.gasLimitMultiplierBps,
+        builderBidBps: parameters.config.fwaV2VaultBuilderBidBps,
+      })
+    : Promise.resolve(undefined);
   // Observe every concurrently started auxiliary planner immediately. The
   // settled wrapper itself never rejects, so Node 24 cannot terminate the
   // process before the later merge reaches these results. Re-throwing below
@@ -4958,6 +4977,7 @@ async function planJobs(parameters: {
     fwairDropPromise,
     gachaTablePromise,
     hypertoadzPromise,
+    fwaV2VaultPromise,
   ]).then(
     (plans) => ({ plans } as const),
     (error: unknown) => ({ error } as const),
@@ -5025,6 +5045,7 @@ async function planJobs(parameters: {
     fwairDropPlan,
     gachaTablePlan,
     hypertoadzPlan,
+    fwaV2VaultPlan,
   ] = auxiliaryPlans.plans;
   const mergedWithGroupPullCollect =
     groupPullPlan === undefined
@@ -5170,10 +5191,21 @@ async function planJobs(parameters: {
               ? 1
               : selectedWithGachaTable.minimumViablePrefix,
         };
+  const fwaV2VaultJob = fwaV2VaultPlan?.job;
+  const selectedWithFwaV2Vault: PlannedJobs =
+    fwaV2VaultJob === undefined ||
+    selectedWithHypertoadz.jobs.length >= maxJobs(parameters.config)
+      ? selectedWithHypertoadz
+      : {
+          ...selectedWithHypertoadz,
+          jobs: [...selectedWithHypertoadz.jobs, fwaV2VaultJob],
+          minimumViablePrefix:
+            selectedWithHypertoadz.minimumViablePrefix === 0 ? 1 : selectedWithHypertoadz.minimumViablePrefix,
+        };
   const availableGroupPullStandingOrderSlots = Math.max(
     0,
     maxJobs(parameters.config) -
-      selectedWithHypertoadz.jobs.length,
+      selectedWithFwaV2Vault.jobs.length,
   );
   const appendedGroupPullStandingOrderJobs =
     groupPullStandingOrderJobs.slice(
@@ -5182,19 +5214,19 @@ async function planJobs(parameters: {
     );
   const selected: PlannedJobs =
     appendedGroupPullStandingOrderJobs.length === 0
-      ? selectedWithHypertoadz
+      ? selectedWithFwaV2Vault
       : {
-          ...selectedWithHypertoadz,
+          ...selectedWithFwaV2Vault,
           jobs: [
-            ...selectedWithHypertoadz.jobs,
+            ...selectedWithFwaV2Vault.jobs,
             ...appendedGroupPullStandingOrderJobs,
           ],
           minimumViablePrefix:
-            selectedWithHypertoadz.minimumViablePrefix === 0
+            selectedWithFwaV2Vault.minimumViablePrefix === 0
               ? 1
-              : selectedWithHypertoadz.minimumViablePrefix,
+              : selectedWithFwaV2Vault.minimumViablePrefix,
           orders:
-            selectedWithHypertoadz.orders +
+            selectedWithFwaV2Vault.orders +
             appendedGroupPullStandingOrderJobs.length,
         };
   log("info", "pull_pool_adapter_plans_merged", {
@@ -5295,6 +5327,13 @@ async function planJobs(parameters: {
     hypertoadzSelected: selected.jobs.some(
       (job) => job.kind === "hypertoadz_finalize",
     ),
+    fwaV2VaultEnabled: parameters.config.enableFwaV2Vault,
+    fwaV2VaultStatus: fwaV2VaultPlan?.status ?? "",
+    fwaV2VaultIdle: fwaV2VaultPlan?.idle.toString() ?? "",
+    fwaV2VaultOutstanding: fwaV2VaultPlan?.outstandingCount.toString() ?? "",
+    fwaV2VaultResolvable: fwaV2VaultPlan?.resolvable.toString() ?? "",
+    fwaV2VaultOpenAuctions: fwaV2VaultPlan?.openAuctions ?? "",
+    fwaV2VaultSelected: selected.jobs.some((job) => job.kind.startsWith("fwa_v2_vault_")),
   });
   return selected;
 }
@@ -5667,6 +5706,19 @@ function actualJobReward(
         }
       } catch {
         // Ignore unrelated core events.
+      }
+    }
+    return total;
+  }
+  if (request.kind.startsWith("fwa_v2_vault_")) {
+    let total = 0n;
+    for (const entry of logs) {
+      if (entry.address.toLowerCase() !== request.target.toLowerCase()) continue;
+      try {
+        const decoded = decodeEventLog({ abi: fwaV2VaultAbi, data: entry.data, topics: entry.topics });
+        if (decoded.eventName === "KeeperReimbursed" || decoded.eventName === "BountyPaid") total += decoded.args.amount;
+      } catch {
+        // Ignore unrelated vault logs.
       }
     }
     return total;

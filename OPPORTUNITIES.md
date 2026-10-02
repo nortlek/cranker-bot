@@ -2590,6 +2590,41 @@ deployer poll cannot defend a one-block-first-action lifecycle. Never point the
 legacy vault adapter at this factory or reactivate routine production without
 the full new-lane validation and deployment gates.
 
+FWA V2 autonomous-vault repair, 2026-10-02 America/Denver: the missing lane is
+now implemented, disabled by default, and isolated behind
+`ENABLE_FWA_V2_VAULT`. It pins the exact factory, implementation, EIP-1167
+vault, FWA, and router runtime/relationship set above. At every exact parent it
+reads public/private mode, status, idle funds, gas ceiling, bounty settings,
+outstanding pulls, sync readiness, and auctions; it prioritizes eligible
+auction finalization, exact-simulates `sync(outstandingCount)` so an FWA
+processor advance is not missed when the pre-state resolvable count is zero,
+and requests the maximum five-pull batch while a run is live. The reward model
+reproduces the verified 40,000-gas overhead, per-action reimbursement caps,
+2-gwei priority cap, ordinary/protective gas-price ceilings, linear 20-minute
+sync-bounty ramp, idle-balance payout cap, and exact `KeeperReimbursed` plus
+`BountyPaid` receipt accounting. Every job requires signed private-bundle
+simulation, uses an independent 1,000-bps starting bid, and remains subject to
+the existing retained-profit, nonce, balance, signer-lease, and eight-path
+delivery gates.
+
+Current-state validation against a credential-free mainnet endpoint matched
+all pinned identities and failed closed with `status=Idle`, `idle=0`, no
+outstanding pulls, no resolvable work, no auction, and no job. Typecheck, all
+451 tests, both builds, and `git diff --check` passed. The historical
+credential-free archive replay was unavailable, so this repair is source-ready
+but is not authority for a blind activation: before the next run, replay its
+exact parent through the production archive/fork path, recheck gas economics
+and the wallet/lease gates, then use a bounded temporary deployment with only
+this lane enabled. Production remains intentionally offline.
+
+Since the miss boundary, canonical-deployer nonces 3751-3755 changed the
+vault's keep list, bid `0.69 ETH` through a verified generic Batch auction,
+deposited `0.5 ETH` to Relay Depository, and wrapped approximately `0.159 ETH`.
+The Batch `assemble`/`settle` functions and the Relay deposit pay no caller
+reward, so neither is a new capital-free keeper lane. The factory still has
+only the registered canonical vault; that vault is idle and will be reused by
+the owner for a future run.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
