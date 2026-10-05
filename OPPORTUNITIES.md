@@ -2625,6 +2625,19 @@ reward, so neither is a new capital-free keeper lane. The factory still has
 only the registered canonical vault; that vault is idle and will be reused by
 the owner for a future run.
 
+Release watch, 2026-10-04 America/Denver: a new public @ripe0x post says
+"bitMON or bust" is available for targeted pulls on `run.megarip.fun`. The
+deployed frontend pins the already-validated FWA V2 vault factory
+`0x2D774bE0c47902306D911b049E03D02dD7E399C6` and now lists BitMON at
+`0x6E6b13A7Ff06b53dCC3589D35b1B0ffd58C5bdeB`; Blockscout independently
+identifies that address as the `BITMON` ERC-721. This corroborates the
+previously reviewed keep-list change, not a new MegaRip contract or funded
+run. At exact block `26118908` the sole canonical vault remained
+`status=Idle`, `idle=0`, with no outstanding pulls, resolvable work, auction,
+or keeper job. Canonical-deployer nonces 3756 and 3757 only wrapped `0.002 ETH`
+and `0.03 ETH` into WETH. Continue watching the existing factory/vault for a
+fresh funded run; do not activate production from the UI release alone.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
