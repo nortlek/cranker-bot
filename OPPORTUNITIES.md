@@ -2639,6 +2639,17 @@ or keeper job. Canonical-deployer nonces 3756-3759 only wrapped `0.002 ETH`,
 existing factory/vault for a fresh funded run; do not activate production from
 the UI release alone.
 
+Follow-up boundary, 2026-10-05 America/Denver: canonical-deployer nonce 3760
+wrapped another `0.21 ETH`, nonce 3761 bought a batch of `Credits` ERC-721s
+(`0x97630aA70AB14ed9883B41dAfccBc11349723043`) through Seaport for
+`0.13436364646398 ETH`, and nonce 3762 bought more of the same collection
+through the verified generic ask proxy
+`0xb2ecfE4E4D61f8790bbb9DE2D1259B9e2410CEA5` for `0.068 ETH`. These are
+owner-funded NFT purchases with no caller reward, not keeper jobs or realized
+keeper P&L. At block `26126943` the registered FWA V2 vault still remained
+idle with zero idle funds and empty lifecycle queues, so production correctly
+remained offline.
+
 The disabled-by-default implementation pins address, runtime, duration,
 extension, and maximum reward configuration; reads the current auction and
 reward at the subscribed exact block; targets the first eligible child; uses
