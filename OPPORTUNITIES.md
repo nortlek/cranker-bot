@@ -2532,6 +2532,33 @@ an isolated bounded Railway deployment with only `ENABLE_PUNK_MEGA_RIP=true`.
 Restore the ordinary daily schedule after cancellation or fully reconciled
 settlement, and never inherit activation into a successor round.
 
+Canonical-deployer permissionless-reward review, 2026-10-06 14:29
+America/Denver: nonces 3766-3768 introduced no immediately actionable keeper
+work. Transaction
+`0xd02578644e6e7af831da59a111618c5620f874c66945ee44e86b64aaca80c723`
+called verified `ArtCoinsLpLocker.collectRewards` at
+`0x866ea3Dc2bf7A3e77374619cf50EB697FA766aab` for token
+`0x61C9d89fe1212F6b55fF888816A151463287B8ae`. Although the verified runtime
+supports a permissionless paired-side caller reward capped at `0.01 ETH`, its
+exact current `keeperRewardBps` is zero. The successful deployer receipt emitted
+no `KeeperRewarded`, and an exact post-sweep caller simulation consumed an
+estimated 689,558 gas with no reward. Hold this surface unless a fresh exact
+read proves a nonzero reward rate and positive retained profit.
+
+Transactions
+`0xbb83afee249adb2ac03db77bc1a8c66d2b345752655dc18dce10d2f6728f02b2`
+and `0x084c43596046634ffa282e13a4f7af654ef0f809450b6e0202a27773ddab1b46`
+were owner-only `setMinLayerOutPerWeth` updates on verified BurnRouters
+`0x2eDBdF011768d8cd4Ef537658b41440900C52000` and
+`0xE60046ee745B235109C10d322A1cbDB3c029De43`. Both expose permissionless
+`processBurnWeth` with a 0.5% caller reward capped at `0.01 ETH`, but neither
+was ready at exact block 26135741: the first held only
+`0.000186027556410614 WETH` against its `0.01 WETH` threshold (modeled reward
+`0.000000930137782053 ETH`) and the second held zero. Exact calls reverted
+below threshold. Keep both as read-only accumulation leads; require pinned
+runtime/relationship checks, exact profitable simulation, and the ordinary
+bounded-deployment gates before integration or activation.
+
 Networked auctions/TBAM activity review, 2026-09-30 09:10 America/Denver:
 the canonical deployer advanced from nonce 3736 to 3748 through twelve
 successful `collectPatronEdition(uint256,address)` calls for auction 1034 and
