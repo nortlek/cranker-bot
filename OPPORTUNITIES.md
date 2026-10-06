@@ -2502,6 +2502,36 @@ the prior boundary. Return the lifecycle automation to its ordinary daily
 identity, runtime, state, fork, economics, validation, and bounded-deployment
 gates before activation.
 
+Punk or Bust round-five lifecycle watch, 2026-10-06 09:04 America/Denver:
+canonical-deployer nonce 3765 started fresh registered round
+`0x27D789eD3A6d1aB1341004f4A87ea454B2A6dc28` through successful
+`startNextRound` transaction
+`0x13045f126a914bdcd6f0b652af148c3e7b711406dfa849c02f790edaccbbd8cd`
+in block `26133907`, contributing `0.1 ETH`. The pinned series identifies it
+in both `liveRounds` and `fundingRounds`; the isolated exact-parent planner
+revalidated the complete pinned series/component and round relationships and
+emitted zero jobs. At exact block `26134106` it remained state `Funding` with
+`0.1 / 1 ETH` contributed, target listing `55`, funding deadline
+`2026-10-07 08:23:47 America/Denver`, zero bankroll, zero required gas budget,
+zero pulls, empty outstanding/ready-sync/settlement queues, and
+`canRequest=false`. Its configured keeper profit is `0.005 ETH`, but no keeper
+action exists until a fully funded lock advances the round to Hunting.
+
+Canonical-deployer nonces 3763 and 3764 preceding the round start were only a
+`0.0005 ETH` Relay Depository funding transaction and a `0.5 ETH` Universal
+Router purchase; neither exposes a caller reward. The deployer is now
+`latest == pending == 3766`. Railway remains intentionally offline,
+PostgreSQL is healthy with zero signer leases, and the keeper wallet remains
+exactly `0.020535805450466100 ETH` with `latest == pending == 2369` and no new
+keeper receipt or realized P&L. Switch the lifecycle watch to 15-minute cadence
+through funding and every later transition. Do not deploy while Funding; if it
+fully funds and locks into Hunting, require a fresh exact-parent mainnet-fork
+request/sync proof, signed maximum-safe eight-path simulation, positive
+retained profit, settled nonce/balance, zero prior leases, full validation, and
+an isolated bounded Railway deployment with only `ENABLE_PUNK_MEGA_RIP=true`.
+Restore the ordinary daily schedule after cancellation or fully reconciled
+settlement, and never inherit activation into a successor round.
+
 Networked auctions/TBAM activity review, 2026-09-30 09:10 America/Denver:
 the canonical deployer advanced from nonce 3736 to 3748 through twelve
 successful `collectPatronEdition(uint256,address)` calls for auction 1034 and
