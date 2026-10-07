@@ -2559,6 +2559,22 @@ below threshold. Keep both as read-only accumulation leads; require pinned
 runtime/relationship checks, exact profitable simulation, and the ordinary
 bounded-deployment gates before integration or activation.
 
+Canonical-deployer follow-up, 2026-10-06 20:10 America/Denver: nonces
+3769-3771 also produced no caller-paid work. Transaction
+`0x2aaa56ff62a6cbdea060c21883645bb928d6e42b98232a38db7ece7ded69ef87`
+set an unverified contract at `0xF051cd4C4F3F36F9f24d8a19d60Ee8F84FC6793e`
+deprecated through an admin-style `setDeprecated(true)` call and transferred
+nothing. Transaction
+`0xd4f1c19067128080626a638c8008bdc88f4e78c318bd6c3b2551edaea41a751d`
+called verified legacy `ArtCoinsLpLockerMultiple.collectRewards` at
+`0x75BE7E95745915fD0C1761B74F3f9650ad2d1118`; its exact verified source has
+no keeper-reward state or event and distributed the collected LAYER only to
+the configured fee locker. Transaction
+`0xe8b4b438ae93992afc77f6ffaa72cf1f6386efecec45acd71293aa2211aac35f`
+then claimed those fees from verified `ArtCoinsFeeLocker` directly to the
+canonical deployer. These are owner/beneficiary maintenance paths, not keeper
+rewards; reject them without changing production.
+
 Networked auctions/TBAM activity review, 2026-09-30 09:10 America/Denver:
 the canonical deployer advanced from nonce 3736 to 3748 through twelve
 successful `collectPatronEdition(uint256,address)` calls for auction 1034 and
