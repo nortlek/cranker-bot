@@ -2575,6 +2575,31 @@ then claimed those fees from verified `ArtCoinsFeeLocker` directly to the
 canonical deployer. These are owner/beneficiary maintenance paths, not keeper
 rewards; reject them without changing production.
 
+Canonical-deployer executor review, 2026-10-06 21:31 America/Denver: nonces
+3772-3774 repeated the same deprecated-contract flag, legacy
+`ArtCoinsLpLockerMultiple.collectRewards`, and fee-locker claim described
+above. The claim transferred exactly `0.479620464023356567 WETH` to the
+canonical deployer and exposed no caller payment. Nonce 3775 then deployed
+unverified executor `0xa8fd2c8DB6A8EDfBa9eC2993b37F534e34D0B50E`, which pins artcoin
+`0x61C9d89fe1212F6b55fF888816A151463287B8ae`, locker
+`0x866ea3Dc2bf7A3e77374619cf50EB697FA766aab`, escrow
+`0x7559689765aE86cBB38e68CD1294830CccB125F2`, and verified
+`FeeAutoSwapper` `0xeBD9B74A4c26C6E54e83C84CB247c069eC42A961`. Its permissionless
+`run(bool,uint256)` composes locker collection, escrow movement, and optional
+conversion. Exact block-26137857 simulation from the keeper account succeeded
+for both branches: the collection-only branch estimated 839,829 gas, while
+the converting branch estimated 1,089,178 gas and traced an exact
+`0.000000016222957525 ETH` caller payment. The underlying swapper's verified
+reward is 50 bps of output, capped at `0.01 ETH`; the same trace produced only
+`0.000003244591505093 ETH` total swap output. At the exact
+`0.129851419 gwei` parent base fee, base fee alone for the converting path was
+`0.000141431308843582 ETH`, roughly 8,718 times its caller reward before any
+builder payment. The executor is therefore a validated permissionless surface
+but emphatically non-actionable at this state. Keep it as a read-only lead;
+require verified executor source/runtime pinning, fresh exact-state and signed
+simulation, and positive retained profit before any integration or bounded
+activation.
+
 Networked auctions/TBAM activity review, 2026-09-30 09:10 America/Denver:
 the canonical deployer advanced from nonce 3736 to 3748 through twelve
 successful `collectPatronEdition(uint256,address)` calls for auction 1034 and
