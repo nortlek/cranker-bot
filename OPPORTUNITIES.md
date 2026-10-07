@@ -2532,6 +2532,27 @@ an isolated bounded Railway deployment with only `ENABLE_PUNK_MEGA_RIP=true`.
 Restore the ordinary daily schedule after cancellation or fully reconciled
 settlement, and never inherit activation into a successor round.
 
+Punk or Bust round-five funding-window closeout, 2026-10-07 08:30
+America/Denver: exact block `26141117` at `2026-10-07T14:30:47Z`, 420 seconds
+after the funding deadline, still showed only `0.14 / 1 ETH` held by the round.
+It remained state `Funding` solely for an explicit underfunded lock and
+participant refunds: `economicallySettled=false`, zero bankroll, zero required
+gas budget, zero pulls, empty outstanding/ready-sync/settlement queues, and
+`canRequest=false`. The lifecycle never locked into Hunting and never exposed
+a keeper action, so production correctly remained offline and realized keeper
+profit did not change.
+
+The keeper wallet remained exactly `0.020535805450466100 ETH` with
+`latest == pending == 2369`; the canonical deployer was settled at
+`latest == pending == 3776`. Railway's worker remained removed, PostgreSQL had
+zero signer leases, and durable telemetry contained no keeper submission,
+receipt, expiration, pass failure, fatal, or lease acquisition after the prior
+boundary. Return the lifecycle automation to its ordinary daily 09:00
+America/Denver schedule. Continue to observe the eventual cancellation and
+refunds in the daily pass, but never reactivate this underfunded lifecycle;
+any successor round requires fresh identity, runtime, state, fork, economics,
+validation, and bounded-deployment gates.
+
 Canonical-deployer permissionless-reward review, 2026-10-06 14:29
 America/Denver: nonces 3766-3768 introduced no immediately actionable keeper
 work. Transaction
