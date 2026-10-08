@@ -2621,6 +2621,35 @@ require verified executor source/runtime pinning, fresh exact-state and signed
 simulation, and positive retained profit before any integration or bounded
 activation.
 
+FWA staking/governance release review, 2026-10-08 09:34 America/Denver:
+canonical-deployer nonces 3776-3778 introduced a new governance lifecycle but
+no keeper reward. Transaction
+`0x383d8c49d39aab9ae26628858d1321b91391364953aa0e8ef6a4e9dbd69f7455`
+approved `180954057.991120747686610 FWA` to unverified ERC-4626-style vault
+`0x5BC838FDa95ACc0cF34E68C1aFf691b0Abbb3C36`; transaction
+`0xce9bde83acc3529ceb04c00fc00ebbdc234ae2d3bba231cdddf3a0578719aadc`
+deposited the same amount and minted the same quantity of `sFWA` shares; and
+transaction
+`0xf0aea2110dc236645001ef848493ab8207584dbb959c8e4a179163c573932525`
+allocated the resulting voting power in epoch 1 through unverified governance
+contract `0xB679333cE93224d2A7F8eaf510Ad0dB7c9EdaA74`, targeting Statements
+`0x75Edd94b7e49b3bD5C8047b91F165A5e265a069b` at 10,000 bps. Both contracts
+were created by canonical FWA owner `0x019817aD02a31B990433542097bE29D97613E8Cb`.
+
+Exact block 26148567 state reported epoch 1 ending at
+`2026-10-09 14:21:59 America/Denver`, `quorumBps=2000`, total power
+`182054049.466552079945640405`, and deployer voting power
+`180954057.991120747686610`. A mainnet fork warped past the epoch deadline and
+called permissionless `checkpointEpoch()`: it advanced to epoch 2, used
+117,520 gas, emitted only governance accounting events, and transferred no ETH
+or token reward to the caller. The follow-up `execute(1, Statements)` reverted
+with custom-error selector `0xc8c93ba3`, leaving `executed(1, Statements)`
+false. This is governance participation, not a capital-free keeper lane at the
+observed runtime/state. Keep the two unverified contracts as read-only release
+leads and require verified source/runtime relationships plus an explicit
+caller reward and profitable exact simulation before integration. Production
+remains offline.
+
 Networked auctions/TBAM activity review, 2026-09-30 09:10 America/Denver:
 the canonical deployer advanced from nonce 3736 to 3748 through twelve
 successful `collectPatronEdition(uint256,address)` calls for auction 1034 and
