@@ -16,6 +16,7 @@
     "db:migrate:dev": "tsx src/migrate.ts",
     "dev": "tsx watch src/main.ts",
     "inspect": "tsx src/inspect.ts",
+    "inspect:apeball": "tsx scripts/inspect-apeball.ts",
     "inspect:aura-earmarks": "tsx scripts/inspect-aura-earmarks.ts",
     "inspect:gacha-table": "tsx scripts/inspect-gacha-table.ts",
     "inspect:mega-rip": "tsx scripts/inspect-mega-rip.ts",

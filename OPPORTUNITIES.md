@@ -7,6 +7,112 @@ an old narrative.
 
 Last updated: 2026-08-24 (America/Denver)
 
+## ApeBall — pre-launch keeper surfaces (2026-11-03)
+
+Status: research candidate only; no canonical nonzero deployment was published
+at inspection. The homepage and coin page say not launched, the contracts page
+has no addresses, and the production frontend configuration declares `chainId: 1`,
+`deployed: false`, and zero addresses for game, vault, pool owner, burner, hook,
+token, lens, router, migration, sunset, and adapter. This establishes the site's
+published state, not proof that no unpublished deployment exists. No live lane,
+transaction, production configuration change, or deployment was made.
+
+Primary evidence:
+
+- https://apeball.fun/docs/contracts/ — deployment/address publication gate.
+- https://apeball.fun/docs/sweeps/ — explicit permissionless sweep and reward caps.
+- https://apeball.fun/docs/draws/ — player draws perform light upkeep and receive
+  gas reimbursement within the game keeper allowance; earlier ready draws can
+  also be settled at the player's expense.
+- https://apeball.fun/docs/buybacks/ — milestone and ongoing burn cadence.
+- https://apeball.fun/docs/governance/ — owner can change keeper pay and cadence.
+- https://apeball.fun/_next/static/chunks/3b_tzl705dae5.js — published ABIs and
+  deployment object, SHA-256
+  `40dcbcf0489fbc29542d8362fbe6c7bcbad191aa3d777dd94038f0eacbbfac40`.
+  ABI presence proves interfaces only, not access modifiers, payment branches,
+  units of payment, deployed runtime identity, or current profitability.
+
+Candidate surfaces, in investigation order:
+
+1. **FundingVault.sweep()** is expressly permissionless in the docs. It moves
+   available vault ETH into the live bid and rewards gas plus a flat fee,
+   capped at **0.01 ETH and 0.5% of ETH moved**. Treat those as simultaneous
+   upper bounds, not a guaranteed 0.5% bounty. The ABI exposes `REWARD_BPS`,
+   `REWARD_CAP`, `nextSweepBlock`, `lastSweepBlock`, `bidParams`,
+   `generalBalance`, `liveBid`, and `sweepRewards`; `Swept` records keeper,
+   forwarded amount, reward, and resulting bid balance. Bid parameters include
+   threshold, max sweep size, minimum blocks between sweeps, ceiling, and slow
+   sweep size. Draws and other keepers also sweep, so exact-parent eligibility
+   can disappear before inclusion. At 0.1 ETH moved the percentage ceiling is
+   only 0.0005 ETH; the 0.01 ETH ceiling cannot be reached below 2 ETH moved.
+   Neither figure is net profit. Verify gas-price treatment and same-block
+   zero-reward behavior from source; use a reward-floor executor if calls can
+   succeed without paying, as with the existing disabled LiveBid sweep lane.
+2. **CollectionGame.upkeep(uint256 maxCount)** is the main game-maintenance
+   candidate. Published ABI exposes `sync`, `maintainStep`, `admitStep`,
+   `payStep`, `keeperParams`, `quoteTip(uint256 gasUsed)`, `keeperAllowance`,
+   `keeperAvailable`, `keeperPaid`, `lastUpkeepAt`, and `lastMaintenanceAt`.
+   `KeeperParams` contains `maxGasPrice`, `gasOverhead`, `flatFee`, and
+   `payDelay`; `KeeperPaid(address keeper,uint256 amount)` records payments.
+   These suggest capped reimbursement plus a fee, but the exact formula and
+   which external entrypoints pay are unproven. In particular, do not infer
+   that standalone step calls are public/rewarded from the ABI. Inspect
+   `StepFailed` behavior and whether a successful upkeep can do no rewarded
+   work. Player upkeep competes for the same available work/allowance.
+3. **CollectionBurner.process(uint256 minOut)** is the buyback candidate.
+   ABI exposes `nextSlice() -> (amount,milestone,runAt)`, `priceOk`,
+   `cadence`, `MAX_TIP_BPS`, `keeperPaid`, and
+   `KeeperPaid(address keeper,bool milestone,uint256 amount)`. Docs describe
+   released milestone slices of at most 1 ETH, ten minutes apart, with price
+   limits; ongoing funds use smaller gameplay-dependent slices. The ABI's
+   cadence includes max slice, spacing, price-impact, and price-deviation
+   fields. Slice size is protocol swap capital, **not keeper reward**. The
+   caller's tip rate, denomination, bounds, permissions, and no-op behavior
+   require source verification. `release(listingId)` and `releaseRetired()`
+   exist but have no independently proven caller reward. Any release/process
+   sequence must be simulated and priced as a complete rewarded unit.
+4. **FundingVault.fillOrder(tokenId,maxSpend,data)** merits a secondary check:
+   docs say anyone can fill a marketplace listing through the vault and the ABI
+   exposes `finderFees()`. This does not establish a finder payout formula or
+   beneficiary. Verify adapter restrictions, calldata, NFT destination, and
+   reward before considering it; no keeper-funded purchase, approval, or NFT
+   custody is authorized by this research.
+
+Do not count raw FWA `processAcquisitions`, pool-owner bookkeeping, activation,
+retirement, or admin setters as standalone rewards. No independent bounty was
+established for them. Do not buy draws to obtain incidental upkeep reimbursement.
+
+Implementation update (2026-11-03): `npm run inspect:apeball` now discovers the
+current same-origin static deployment publication without evaluating website
+JavaScript. With a published mainnet deployment, it requires nonzero distinct
+addresses and code, checks game/vault/pool-owner/burner relationships and the
+pool owner, records observed code hashes, and reads keeper budgets, sweep
+parameters, and burner scheduling at one fixed block with a final reorg check.
+It always reports `executionAllowed: false`; frontend publication and observed
+hashes never authorize signing. RPC failures fail inspection instead of becoming
+zero rewards. It uses discovery RPC configuration, never loads a signer or
+writes to the database, and emits only a secret-free error fingerprint.
+
+The live smoke check found the newer asset
+`/_next/static/chunks/40aiem_3jigjk.js`, still `deployed: false`, and returned
+`status: unpublished` without making RPC calls. Six focused tests cover parsing,
+ambiguous/duplicate publications, incomplete addresses, chain/runtime/relationship
+checks, exact-block reads, reorgs, and read failures. This is the read-only
+foundation, not a completed executable lane. Verified deployed source and exact
+reward/no-op semantics remain blockers to implementing safe signing and receipt
+accounting; no feature flag can bypass them.
+
+Next action after official nonzero addresses appear: obtain verified source,
+pin exact runtime hashes and cross-contract relationships, and add a read-only
+fixed-block inspector for sweep capacity/cooldown, game work/allowance/pay delay,
+and burner next slice/price gates. Verify permissionlessness and actual caller
+ETH/token deltas, then fork-replay each paying and raced/no-op branch. Include
+all gas, executor overhead, and builder payments in retained-profit checks;
+never treat reimbursement or protocol burn volume as profit. Inspect historical
+reward events and winning receipts once there is history. Until those gates
+pass, current gas, reward rates for game/burner, competitive frequency, and net
+profitability remain unknown. Production stays under the existing shutdown gate.
+
 ## Production shutdown and restart gate
 
 Status: routine production remains intentionally shut down. MegaRip Seasons 02
