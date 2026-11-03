@@ -26,6 +26,15 @@ describe("Apeball discovery remains read-only", () => {
     expect(apeballPublicationStatus(parsed)).toBe("unpublished");
     expect(parseApeballPublication("unrelated bundle")).toBeUndefined();
   });
+  it("accepts reordered launch fields and a hexadecimal deployment block", () => {
+    const p = publication();
+    const fields = Object.entries(p.addresses).map(([name, value]) => `${name}:"${value}"`).join(",");
+    const parsed = parseApeballPublication(`t.exports={${fields},block:0x191dfa7,chainId:1,deployed:!0}`)!;
+    expect(parsed).toEqual(p);
+    expect(apeballPublicationStatus(parsed)).toBe("published_unverified");
+    expect(() => parseApeballPublication(`{${fields},block:0xffffffffffffffff,chainId:1,deployed:!0}`)).toThrow("Unsafe");
+    expect(() => parseApeballPublication(`{${fields},block:runCode(),chainId:1,deployed:!0}`)).toThrow();
+  });
   it("rejects ambiguous, incomplete, duplicate and wrong-chain publications", () => {
     const p = publication();
     const literal = JSON.stringify({ chainId: 1, deployed: true, ...p.addresses });

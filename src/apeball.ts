@@ -13,10 +13,20 @@ export interface ApeballPublication {
 
 export function parseApeballPublication(source: string): ApeballPublication | undefined {
   // Parse only a literal object. Never evaluate JavaScript supplied by a website.
-  const objects = [...source.matchAll(/\{\s*(?:"chainId"|chainId)\s*:\s*\d+\s*,\s*(?:"deployed"|deployed)\s*:\s*(?:!0|!1|true|false)\s*(?:,[^{}]*)?\}/g)];
+  const objects = [...source.matchAll(/\{[^{}]*\}/g)].filter(([value]) =>
+    /(?:^|[,\{])\s*(?:"chainId"|chainId)\s*:/.test(value) &&
+    /(?:^|[,\{])\s*(?:"deployed"|deployed)\s*:/.test(value));
   if (objects.length === 0) return undefined;
   if (objects.length !== 1) throw new Error("Ambiguous Apeball deployment publication");
-  const literal = objects[0]![0].replace(/([,{]\s*)([A-Za-z][A-Za-z0-9]*)\s*:/g, '$1"$2":').replace(/:\s*!0(?=\s*[,}])/g, ":true").replace(/:\s*!1(?=\s*[,}])/g, ":false");
+  const literal = objects[0]![0]
+    .replace(/([,{]\s*)([A-Za-z][A-Za-z0-9]*)\s*:/g, '$1"$2":')
+    .replace(/:\s*!0(?=\s*[,}])/g, ":true")
+    .replace(/:\s*!1(?=\s*[,}])/g, ":false")
+    .replace(/:\s*(0x[0-9a-fA-F]+)(?=\s*[,}])/g, (_, value: string) => {
+      const number = Number(value);
+      if (!Number.isSafeInteger(number)) throw new Error("Unsafe deployment number");
+      return `:${number}`;
+    });
   const fields = JSON.parse(literal) as Record<string, unknown>;
   // JSON.parse silently accepts duplicate keys; deployment identity must not.
   const keys = [...literal.matchAll(/"([A-Za-z][A-Za-z0-9]*)"\s*:/g)].map((m) => m[1]);
@@ -56,6 +66,9 @@ export const apeballInspectionAbi = parseAbi([
   "function keeperAllowance() view returns (uint256)",
   "function keeperAvailable() view returns (uint256)",
   "function keeperPaid() view returns (uint256)",
+  "function cash() view returns (uint256)",
+  "function protectedCash() view returns (uint256)",
+  "function capitalNeed() view returns (uint256)",
   "function lastUpkeepAt() view returns (uint256)",
   "function lastMaintenanceAt() view returns (uint256)",
   "function activated() view returns (bool)",
@@ -89,7 +102,7 @@ export interface ApeballReader {
 }
 
 const stateReads = {
-  game: ["keeperParams", "keeperAllowance", "keeperAvailable", "keeperPaid", "lastUpkeepAt", "lastMaintenanceAt", "activated", "paused", "retiring", "retired", "replacementsOwed", "seenSeq"],
+  game: ["keeperParams", "keeperAllowance", "keeperAvailable", "keeperPaid", "cash", "protectedCash", "capitalNeed", "lastUpkeepAt", "lastMaintenanceAt", "activated", "paused", "retiring", "retired", "replacementsOwed", "seenSeq"],
   vault: ["REWARD_BPS", "REWARD_CAP", "nextSweepBlock", "generalBalance", "liveBid", "sweepRewards", "bidParams"],
   burner: ["nextSlice", "priceOk", "MAX_TIP_BPS", "keeperPaid", "milestoneBalance", "ongoingBalance", "cadence"],
 } as const satisfies Partial<Record<ApeballContract, readonly ApeballRead[]>>;

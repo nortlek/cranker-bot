@@ -7,15 +7,83 @@ an old narrative.
 
 Last updated: 2026-08-24 (America/Denver)
 
-## ApeBall — pre-launch keeper surfaces (2026-11-03)
+## ApeBall — deployed, no payable work at launch check (2026-11-03)
 
-Status: research candidate only; no canonical nonzero deployment was published
-at inspection. The homepage and coin page say not launched, the contracts page
-has no addresses, and the production frontend configuration declares `chainId: 1`,
-`deployed: false`, and zero addresses for game, vault, pool owner, burner, hook,
-token, lens, router, migration, sunset, and adapter. This establishes the site's
-published state, not proof that no unpublished deployment exists. No live lane,
-transaction, production configuration change, or deployment was made.
+Status: the 2026-11-03 22:48 UTC scheduled check detected the canonical mainnet
+publication. The worker remains offline: exact fixed-block calls and a local
+fork found no payable work. Live execution still requires a reward-gated
+implementation and the ordinary validation/activation gates. The user has
+explicitly authorized automatic bounded Apeball-only activation on the existing
+Railway worker once those gates and positive retained-profit economics pass.
+
+Launch evidence (supersedes the pre-launch interface hypotheses below):
+
+| Contract | Published address | Runtime hash at block 26,337,369 |
+| --- | --- | --- |
+| Game | `0xb3388F9AdD2ea181fB578e18C324847D2F097Ab6` | `0xdb07e53745e5b393f502ff683186cdceedfd20c9574d6b00368133e3233376c4` |
+| Vault | `0xbA89F58e2ba3C15D63F4468b448C6e997c1F61dE` | `0x9f308dceb25e9f66351a81d6e98c48a80414043b520cfc3af309588b910cef62` |
+| Burner | `0x44F931cE249247E62fa4D311fBeaF3b2Cf68e2a7` | `0x514d3a1a6f6b6e0aaef83d4d333a0a3ad3f211c141230215be4b86d87e1d3b13` |
+
+The current official bundle is
+https://apeball.fun/_next/static/chunks/44u812qegw_x2.js . It reorders the
+publication fields, includes hexadecimal `block: 0x191dfa7`, and places
+`deployed: true` last. The inspector now parses this literal form without
+executing website code, rejecting duplicate fields, ambiguous publications,
+unsafe numeric literals, and expression-valued fields. Regression coverage
+includes the launch format. Game/vault/pool-owner/burner relationship checks
+passed; game and pool owner agree on pool
+`0xAACB94216eB83e62D9f1160A38f35A9bE9C778F7`, whose owner is
+`0x808D3C32a9E51633CFb98b21A101501D8D50bF20`.
+
+Sourcify v2 returns both creation and runtime `match` for game, vault and burner:
+`https://sourcify.dev/server/v2/contract/1/<address>?fields=all` supplies the
+verified sources and on-chain bytecode. Their returned on-chain bytecode was
+compared byte-for-byte with fresh RPC code at block 26,337,373. All three were
+created by canonical deployer `0xCB43078C32423F5348Cab5885911C3B5faE217F9`:
+game at block 26,337,205, vault at 26,337,199, burner at 26,337,198.
+
+**Verified reward semantics:**
+
+- `CollectionGame.sync()` is the paid permissionless entrypoint. `upkeep(uint256)`
+  explicitly does the same work **without keeper pay**. `maintainStep`,
+  `admitStep`, and `payStep` are self-call-only. Never submit these as keeper jobs.
+- `sync` reverts `NoWork` if no useful work is performed, but light work within
+  the player's `payDelay` can succeed unpaid. `_tip` can also return without
+  paying when the allowance or free cash is exhausted. Its nominal payment is
+  `(internal gasUsed + gasOverhead) * min(tx.gasprice,maxGasPrice) + flatFee`,
+  bounded by available allowance and cash after replacement/reserve/exposure
+  obligations. A reward-floor executor is required; do not treat the allowance
+  as funded/free cash. Current parameters: 3 gwei gas-price cap, 70,000 overhead,
+  0.0002 ETH flat fee, 300-second delay, 0.2 ETH allowance and none paid.
+- Vault `sweep()` uses the game's quote, capped by 0.01 ETH, 50 bps of the
+  pre-carve forward amount, and general balance. Overflow-only branches may
+  succeed unpaid. `NothingToSend`/`SweepTooEarly` are expected no-work paths.
+- Burner `process(minOut)` is permissionless and pays ETH after the swap/burn,
+  using the game's quote capped by 500 bps of actual spent ETH and the remaining
+  selected bucket. A slice that empties its bucket can succeed with zero tip.
+  Preserve price gates and a meaningful minOut; require a reward floor.
+- `retireStep()` also calls `_tip`, but is outside the initial activation scope;
+  do not expand lifecycle/custody behavior without separate validation.
+
+At block 26,337,369 game was not activated; vault `generalBalance` and `liveBid`
+were zero; burner `nextSlice.amount`, milestone balance, and ongoing balance
+were zero. Fork replay from block 26,337,373 used only a synthetic funded local
+account, never the production key: `sync`, `sweep`, and `process(1)` all reverted
+with zero reward. Independent mainnet `eth_call` simulations pinned to block
+26,337,376 decoded `NoWork`, `NothingToSend`, and `NoWork`, respectively. At block 26,337,380, game cash was also zero against 2.305 ETH protected cash
+and capital need; the 0.2 ETH keeper allowance is not funded cash. There
+is no profitable action to deploy for at that snapshot. The next poll must
+re-read exact state; do not assume this launch snapshot remains idle.
+
+Next implementation: reward-gated owner-bound executor for paid sync, sweep,
+and process, runtime/source pins for every relevant dependency, exact reward
+and gas simulation at the intended transaction gas price, independent bidding,
+and validated receipt accounting. The read-only inspector remains
+`executionAllowed: false`; this is not a completed live execution lane. Keep
+watching every ten minutes, complete execution when funded/actionable work
+appears, and activate only after all authorization's safety gates pass.
+
+Pre-launch research retained for provenance (superseded where noted above):
 
 Primary evidence:
 
