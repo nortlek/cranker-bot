@@ -122,6 +122,37 @@ Implementation completed (2026-11-03 America/Denver):
   is required before any deployment; the user was notified. Read-only chain
   monitoring remains active. Do not repeatedly open login flows on the timer.
 
+First live sweep observations (2026-11-03 19:51 America/Denver):
+At block 26,338,576 the canonical runtime/relationships still matched and the
+planner returned zero jobs. Game remained inactive/unfunded and burner buckets
+empty. Vault general/live-bid balance was 0.027627767 ETH, already allocated
+to bids; cumulative sweep rewards were 0.000138833 ETH.
+- Trading fee 0.0067716 ETH arrived at block 26,338,554 in
+  `0x87348435170f87c2091122c12351f3ac15592c2e85e54554cbaedbdf8bf9c820`.
+  At block 26,338,555, caller
+  `0xf1d1ABa8BD488c0f0b1EA4D2085b243091f9D410` received
+  0.000033858 ETH in successful transaction
+  `0xbe5a45ce77c0bf6a13d5351fcefcf8c2c049dfe1e72cda40b9cf10792c710070`.
+  Receipt gas cost was 0.000005201335730500 ETH. Replaying our planner at
+  parent 26,338,554 with child base fee 30,322,300 wei returned no jobs:
+  the reward does not cover our conservative first-deployment gas allowance,
+  builder bid and minimum profit.
+- Trading fee 0.020995 ETH arrived at block 26,338,573 in
+  `0x6a441b15c620c85c216c75515f40b0267ab3f7412359a8bfd07e787a582411d0`
+  (log index 703). In that same block, caller
+  `0xae07B83bf2B0ff041166f5201d7C08aab29e1D98` received
+  0.000104975 ETH in successful transaction
+  `0x0272cfcedb87e78e6d6ce452c431dd99ec7d6caa5bf28b6026d217a623140aaa`
+  (sweep log index 707); receipt gas cost was 0.000005423285875491 ETH.
+  Exact parent 26,338,572 still had generalBalance == liveBid ==
+  0.006737742 ETH and our planner returned no jobs. This was same-block
+  funding plus sweep, not an opportunity visible to confirmed-parent planning.
+These are other callers' gross receipts, not our realized profit or verified
+competitor net P&L; direct builder payments were not investigated and no bid was
+changed. No bot submission was missed. Railway status remains Unauthorized;
+no additional login flow or deployment was attempted. Continue monitoring;
+a pending-swap backrun lane is outside the implemented scope.
+
 Next action: keep the ten-minute monitor active using both inspectors. When
 fresh real work appears, run all release gates and exact signed-bundle
 simulation for the production owner, nonce/balance/zero-lease checks, then deploy
