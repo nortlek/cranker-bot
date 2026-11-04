@@ -153,12 +153,22 @@ changed. No bot submission was missed. Railway status remains Unauthorized;
 no additional login flow or deployment was attempted. Continue monitoring;
 a pending-swap backrun lane is outside the implemented scope.
 
-Next action: keep the ten-minute monitor active using both inspectors. When
-fresh real work appears, run all release gates and exact signed-bundle
-simulation for the production owner, nonce/balance/zero-lease checks, then deploy
-the committed source to the existing Railway worker with only Apeball enabled.
-Remove the bounded worker when idle and reconcile receipts against the wallet.
-No mainnet transaction has been sent by this implementation.
+Continuous-operation instruction (2026-11-03, supersedes temporary Apeball
+activation/idle teardown above): the user explicitly requested the existing
+Railway worker run continuously and automatically execute opportunities.
+Deployment no longer requires work to be present at that instant; transactions
+still require all exact simulation and profitability gates. Keep unrelated
+lanes disabled, retain PostgreSQL, and keep the worker online while idle.
+
+Next action: restore existing-account Railway authentication, run fresh release,
+nonce/balance/zero-lease checks, then deploy the committed isolated Apeball
+worker for continuous per-block operation. Reconcile receipts against wallet
+deltas. The ten-minute supervisor remains active using both inspectors.
+At 2026-11-03 20:42 America/Denver, the user-requested browser login had timed
+out without a callback and a serialized status check remained Unauthorized.
+No repeated login flow was opened. Canonical pins still match; the execution
+planner returned zero jobs at block 26,338,830. No mainnet transaction has
+been sent by this implementation.
 
 Pre-launch research retained for provenance (superseded where noted above):
 

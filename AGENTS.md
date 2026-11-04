@@ -97,8 +97,12 @@ mandatory deployment-plus-action prefixes. Unpaid upkeep and retirement are
 out of scope. Read the Apeball evidence in OPPORTUNITIES.md. Use both
 `npm run inspect:apeball` and `npm run inspect:apeball-keeper`; the latter uses
 a synthetic caller and is not production authorization. The user authorizes
-bounded automatic activation only after fresh profitability and all ordinary
-nonce/balance/lease/release gates pass. Remove the worker when idle.
+continuous Apeball-only operation (latest instruction, 2026-11-03). After
+Railway authentication is restored, validate and deploy the isolated worker
+even while idle, preserving nonce/balance/lease/release gates. Every submission
+still requires fresh exact signed simulation and positive retained profit.
+Keep this worker online during idle periods; the earlier temporary teardown
+instruction is superseded for Apeball only.
 
 ## Start here
 
