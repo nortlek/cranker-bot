@@ -89,6 +89,17 @@ simulation, nonce/balance and zero-prior-lease gates, all tests, and a bounded
 temporary deployment with every unrelated lane disabled. Remove it again when
 the run is idle.
 
+Apeball's canonical game at `0xb3388F9AdD2ea181fB578e18C324847D2F097Ab6`
+has a disabled-by-default `ENABLE_APEBALL` lane for paid sync, vault sweep and
+burner process only. It requires isolated private submission, pinned runtime
+and relationships, owner-bound reward/gas floors, exact signed simulation, and
+mandatory deployment-plus-action prefixes. Unpaid upkeep and retirement are
+out of scope. Read the Apeball evidence in OPPORTUNITIES.md. Use both
+`npm run inspect:apeball` and `npm run inspect:apeball-keeper`; the latter uses
+a synthetic caller and is not production authorization. The user authorizes
+bounded automatic activation only after fresh profitability and all ordinary
+nonce/balance/lease/release gates pass. Remove the worker when idle.
+
 ## Start here
 
 Requirements:

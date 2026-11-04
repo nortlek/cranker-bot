@@ -84,6 +84,8 @@ export interface KeeperConfig {
   readonly enableGachaTable: boolean;
   readonly enableHypertoadz: boolean;
   readonly enableFwaV2Vault: boolean;
+  readonly enableApeball: boolean;
+  readonly apeballBuilderBidBps: bigint;
   readonly enableStandingOrders: boolean;
   readonly enableVaults: boolean;
   readonly enableBuyback: boolean;
@@ -331,6 +333,7 @@ export function loadConfig(): KeeperConfig {
     "ENABLE_PUNK_MEGA_RIP",
     false,
   );
+  const enableApeball = booleanEnv("ENABLE_APEBALL", false);
   const enableFwaV2Vault = booleanEnv(
     "ENABLE_FWA_V2_VAULT",
     false,
@@ -341,6 +344,7 @@ export function loadConfig(): KeeperConfig {
       enableGachaTable ||
       enablePunkMegaRip ||
       enableFwaV2Vault ||
+      enableApeball ||
       enableDirectCoinbasePayments ||
       enablePendingFundingBackruns ||
       enablePendingFwaFulfillmentBackruns) &&
@@ -362,6 +366,8 @@ export function loadConfig(): KeeperConfig {
           ? "ENABLE_PUNK_MEGA_RIP"
           : enableFwaV2Vault
           ? "ENABLE_FWA_V2_VAULT"
+          : enableApeball
+          ? "ENABLE_APEBALL"
           : "ENABLE_STAKEDAO_CURVE_HARVESTS"
       } requires SUBMISSION_MODE=flashbots`,
     );
@@ -379,8 +385,10 @@ export function loadConfig(): KeeperConfig {
       } requires WS_URL`,
     );
   }
-  if (enablePunkMegaRip) {
+  if (enablePunkMegaRip || enableApeball) {
     const conflictingLane = [
+      ["ENABLE_PUNK_MEGA_RIP", enableApeball && enablePunkMegaRip],
+      ["ENABLE_FWA_V2_VAULT", enableApeball && enableFwaV2Vault],
       ["ENABLE_PULL_POOL_PLANNING", booleanEnv("ENABLE_PULL_POOL_PLANNING", true)],
       ["ENABLE_POOL_LIFECYCLE", booleanEnv("ENABLE_POOL_LIFECYCLE", true)],
       ["ENABLE_GROUP_PULL", booleanEnv("ENABLE_GROUP_PULL", true)],
@@ -403,7 +411,7 @@ export function loadConfig(): KeeperConfig {
     ].find(([, enabled]) => enabled === true)?.[0];
     if (conflictingLane !== undefined) {
       throw new Error(
-        `ENABLE_PUNK_MEGA_RIP requires ${conflictingLane}=false`,
+        `${enableApeball ? "ENABLE_APEBALL" : "ENABLE_PUNK_MEGA_RIP"} requires ${conflictingLane}=false`,
       );
     }
   }
@@ -723,6 +731,8 @@ export function loadConfig(): KeeperConfig {
     enableGachaTable,
     enableHypertoadz: booleanEnv("ENABLE_HYPERTOADZ", false),
     enableFwaV2Vault,
+    enableApeball,
+    apeballBuilderBidBps: BigInt(integerEnv("APEBALL_BUILDER_BID_BPS", 1000, { min: 0, max: 10000 })),
     enableStandingOrders: booleanEnv(
       "ENABLE_STANDING_ORDERS",
       true,

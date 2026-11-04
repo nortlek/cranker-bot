@@ -1,3 +1,4 @@
+import { planApeballJobs, apeballReceiptReward } from "./apeball-keeper.js";
 import {
   BaseError,
   BlockNotFoundError,
@@ -159,6 +160,8 @@ import {
 } from "./standing-order-batch-executor.js";
 
 export type KeeperJobKind =
+  | "apeball_executor_deploy"
+  | "apeball_crank"
   | "standing_order"
   | "standing_order_batch_deploy"
   | "standing_order_batch"
@@ -4853,6 +4856,21 @@ async function planJobs(parameters: {
   readonly headBlockNumber: bigint;
   readonly headTimestamp: bigint;
 }): Promise<PlannedJobs> {
+  if (parameters.config.enableApeball) {
+    const plan = await planApeballJobs({
+      client: parameters.client, account: parameters.account,
+      blockNumber: parameters.headBlockNumber,
+      baseFeePerGas: parameters.baseFeeAllowancePerGas,
+      minProfitWei: parameters.config.minProfitWei,
+      gasLimitMultiplierBps: parameters.config.gasLimitMultiplierBps,
+      builderBidBps: parameters.config.apeballBuilderBidBps,
+    });
+    // Never truncate a CREATE2 + paid action into deployment-only work.
+    if (plan.jobs.length > maxJobs(parameters.config)) {
+      return { jobs: [], minimumViablePrefix: 0, orders: 0, skipped: new Map() };
+    }
+    return { ...plan, orders: 0, skipped: new Map() };
+  }
   const groupPullPromise = parameters.config.enableGroupPull
     ? planGroupPullJob({
         client: parameters.client,
@@ -5587,6 +5605,8 @@ function actualJobReward(
   firmAccounting?: FirmReceiptAccounting,
   batchAccounting?: StandingOrderBatchReceiptAccounting,
 ): bigint {
+  if (request.kind === "apeball_executor_deploy") return 0n;
+  if (request.kind === "apeball_crank") return apeballReceiptReward(request.data, logs, request.target);
   if (request.kind === "builder_payment") return 0n;
   if (request.kind === "group_pull_standing_order") {
     let total = 0n;

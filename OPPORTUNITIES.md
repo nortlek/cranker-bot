@@ -11,8 +11,8 @@ Last updated: 2026-08-24 (America/Denver)
 
 Status: the 2026-11-03 22:48 UTC scheduled check detected the canonical mainnet
 publication. The worker remains offline: exact fixed-block calls and a local
-fork found no payable work. Live execution still requires a reward-gated
-implementation and the ordinary validation/activation gates. The user has
+fork found no payable work. The reward-gated execution integration is now
+implemented; activation still requires fresh ordinary validation/economic gates. The user has
 explicitly authorized automatic bounded Apeball-only activation on the existing
 Railway worker once those gates and positive retained-profit economics pass.
 
@@ -75,13 +75,59 @@ and capital need; the 0.2 ETH keeper allowance is not funded cash. There
 is no profitable action to deploy for at that snapshot. The next poll must
 re-read exact state; do not assume this launch snapshot remains idle.
 
-Next implementation: reward-gated owner-bound executor for paid sync, sweep,
-and process, runtime/source pins for every relevant dependency, exact reward
-and gas simulation at the intended transaction gas price, independent bidding,
-and validated receipt accounting. The read-only inspector remains
-`executionAllowed: false`; this is not a completed live execution lane. Keep
-watching every ten minutes, complete execution when funded/actionable work
-appears, and activate only after all authorization's safety gates pass.
+Implementation completed (2026-11-03 America/Denver):
+- `ENABLE_APEBALL=false` by default. Enabling requires private submission and
+  every unrelated planner/pending/direct-payment lane disabled. Independent
+  `APEBALL_BUILDER_BID_BPS=1000`; no inherited adaptive bid.
+- Owner-bound `ApeballKeeperExecutor` exposes only paid sync/sweep/process,
+  forwards only the ETH delta to its owner, and reverts successful-but-unpaid
+  work below the signed reward floor or measured gas cost plus minimum profit.
+  Burner uses a 99% output floor from exact-parent simulation. No deposits,
+  approvals, NFT custody, purchases, unpaid upkeep or retirement actions.
+- `src/apeball-deployment.ts` pins 14 canonical runtimes and the relationship
+  graph at every exact planning parent. CREATE2 executor runtime is owner-bound;
+  absent executor deployment is inseparable from its paid action in the
+  mandatory private bundle. The planner never returns deployment-only work.
+- Discovery deliberately uses zero-gas-price calls to conservatively count only
+  flat-fee-funded rewards; gas reimbursements are not assumed as profit.
+  Deployment gas and lane-specific builder cost enter selection. This may skip
+  opportunities profitable only through reimbursement. Mandatory shared exact
+  signed-bundle simulations still price actual gas/fees and recheck execution.
+- Receipt accounting accepts one matching executor reward event and checks the
+  action, reward and output floors. Deployment gas remains a cost. Underlying
+  target reward events are not counted twice.
+- `npm run inspect:apeball-keeper` is keyless read-only planning with a synthetic
+  caller; it is not live authorization. Block 26,338,438 returned zero jobs.
+- `npx tsx scripts/validate-apeball-fork.ts` forks mainnet to isolated loopback
+  Anvil and uses a fresh synthetic key. At parent 26,338,447 the unfunded
+  canonical state had zero jobs. After synthetic local-only 1 ETH vault funding,
+  signed deployment and sweep executed in the same block, runtime matched, and
+  receipt reward 0.000203419068550730 ETH minus gas 0.000018404243554466 ETH
+  exactly matched wallet delta 0.000185014824996264 ETH. This is fixture evidence,
+  not realized mainnet profit. Game/burner no-work paths were replayed; their
+  funded paths require fresh exact signed simulation when actionable.
+- Seven Solidity executor tests cover payout, authorization, invalid input,
+  slippage, underpayment, gas floor, prefunded balance and atomic rollback.
+  TypeScript tests cover receipt spoofing/duplicates/floors, CREATE2 artifacts,
+  runtime failures, private-only isolation and mandatory prefixes. Full release
+  validation passed: 466 TypeScript tests, 37 Solidity tests, typecheck, keeper
+  and dashboard production builds, standalone script typechecks, and diff check.
+  An isolated one-pass run of the full engine with PRIVATE_KEY/database/webhook
+  cleared emitted keeper_started (dryRun=true, apeball=true) and pass_complete
+  with viable=0, sent=0, confirmed=0.
+- Operational blocker at 2026-11-03 19:27 America/Denver: serialized Railway
+  status calls returned Unauthorized. Login was initiated, but the browser
+  GitHub identity was keltronft rather than repository owner nortlek; no new
+  account or access grant was accepted. Correct existing-account reauthentication
+  is required before any deployment; the user was notified. Read-only chain
+  monitoring remains active. Do not repeatedly open login flows on the timer.
+
+Next action: keep the ten-minute monitor active using both inspectors. When
+fresh real work appears, run all release gates and exact signed-bundle
+simulation for the production owner, nonce/balance/zero-lease checks, then deploy
+the committed source to the existing Railway worker with only Apeball enabled.
+Remove the bounded worker when idle and reconcile receipts against the wallet.
+No mainnet transaction has been sent by this implementation.
 
 Pre-launch research retained for provenance (superseded where noted above):
 

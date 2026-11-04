@@ -1462,6 +1462,10 @@ async function main(): Promise<void> {
             requestBidPolicy = "hypertoadz_finalize";
             requestMinimumPriorityFeePerGas =
               config.poolMinPriorityFeePerGas;
+          } else if (request.kind.startsWith("apeball_")) {
+            requestBidBps = request.configuredBuilderBidBps ?? config.apeballBuilderBidBps;
+            requestBidPolicy = "apeball";
+            requestMinimumPriorityFeePerGas = config.poolMinPriorityFeePerGas;
           } else if (request.kind.startsWith("fwa_v2_vault_")) {
             requestBidBps = request.configuredBuilderBidBps ?? config.fwaV2VaultBuilderBidBps;
             requestBidPolicy = "fwa_v2_vault";
@@ -4227,6 +4231,8 @@ async function main(): Promise<void> {
     punkMegaRip: config.enablePunkMegaRip,
     hypertoadz: config.enableHypertoadz,
     fwaV2Vault: config.enableFwaV2Vault,
+    apeball: config.enableApeball,
+    apeballBuilderBidBps: config.apeballBuilderBidBps.toString(),
     vaults: config.enableVaults,
     buyback: config.enableBuyback,
     liveBidSweep: config.enableLiveBidSweep,
